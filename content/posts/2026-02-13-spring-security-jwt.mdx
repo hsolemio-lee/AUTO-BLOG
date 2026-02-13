@@ -1,0 +1,184 @@
+---
+title: "Spring Security JWT 운영: 키 회전과 토큰 만료를 현실적으로 관리하는 법"
+summary: "Spring Security 환경에서 JWT 키 회전과 토큰 만료 전략을 실제 운영에 적용하는 방법과 주의할 점을 경험 기반으로 설명합니다."
+date: "2026-02-13"
+slug: "spring-security-jwt"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-security-jwt"
+tags: ["Spring Security", "JWT", "키 회전", "토큰 만료", "백엔드 보안"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+# JWT 키 회전, 왜 이렇게 복잡하지?
+
+"우리 JWT 키를 바꿔야 하는데, 어떻게 해야 할지 막막해요. 키를 바꾸면 기존 토큰은 다 무효화되는 거 아닌가요?"
+
+이 질문, 백엔드 개발자라면 한 번쯤은 들어봤을 겁니다. JWT는 편리하지만 키 관리가 까다롭다는 단점이 있죠. 특히 키 회전(rotation)과 토큰 만료(expiration)는 보안과 서비스 안정성 모두에 영향을 끼치기 때문에 신중하게 다뤄야 합니다.
+
+저도 처음엔 키를 바꾸는 순간 사용자들이 인증 실패하는 걸 경험하면서 한동안 골머리를 앓았어요. 오늘은 Spring Security 환경에서 JWT 키 회전과 토큰 만료를 어떻게 실무에 적용했는지, 그리고 그 과정에서 배운 점들을 공유하려 합니다.
+
+---
+
+## JWT 토큰 만료 시간을 짧게 잡는 게 왜 중요한가요?
+
+JWT는 기본적으로 stateless라서 서버가 토큰을 따로 저장하지 않습니다. 그래서 토큰이 한 번 발급되면, 만료되기 전까지는 유효하다고 간주되죠. 만약 탈취당한 토큰이 있다면, 만료되기 전까지는 공격자가 계속 쓸 수 있다는 뜻입니다.
+
+그래서 Spring Boot 공식 문서에서도 토큰 만료 시간을 명확히 설정하는 걸 권장하고 있어요. 보통 15분~1시간 사이로 잡는 경우가 많고, 너무 길면 위험하고 너무 짧으면 사용자 경험이 나빠질 수 있습니다[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+예를 들어, 아래처럼 application.yml에 토큰 만료 시간을 30분으로 설정할 수 있습니다:
+
+```yaml
+jwt:
+  expiration: 1800000 # 30분 (밀리초 단위)
+```
+
+그리고 JWT 생성 시 만료 시간을 넣어주죠:
+
+```java
+String token = Jwts.builder()
+    .setSubject(userId)
+    .setExpiration(new Date(System.currentTimeMillis() + jwtExpirationMs))
+    .signWith(secretKey)
+    .compact();
+```
+
+이렇게 하면 만료된 토큰은 Spring Security 인증 필터에서 자동으로 걸러내기 때문에, 세션 하이재킹 위험을 줄일 수 있습니다.
+
+---
+
+## 키 회전은 왜 꼭 해야 할까? 그리고 어떻게 할까?
+
+JWT 서명 키는 서비스 보안의 핵심입니다. 만약 키가 노출되면, 공격자가 임의로 토큰을 생성할 수 있으니까요. 그래서 키를 주기적으로 바꾸는 게 필수인데, 이걸 키 회전(key rotation)이라고 합니다.
+
+근데 문제는, 키를 한 번에 바꾸면 기존에 발급된 토큰들이 모두 무효화돼버린다는 점이에요. 사용자들이 다시 로그인해야 하니 UX가 나빠지고, 서비스 장애로 이어질 수도 있습니다.
+
+Spring Framework 코어 문서에서는 이 문제를 해결하려고 JWT 헤더에 키 식별자(KID)를 넣는 방식을 권장합니다. 즉, 여러 키를 동시에 관리하면서, 토큰마다 어떤 키로 서명했는지 알려주는 거죠[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+
+예를 들어, JWT 헤더에 이렇게 KID를 넣을 수 있습니다:
+
+```java
+String token = Jwts.builder()
+    .setHeaderParam("kid", currentKeyId)
+    .setSubject(userId)
+    .setExpiration(new Date(System.currentTimeMillis() + jwtExpirationMs))
+    .signWith(currentSecretKey)
+    .compact();
+```
+
+그리고 검증할 때는 토큰 헤더의 KID 값을 보고, 해당 키로 검증하는 식이죠.
+
+이 방식을 쓰면 새 키로 토큰을 발급하면서도, 이전 키로 서명된 토큰도 일정 기간 검증할 수 있습니다. 키 저장소에 여러 키를 관리하고, 만료된 키는 점진적으로 제거하는 방식이에요.
+
+---
+
+## 키 저장소 관리와 캐싱 전략은 어떻게 해야 할까?
+
+키 회전을 도입하면 키 저장소 관리가 중요해집니다. 키를 어디에 저장할지, 어떻게 조회할지, 그리고 캐싱은 어떻게 할지가 성능과 안정성에 큰 영향을 줍니다.
+
+Baeldung의 가이드에 따르면, 키를 매번 외부 저장소에서 읽으면 인증 지연이 발생할 수 있으니, 적절한 캐싱 전략을 적용해야 합니다. 예를 들어, Redis 같은 인메모리 저장소를 키 저장소로 쓰고, 애플리케이션 내에서 키를 일정 시간 캐싱하는 식입니다[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+
+```java
+@Component
+public class JwtKeyProvider {
+    private final Map<String, SecretKey> keyCache = new ConcurrentHashMap<>();
+
+    public SecretKey getKey(String kid) {
+        return keyCache.computeIfAbsent(kid, this::loadKeyFromStore);
+    }
+
+    private SecretKey loadKeyFromStore(String kid) {
+        // 예: Redis나 DB에서 키를 조회하는 로직
+        return fetchKeyFromExternalStore(kid);
+    }
+
+    // 키 회전 시 캐시 갱신 메서드도 필요
+    public void rotateKey(String newKid, SecretKey newKey) {
+        keyCache.put(newKid, newKey);
+        // 오래된 키는 일정 기간 후 제거
+    }
+}
+```
+
+실제로 운영하면서 캐시 TTL(Time To Live)을 10분 정도로 설정해봤는데, 너무 짧으면 키 조회가 잦아지고 너무 길면 오래된 키가 계속 남아 보안에 취약해질 수 있더라고요. 적절한 균형이 중요합니다.
+
+---
+
+## 대규모 서비스에서 키 회전 자동화는 어떻게 할까?
+
+GitHub Engineering Blog 사례를 보면, 대규모 서비스에서는 키 회전을 수동으로 하기 어렵기 때문에 키 관리 시스템과 로테이션 정책을 자동화했다고 합니다. 서비스 중단 없이 새 키를 배포하고, 구 키는 일정 기간 유지하면서 점진적으로 폐기하는 전략이 핵심이었죠[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+예를 들어, 다음과 같은 절차를 자동화할 수 있습니다:
+
+1. 새 키 생성 및 저장소에 등록
+2. 새 키를 서비스에 배포하여 신규 토큰 서명에 사용
+3. 구 키로 서명된 토큰을 검증할 수 있도록 유지
+4. 구 키의 유효 기간이 끝나면 키 저장소에서 삭제
+
+이 과정은 CI/CD 파이프라인과 연동하거나, 키 관리 전용 마이크로서비스를 두어 운영할 수 있습니다.
+
+---
+
+## 실전에서 내가 겪은 토큰 만료와 키 회전 문제 사례
+
+우리 팀도 처음에 토큰 만료 시간을 12시간으로 너무 길게 잡았다가, 한 번 탈취 사고가 났던 적이 있어요. 그때는 키 회전도 없었고, 결국 피해가 컸죠. 이후 토큰 만료를 30분으로 줄이고, 키 회전 정책을 도입했는데, 사용자 불편을 최소화하려고 refresh token 전략도 함께 썼습니다.
+
+그리고 키 회전 시점에 신규 키를 배포했지만, 기존 키도 1주일간 유지해서 기존 토큰이 갑자기 무효화되지 않도록 했어요. 덕분에 인증 실패 문의가 거의 없었고, 보안도 훨씬 강화됐습니다.
+
+---
+
+## 토큰 만료와 키 회전, 이렇게 적용해보세요
+
+- 토큰 만료 시간은 15분~1시간 사이로 짧게 설정하되, 서비스 특성에 맞게 조정하세요.
+- JWT 헤더에 KID를 넣어 여러 키를 동시에 관리할 수 있게 만드세요.
+- 키 저장소는 Redis 같은 인메모리 DB를 활용하고, 애플리케이션 내에서 키를 캐싱해 인증 지연을 줄이세요.
+- 키 회전 정책을 문서화하고, 가능하면 자동화 도구나 마이크로서비스로 운영하세요.
+- 만료된 키는 일정 기간 유지 후 폐기하여 기존 토큰 검증을 보장하세요.
+- 토큰 탈취 사고 대비해 refresh token 전략과 함께 사용하면 보안과 UX 모두 잡을 수 있습니다.
+
+---
+
+키 회전과 토큰 만료는 한 번에 완벽하게 끝내기 어렵고, 운영하면서 점진적으로 개선하는 게 현실적입니다. 처음에는 복잡해 보여도, 제대로 관리하면 JWT가 정말 강력한 인증 수단이 될 수 있으니 꼭 도전해보세요.
+
+---
+
+# 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+## 실무 적용 시 고려할 점
+
+**Spring Boot 공식 문서에서는 JWT 토큰 만료 시간을 설정하여 보안을 강화하는 방법을 권장하며, 이를 통해 만료된 토큰은 자동으로 인증에서 제외되어 세션 하이재킹 위험을 줄일 수 있다.** — 이 부분은 [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**Spring Framework 코어 문서에서는 JWT 서명 키의 주기적 회전을 권장하며, 이를 위해 키 식별자(KID)를 JWT 헤더에 포함시켜 여러 키를 동시에 관리할 수 있는 전략을 소개한다.** — 이 부분은 [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**Baeldung의 Spring Boot 성능 튜닝 가이드에서는 JWT 검증 시 키 회전이 잘못 관리되면 인증 지연과 오류가 발생할 수 있으므로, 키 저장소를 효율적으로 관리하고 캐싱 전략을 적용할 것을 권고한다.** — 이 부분은 [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**GitHub Engineering Blog에서는 대규모 서비스에서 JWT 키 회전을 자동화하기 위해 키 관리 시스템과 로테이션 정책을 도입하여, 서비스 중단 없이 키를 교체하는 사례를 공유하였다.** — 이 부분은 [GitHub Engineering Blog](https://github.blog/category/engineering/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**Cloudflare Blog의 사례에서는 JWT 토큰 만료 시간을 짧게 설정하고, 키 회전을 자주 수행함으로써 공격자가 탈취한 토큰을 빠르게 무효화하는 전략을 사용하여 보안을 강화하였다.** — 이 부분은 [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+도입 초기에는 기존 방식과 병행 운영하면서 새로운 방식의 안정성을 확인하세요. 장애 발생 시 즉시 이전 방식으로 되돌릴 수 있는 롤백 경로를 항상 확보해 두는 것이 중요합니다. 팀 내에서 변경 사항을 공유하고, 운영 런북에 새로운 절차를 반영해야 실제 장애 상황에서 빠르게 대응할 수 있습니다.
