@@ -4,6 +4,8 @@ export const TREND_FEEDS = [
   { category: "software", source: "GeekNews", url: "https://news.hada.io/rss/news" },
   { category: "ai_news", source: "WIRED AI", url: "https://www.wired.com/feed/tag/ai/latest/rss" },
   { category: "ai_news", source: "Google AI Blog", url: "https://ai.googleblog.com/feeds/posts/default" },
+  { category: "frontend", source: "web.dev", url: "https://web.dev/feed.xml" },
+  { category: "software", source: "TypeScript Blog", url: "https://devblogs.microsoft.com/typescript/feed/" },
   { category: "spring_backend", source: "Spring Blog", url: "https://spring.io/blog.atom" },
   { category: "backend_engineering", source: "InfoQ", url: "https://www.infoq.com/feed/" },
   {

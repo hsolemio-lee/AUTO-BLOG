@@ -24,7 +24,7 @@ sources:
     notes: "Use for community pain points and debate topics"
 
 topic_selection:
-  min_candidates: 8
+  min_candidates: 5
   max_candidates: 20
   novelty_weight: 0.40
   utility_weight: 0.35
