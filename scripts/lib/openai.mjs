@@ -18,7 +18,7 @@ export async function generateStructuredJson({ systemPrompt, userPrompt }) {
     },
     body: JSON.stringify({
       model,
-      temperature: 0.2,
+      temperature: parseFloat(process.env.OPENAI_TEMPERATURE ?? "0.45"),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },

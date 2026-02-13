@@ -92,58 +92,79 @@ function inferCategory(topic) {
 }
 
 function buildMarkdown(research) {
-  const headings = pickFallbackHeadings(research.topic);
-  const claimLines = research.claims
-    .map((claim) => `- ${claim.claim} ([${claim.source_title}](${claim.source_url}))`)
-    .join("\n");
+  const topic = research.topic;
+  const claimsText = research.claims
+    .map((claim) => `${claim.claim} ([${claim.source_title}](${claim.source_url}))`)
+    .join("\n\n");
 
   const references = research.source_list
     .map((source) => `- [${source.title}](${source.url})`)
     .join("\n");
 
-  return `${headings.context}
+  return `${topic}을 실무에 적용하려고 하면, 문서만 읽었을 때와 실제로 운영에 넣었을 때의 차이가 크다는 걸 금방 느끼게 됩니다. 이 글에서는 현업에서 부딪히는 구체적인 문제들과 해결 방향을 정리했습니다.
 
-${research.topic} 주제는 현업에서 "좋아 보이는데 실제 운영에 넣기 어렵다"는 반응이 자주 나옵니다. 이유는 단순합니다. 기능 자체보다도 API 계약, 장애 전파 범위, 운영 비용, 팀 대응 속도까지 같이 설계해야 하기 때문입니다. 이 글은 그 부분을 실무 중심으로 정리합니다.
+## ${topic}, 왜 지금 관심을 가져야 하는가
 
-${headings.core}
+최근 이 주제가 다시 주목받는 데는 이유가 있습니다. 단순히 유행이라서가 아니라, 운영 환경의 복잡도가 높아지면서 이전에는 "나중에 해도 되겠지" 싶었던 부분들이 실제 장애로 이어지는 사례가 늘고 있기 때문입니다.
 
-핵심은 "작게 적용 -> 지표로 검증 -> 안전하게 확장"입니다. 감으로 결정하지 않고, 관측 가능한 기준을 먼저 세우면 실패 확률이 확실히 줄어듭니다. 아래 근거를 실제 의사결정 체크포인트로 사용하세요.
+${claimsText}
 
-주요 근거:
-${claimLines}
+## 실제로 적용할 때 알아야 할 것들
 
-${headings.execution}
+이론적으로는 깔끔하지만, 운영 환경에서는 몇 가지 제약 조건을 같이 고려해야 합니다.
 
-1. 적용 범위를 서비스 단위 또는 엔드포인트 단위로 한정합니다. (처음부터 전면 적용 금지)
-2. 배포 전후 비교 지표(p95, 에러율, 비용, 처리량)를 고정합니다.
-3. 실패 시 되돌릴 수 있는 fallback 경로와 롤백 조건을 명시합니다.
-4. 릴리즈 후 24시간 관찰 규칙과 알림 임계치를 운영 런북에 연결합니다.
+첫째, 적용 범위를 처음부터 넓게 잡으면 안 됩니다. 하나의 서비스나 특정 엔드포인트에서 먼저 검증한 뒤 확장하는 게 안전합니다.
+
+둘째, 배포 전후로 비교할 수 있는 지표(p95 응답시간, 에러율, 처리량)를 미리 정해두어야 합니다. "체감상 빨라졌다"는 판단 기준이 될 수 없습니다.
+
+셋째, 실패 시 되돌릴 수 있는 경로를 반드시 만들어 두세요. feature flag든 canary 배포든, 롤백 없이 전면 적용하는 건 사고를 기다리는 것과 같습니다.
+
+## 코드로 보는 적용 예시
+
+아래는 배포 안전 가드를 구현한 간단한 예시입니다. 실제 운영에서는 이런 가드를 CI/CD 파이프라인에 연결해서 자동으로 검증하게 만듭니다.
 
 \`\`\`ts
-type RolloutGuard = { pass: boolean; reasons: string[] };
+interface RolloutMetrics {
+  p95LatencyMs: number;
+  errorRate: number;
+  throughputRps: number;
+}
 
-export function assertRollout(guard: RolloutGuard): void {
-  if (!guard.pass) {
-    throw new Error("배포 차단: " + guard.reasons.join(", "));
+function shouldProceedWithRollout(
+  before: RolloutMetrics,
+  after: RolloutMetrics
+): { proceed: boolean; reason: string } {
+  if (after.errorRate > before.errorRate * 1.5) {
+    return { proceed: false, reason: \`에러율 증가: \${before.errorRate} → \${after.errorRate}\` };
   }
+  if (after.p95LatencyMs > before.p95LatencyMs * 1.3) {
+    return { proceed: false, reason: \`p95 지연시간 증가: \${before.p95LatencyMs}ms → \${after.p95LatencyMs}ms\` };
+  }
+  return { proceed: true, reason: "지표 정상 범위 내" };
 }
 \`\`\`
 
-${headings.risks}
+이 코드의 핵심은 "감이 아니라 숫자로 판단한다"는 원칙입니다. 임계치는 서비스 특성에 맞게 조정하면 됩니다.
 
-- 기능 도입 속도만 보고 관측 지표를 생략하는 경우
-- fallback 없이 신규 경로를 기본 경로로 전환하는 경우
-- 비용 변화와 성능 변화를 함께 추적하지 않는 경우
-- 장애 대응 주체(누가, 언제, 무엇을) 정의가 없는 경우
+## 놓치기 쉬운 운영 이슈
 
-${headings.apply}
+실제로 운영하다 보면 코드 자체보다 주변 환경에서 문제가 생기는 경우가 많습니다.
 
-실무에서는 체크리스트보다 "의사결정 순서"가 더 중요합니다. 아래 순서대로만 실행해도 실패 확률이 크게 줄어듭니다.
+- 모니터링 지표를 설정해놓고도 알림 임계치를 너무 느슨하게 잡아서 장애를 늦게 인지하는 경우
+- 새로운 기술을 도입하면서 기존 팀원들의 학습 시간을 고려하지 않는 경우
+- 비용 변화를 성능 변화와 별도로 추적해서 전체 그림을 놓치는 경우
+- 장애가 발생했을 때 누가 대응하는지 명확하지 않은 경우
 
-1. 먼저 성공 기준과 중단 기준을 한 문장으로 고정합니다.
-2. 모니터링 지표를 최소한으로 정리해, 배포 직후 바로 판단할 수 있게 만듭니다.
-3. 실패 로그를 중심으로 원인을 정리하고, 다음 배포 전에 룰을 하나만 개선합니다.
-4. 팀이 반복해서 쓰는 내용을 문서 템플릿으로 고정해 재사용합니다.
+이런 부분들은 코드 리뷰에서 잡히지 않기 때문에, 배포 전 체크리스트에 명시적으로 포함하는 게 좋습니다.
+
+## 다음에 할 일
+
+지금 바로 팀에 적용할 수 있는 액션 아이템을 정리하면:
+
+1. 현재 서비스의 p95 응답시간과 에러율 베이스라인을 측정하세요.
+2. 다음 배포 시 위의 배포 가드 패턴을 하나라도 적용해보세요.
+3. 장애 발생 시 대응 주체와 절차를 한 페이지짜리 런북으로 만들어두세요.
+4. 한 달 뒤 개선 결과를 수치로 비교하고, 팀 회고에서 공유하세요.
 
 ## 참고 자료
 
@@ -168,13 +189,14 @@ async function writeWithOpenAi(research, slug) {
           required_language: "ko-KR",
           min_word_count: 1600,
           writing_requirements: [
-            "딱딱한 교과서 톤 대신 현업 엔지니어가 실제로 쓰는 자연스러운 문체로 작성할 것",
-            "독자가 바로 적용할 수 있도록 설정값, 의사결정 기준, 실패 사례를 포함할 것",
-            "유익성 중심으로 작성하고, 추상적 표현이나 과장 문구를 피할 것",
-            "코드 예시는 운영 환경에서 주의할 점과 검증 방법까지 설명할 것",
-            "섹션 제목은 주제에 맞게 자연스럽게 구성하고, 매 글마다 동일한 제목을 반복하지 말 것"
+            "동료 엔지니어에게 설명하듯 자연스러운 구어체로 작성할 것",
+            "매번 같은 섹션 구조(Problem/Core Idea/Implementation/Pitfalls/Checklist)를 반복하지 말 것",
+            "섹션 제목은 주제 맥락에 맞는 구체적인 문장형으로 작성할 것",
+            "글 시작은 실제 상황이나 질문으로 시작하고, '이 글에서는 X를 다룹니다' 식은 피할 것",
+            "구체적인 숫자, 설정값, 실제 사례를 포함할 것",
+            "sources 배열에 있는 URL만 사용하고, 절대로 URL을 직접 만들지 말 것"
           ],
-          required_sections: ["최소 4개 이상의 H2 제목", "코드 예시", "마지막 참고자료 섹션"],
+          required_sections: ["최소 4개 이상의 주제별 H2 제목", "코드 예시 1개 이상", "마지막에 참고 자료 섹션"],
           category_options: [
             "ai-news",
             "spring-backend",
@@ -197,26 +219,34 @@ async function writeWithOpenAi(research, slug) {
 
 function normalizeSources(openAiSources, fallbackSources) {
   if (!Array.isArray(openAiSources) || openAiSources.length < 2) {
-    return fallbackSources.slice(0, 4);
+    return fallbackSources.slice(0, 6);
   }
 
-  const normalized = openAiSources
-    .filter((source) => source?.title && source?.url)
+  const fallbackUrls = new Set(fallbackSources.map((s) => s.url));
+
+  // Only keep LLM sources whose URLs match our known fallback sources.
+  // This prevents hallucinated URLs from making it into the final article.
+  const verified = openAiSources
+    .filter((source) => source?.title && source?.url && fallbackUrls.has(String(source.url)))
     .map((source) => ({
       title: String(source.title),
       url: String(source.url),
       published_at: source.published_at ?? new Date().toISOString().slice(0, 10)
     }));
 
-  return normalized.length >= 2 ? normalized.slice(0, 6) : fallbackSources.slice(0, 4);
+  if (verified.length >= 2) {
+    return verified.slice(0, 6);
+  }
+
+  // Fallback: use the verified research sources directly
+  return fallbackSources.slice(0, 6);
 }
 
 function normalizeMarkdownStructure(markdown, research) {
   let normalized = markdown;
 
   if (countH2Sections(normalized) < 4) {
-    const headings = pickFallbackHeadings(research.topic);
-    normalized += `\n\n${headings.apply}\n\n현업 적용 포인트를 3~4개로 정리해 다음 배포 사이클에 반영하세요.`;
+    normalized += `\n\n## 정리하며\n\n${research.topic}을 실무에 적용할 때 가장 중요한 것은 한 번에 완벽하게 하려 하지 않는 것입니다. 작은 범위에서 시작하고, 측정하고, 개선하는 사이클을 반복하세요.`;
   }
 
   if (!hasReferenceHeading(normalized)) {
@@ -273,41 +303,32 @@ function ensureMinLength(markdown, research) {
     return markdown;
   }
 
-  const evidence = research.claims
-    .map((claim, index) => `${index + 1}. ${claim.claim} (${claim.source_title})`)
-    .join("\n");
+  const additionalSections = [];
 
-  const appendix = `
+  // Add detailed claim analysis if content is too short
+  if (research.claims.length > 0) {
+    const claimDetails = research.claims
+      .map((claim, index) => {
+        const detail = `### ${index + 1}. ${claim.claim}\n\n이 부분은 [${claim.source_title}](${claim.source_url})에서 확인할 수 있습니다. 실무에서 이 원칙을 적용할 때는 서비스의 현재 상황과 팀의 역량을 함께 고려해야 합니다. 맹목적으로 따르기보다는, 자신의 환경에 맞게 조정하는 것이 핵심입니다.`;
+        return detail;
+      })
+      .join("\n\n");
 
-## 운영 적용 메모
-
-아래는 실무 적용 시 바로 점검해야 할 세부 항목입니다.
-
-- 서비스별 위험도(높음/중간/낮음)를 분류하고, 위험도가 높은 경로부터 점진 배포를 적용합니다.
-- 기능 배포 전후 지표 비교 구간을 동일하게 유지해 해석 오류를 방지합니다.
-- 장애 알림은 담당 팀, 임계치, 대응 절차를 하나의 런북으로 연결합니다.
-- 비용 최적화와 성능 최적화를 분리하지 않고 동일 대시보드에서 함께 추적합니다.
-- 릴리즈 회고 시 성공 사례뿐 아니라 실패 사례를 반드시 문서화합니다.
-
-### 근거 요약
-
-${evidence}
-
-### 팀 운영 권장사항
-
-1. 월간 기술 부채 점검과 함께 배포 정책을 갱신합니다.
-2. 핵심 API에 대한 장애 복구 리허설을 분기별로 수행합니다.
-3. 신규 기술 도입 시 성능·보안·비용의 3축 검증표를 유지합니다.
-4. 개인 의존성을 줄이기 위해 운영 체크리스트를 템플릿화합니다.
-`;
-
-  let expanded = `${markdown}${appendix}`;
-  while (expanded.length < 4200 || countWords(expanded) < 1100) {
-    expanded +=
-      "\n- 운영 점검 항목: 지표 분석 기준, 알림 임계치 정의, 장애 복구 시나리오 검증, 배포 후 회고 기록, 아키텍처 의사결정 근거 문서화를 한 사이클로 반복합니다.";
+    additionalSections.push(`## 각 근거를 실무에 적용하기\n\n${claimDetails}`);
   }
 
-  return expanded;
+  // Add a practical team adoption section
+  additionalSections.push(`## 팀에서 시작하는 법
+
+새로운 기술이나 패턴을 팀에 도입할 때 가장 흔한 실수는 한 번에 모든 것을 바꾸려는 것입니다. 경험상 효과적인 방법은 다음과 같습니다.
+
+첫 번째 스프린트에서는 현재 상태를 측정하는 것부터 시작하세요. 개선하려면 먼저 어디가 문제인지 숫자로 알아야 합니다. p95 응답시간, 에러율, 배포 빈도 같은 기본 지표만으로도 충분합니다.
+
+두 번째 스프린트에서 가장 영향이 큰 하나의 변경만 적용합니다. 여러 변경을 동시에 하면 어떤 변경이 효과가 있었는지 판단하기 어렵습니다.
+
+세 번째 스프린트에서 결과를 팀 회고에서 공유하고, 다음 개선 포인트를 결정합니다. 이 사이클을 반복하면 자연스럽게 팀의 엔지니어링 문화가 개선됩니다.`);
+
+  return `${markdown}\n\n${additionalSections.join("\n\n")}`;
 }
 
 function countWords(markdown) {
