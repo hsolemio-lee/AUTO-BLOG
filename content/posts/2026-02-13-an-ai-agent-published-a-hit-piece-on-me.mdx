@@ -1,0 +1,83 @@
+---
+title: "An AI agent published a hit piece on me"
+summary: "A practical guide to an ai agent published a hit piece on me, with concrete implementation details, tradeoffs, and production-ready checks."
+date: "2026-02-13"
+slug: "an-ai-agent-published-a-hit-piece-on-me"
+canonical_url: "https://example.dev/blog/an-ai-agent-published-a-hit-piece-on-me"
+tags: ["engineering", "practical-guide", "architecture", "backend"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/engineering/"
+  - title: "Cloudflare Blog"
+    url: "https://blog.cloudflare.com/"
+  - title: "Martin Fowler"
+    url: "https://martinfowler.com/"
+---
+
+## Problem
+
+Engineering initiatives often fail at the integration stage: the idea is valid, but teams cannot translate it into reversible and observable delivery changes.
+
+In many teams, this problem stays invisible until it shows up as failed deploys, delayed reviews, or noisy incidents. By the time symptoms appear, the fix is more expensive because multiple systems already depend on the wrong default behavior.
+
+## Core Idea
+
+Use a constraints-first rollout. Define objective success metrics, add one mandatory gate, and expand only when outcomes remain stable.
+
+Key points from current references:
+- A small, iterative rollout strategy lowers production risk for new engineering practices. ([GitHub Engineering Blog](https://github.blog/engineering/))
+- Tracking failure modes early improves maintainability and incident response. ([Cloudflare Blog](https://blog.cloudflare.com/))
+
+Use these claims as implementation constraints, not as abstract guidance. If a claim cannot be checked automatically, it usually means the rollout is still too broad.
+
+## Implementation
+
+1. Define success and failure thresholds before coding.
+2. Add one mandatory gate that blocks unsafe publication.
+3. Capture logs, metrics, and owner metadata.
+4. Roll out in stages with explicit rollback instructions.
+
+```ts
+type GateReport = { pass: boolean; reasons: string[] };
+
+export function enforceGate(report: GateReport): void {
+  if (!report.pass) {
+    throw new Error('publish blocked: ' + report.reasons.join(', '));
+  }
+}
+```
+
+The important part is not the exact syntax, but the explicit gate condition and fallback path. This ensures engineers can move fast without losing observability.
+
+### Rollout pattern
+
+1. Start in one bounded service or pipeline stage.
+2. Add one quality gate that can fail hard.
+3. Measure outcome metrics for one week.
+4. Expand scope only after stable trends.
+
+## Pitfalls
+
+- Publishing automation without rollback notes.
+- Optimizing volume without measuring quality outcomes.
+- Relying on manual checks for repeated risks.
+
+## Practical Checklist
+
+- [ ] At least 2 reliable references linked
+- [ ] Quality gate blocks low-confidence output
+- [ ] Duplicate threshold enforced
+- [ ] Alert channel tested
+
+Suggested operating rhythm:
+
+- Daily: generate one candidate and enforce quality checks.
+- Weekly: review failures and tune thresholds.
+- Monthly: update topic heuristics from reader feedback.
+
+## References
+
+- [GitHub Engineering Blog](https://github.blog/engineering/)
+- [Cloudflare Blog](https://blog.cloudflare.com/)
+- [Martin Fowler](https://martinfowler.com/)
+

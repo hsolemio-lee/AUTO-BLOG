@@ -1,0 +1,67 @@
+name: Auto Dev Blog Post
+
+on:
+  schedule:
+    - cron: "0 23 * * 0-4"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Plan topic
+        run: npm run blog:plan-topic
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Build research bundle
+        run: npm run blog:research
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Generate article
+        run: npm run blog:write
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Run quality gates
+        run: npm run blog:quality
+
+      - name: Publish (PR mode)
+        run: npm run blog:publish:pr
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: auto/blog-post-${{ github.run_id }}
+          commit-message: "chore(blog): add daily generated post"
+          title: "chore(blog): daily generated post"
+          body: |
+            ## Summary
+            - Generated daily developer blog post via automated pipeline
+            - Passed local quality gate checks before post file creation
+          labels: automation, blog
+
+      - name: Notify on failure
+        if: failure()
+        run: npm run blog:notify:failure
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

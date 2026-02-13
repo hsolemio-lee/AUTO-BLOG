@@ -1,0 +1,37 @@
+sources:
+  - id: github_trending
+    enabled: true
+    weight: 0.30
+    type: rss_or_scrape
+    notes: "Use for active OSS trends and fast-moving tools"
+
+  - id: hacker_news
+    enabled: true
+    weight: 0.25
+    type: api
+    notes: "Use for high-signal engineering discussions"
+
+  - id: release_notes
+    enabled: true
+    weight: 0.25
+    type: curated
+    notes: "Official framework and platform changelogs"
+
+  - id: reddit_programming
+    enabled: true
+    weight: 0.20
+    type: rss_or_api
+    notes: "Use for community pain points and debate topics"
+
+topic_selection:
+  min_candidates: 8
+  max_candidates: 20
+  novelty_weight: 0.40
+  utility_weight: 0.35
+  trend_weight: 0.25
+
+quality:
+  min_citations: 2
+  max_similarity_with_existing_posts: 0.85
+  min_word_count: 900
+  require_code_example: true

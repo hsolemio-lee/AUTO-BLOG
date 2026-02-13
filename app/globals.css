@@ -1,0 +1,157 @@
+:root {
+  --bg: #f6f2ea;
+  --text: #1f1d19;
+  --muted: #5e584e;
+  --card: #fffdf9;
+  --line: #d8d1c5;
+  --accent: #0b6e4f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 20% 10%, #efe6d8 0%, transparent 30%),
+    radial-gradient(circle at 90% 5%, #e4f0ea 0%, transparent 25%),
+    var(--bg);
+  font-family: "IBM Plex Sans", "Noto Sans KR", sans-serif;
+  line-height: 1.55;
+}
+
+.shell {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+}
+
+.header {
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.brand {
+  display: inline-block;
+  text-decoration: none;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.tagline {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.meta-nav {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.footer {
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  margin-top: 0;
+}
+
+.post-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.post-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tag {
+  background: #ebf4ef;
+  color: #0f4f3d;
+  border: 1px solid #cde2d8;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.article {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.ad-block {
+  margin: 18px 0;
+  min-height: 120px;
+  border: 1px dashed #c8c1b5;
+  border-radius: 10px;
+  background: #fdfaf3;
+}
+
+.summary {
+  color: var(--muted);
+}
+
+.content pre {
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #1f2933;
+  color: #f8fafc;
+}
+
+.content code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+
+.content p,
+.content li {
+  margin: 0 0 12px;
+}
+
+a {
+  color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 20px 14px 28px;
+  }
+
+  .brand {
+    font-size: 24px;
+  }
+}

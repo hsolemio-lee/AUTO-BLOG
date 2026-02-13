@@ -1,0 +1,30 @@
+{
+  "name": "auto-dev-blog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "deploy:check": "node scripts/predeploy-check.mjs",
+    "blog:plan-topic": "node scripts/plan-topic.mjs",
+    "blog:research": "node scripts/research.mjs",
+    "blog:write": "node scripts/write-article.mjs",
+    "blog:quality": "node scripts/quality-gate.mjs",
+    "blog:publish:pr": "node scripts/publish-pr.mjs",
+    "blog:notify:failure": "node scripts/notify-failure.mjs",
+    "blog:run": "npm run blog:plan-topic && npm run blog:research && npm run blog:write && npm run blog:quality && npm run blog:publish:pr"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "gray-matter": "^4.0.3",
+    "js-yaml": "^4.1.0",
+    "marked": "^15.0.7",
+    "next": "^15.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0"
+  }
+}

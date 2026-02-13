@@ -1,0 +1,4 @@
+node_modules/
+.next/
+.autoblog/
+npm-debug.log*
