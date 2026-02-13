@@ -124,6 +124,46 @@ h3 {
   font-weight: 600;
 }
 
+.quick-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.quick-links a {
+  font-size: 13px;
+  text-decoration: none;
+  border: 1px solid #bed0ef;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #eef4ff;
+}
+
+.taxonomy-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 16px;
+}
+
+.taxonomy-panel {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.taxonomy-panel ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.taxonomy-panel li {
+  margin-bottom: 6px;
+}
+
 .post-card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -197,6 +237,12 @@ h3 {
   border-top: 1px solid var(--line);
 }
 
+.comments-block {
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
 .related-list {
   margin: 0;
   padding-left: 18px;
@@ -228,5 +274,9 @@ h2 a {
   .header,
   .hero-panel {
     padding: 14px;
+  }
+
+  .taxonomy-grid {
+    grid-template-columns: 1fr;
   }
 }

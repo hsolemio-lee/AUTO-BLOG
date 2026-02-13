@@ -47,6 +47,9 @@ export default function RootLayout({ children }) {
               Expert notes on AI news, Spring backend architecture, distributed systems, and cloud operations.
             </p>
             <nav className="meta-nav" aria-label="Site">
+              <Link href="/categories">Categories</Link>
+              <Link href="/tags">Tags</Link>
+              <Link href="/feed.xml">RSS</Link>
               <Link href="/privacy">Privacy</Link>
               <Link href="/contact">Contact</Link>
             </nav>

@@ -50,6 +50,11 @@ npm run dev
 - `npm run blog:run:batch`: generates multiple posts in one run (default 5)
 - `npm run dev`: starts the blog web app at `http://localhost:3000`
 
+Taxonomy and discovery pages:
+
+- `/categories`, `/categories/[category]`
+- `/tags`, `/tags/[tag]`
+
 ## Monetization (Ads)
 
 Set these env vars for Google AdSense:
@@ -75,6 +80,8 @@ AdSense review readiness pages are available at:
 - Auto-generated `sitemap.xml` and `robots.txt`
 - RSS feed endpoint at `/feed.xml`
 - Related posts and reading time on post detail pages
+- Tag and category browsing pages
+- Giscus comment support on post detail pages
 
 Generated artifacts:
 
@@ -99,6 +106,10 @@ Generated artifacts:
 | `NEXT_PUBLIC_ADSENSE_HOME_SLOT` | No | Home page ad slot |
 | `NEXT_PUBLIC_ADSENSE_POST_TOP_SLOT` | No | Post top ad slot |
 | `NEXT_PUBLIC_ADSENSE_POST_BOTTOM_SLOT` | No | Post bottom ad slot |
+| `NEXT_PUBLIC_GISCUS_REPO` | No | Giscus GitHub repo (`owner/repo`) |
+| `NEXT_PUBLIC_GISCUS_REPO_ID` | No | Giscus repository ID |
+| `NEXT_PUBLIC_GISCUS_CATEGORY` | No | Giscus discussion category |
+| `NEXT_PUBLIC_GISCUS_CATEGORY_ID` | No | Giscus category ID |
 
 ## Deployment
 

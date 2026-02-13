@@ -4,7 +4,15 @@ import Script from "next/script";
 import ReactMarkdown from "react-markdown";
 
 import AdSlot from "../../../components/ad-slot.js";
-import { getAllPosts, getPostBySlug, getRelatedPosts } from "../../../lib/posts.js";
+import Comments from "../../../components/comments.js";
+import {
+  decodeTagSlug,
+  getAllPosts,
+  getCategoryLabel,
+  getPostBySlug,
+  getRelatedPosts,
+  normalizeTagSlug
+} from "../../../lib/posts.js";
 import { SITE_NAME } from "../../../lib/site.js";
 
 export async function generateStaticParams() {
@@ -80,13 +88,16 @@ export default async function BlogPostPage({ params }) {
       <p className="meta">
         {post.date} · {post.readingTimeMinutes} min read
       </p>
+      <p className="meta">
+        Category: <Link href={`/categories/${post.category}`}>{getCategoryLabel(post.category)}</Link>
+      </p>
       <h1>{post.title}</h1>
       <p className="summary">{post.summary}</p>
       <div className="tag-row">
         {post.tags.map((tag) => (
-          <span key={tag} className="tag">
-            {tag}
-          </span>
+          <Link key={tag} className="tag" href={`/tags/${normalizeTagSlug(tag)}`}>
+            {decodeTagSlug(normalizeTagSlug(tag))}
+          </Link>
         ))}
       </div>
       <AdSlot className="ad-block" slot={process.env.NEXT_PUBLIC_ADSENSE_POST_TOP_SLOT} />
@@ -103,6 +114,7 @@ export default async function BlogPostPage({ params }) {
           ))}
         </ul>
       </section>
+      <Comments />
       <AdSlot className="ad-block" slot={process.env.NEXT_PUBLIC_ADSENSE_POST_BOTTOM_SLOT} />
     </article>
   );

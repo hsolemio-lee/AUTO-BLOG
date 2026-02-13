@@ -35,6 +35,7 @@ async function main() {
     slug,
     date: today,
     tags: llmArticle?.tags?.length ? llmArticle.tags : inferTags(research.topic),
+    category: llmArticle?.category ?? inferCategory(research.topic),
     canonical_url: `${canonicalBase.replace(/\/$/, "")}/blog/${slug}`,
     sources: normalizeSources(llmArticle?.sources, research.source_list),
     content_markdown: ensureMinLength(structuredMarkdown, research)
@@ -63,6 +64,20 @@ function inferTags(topic) {
   }
 
   return tags.slice(0, 6);
+}
+
+function inferCategory(topic) {
+  const lower = topic.toLowerCase();
+  if (lower.includes("ai") || lower.includes("llm") || lower.includes("model") || lower.includes("rag")) {
+    return "ai-news";
+  }
+  if (lower.includes("spring") || lower.includes("jpa") || lower.includes("jwt")) {
+    return "spring-backend";
+  }
+  if (lower.includes("cloud") || lower.includes("kubernetes") || lower.includes("aws") || lower.includes("gcp")) {
+    return "cloud-platform";
+  }
+  return "backend-engineering";
 }
 
 function buildMarkdown(research) {
@@ -149,6 +164,12 @@ async function writeWithOpenAi(research, slug) {
             "## Pitfalls",
             "## Practical Checklist",
             "## References"
+          ],
+          category_options: [
+            "ai-news",
+            "spring-backend",
+            "backend-engineering",
+            "cloud-platform"
           ],
           claims: research.claims,
           sources: research.source_list

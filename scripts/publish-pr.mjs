@@ -47,6 +47,7 @@ title: "${escapeYaml(article.title)}"
 summary: "${escapeYaml(article.summary)}"
 date: "${article.date}"
 slug: "${article.slug}"
+category: "${escapeYaml(article.category ?? "backend-engineering")}"
 canonical_url: "${escapeYaml(article.canonical_url)}"
 tags: [${article.tags.map((tag) => `"${escapeYaml(tag)}"`).join(", ")}]
 sources:
