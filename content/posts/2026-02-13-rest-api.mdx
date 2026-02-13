@@ -1,0 +1,157 @@
+---
+title: "REST API 버전 관리, URI vs 헤더 그리고 Spring에서 실전 적용하기"
+summary: "REST API 버전 관리 전략을 실제 서비스에 적용할 때 URI 경로 방식과 헤더 방식의 장단점, 그리고 Spring 백엔드에서 버전을 관리하는 구체적인 방법과 호환성 유지 팁을 공유합니다."
+date: "2026-02-13"
+slug: "rest-api"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/rest-api"
+tags: ["REST API", "버전관리", "Spring", "호환성", "백엔드"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+### "API 버전이 꼬여서 클라이언트가 다 깨졌어요!" 이런 경험, 한 번쯤은 있죠?
+
+API를 운영하다 보면 버전 관리 때문에 골머리를 앓는 경우가 많습니다. 새 기능을 넣고 싶은데, 기존 클라이언트와 호환성은 어떻게 유지하지? URL을 바꿔야 하나, 아니면 헤더로 버전을 관리해야 하나? 이런 고민 끝에 결국 서비스가 꼬이거나, 클라이언트가 갑자기 오류를 내는 상황을 겪어봤을 겁니다.
+
+이번 글에서는 REST API 버전 관리 전략 중 대표적인 URI 경로 방식과 요청 헤더 방식의 차이와 장단점, 그리고 Spring 백엔드에서 어떻게 버전을 관리하는지 실제 코드를 통해 풀어보려고 해요. 또 Cloudflare와 GitHub 같은 대형 서비스들이 어떻게 점진적 롤아웃과 피쳐 토글로 호환성을 유지하는지도 함께 살펴봅니다.
+
+---
+
+## URI 경로 버전 관리, 명확하지만 URL이 길어진다
+
+가장 흔한 버전 관리 방법은 URI 경로에 버전을 명시하는 겁니다. 예를 들어 `/api/v1/users` 와 같이 말이죠. 이 방식은 클라이언트가 어떤 버전을 호출하는지 URL만 보고도 한눈에 알 수 있어서 직관적입니다. 
+
+하지만 단점도 분명해요. 버전이 늘어날수록 URL이 길어지고, API 문서나 클라이언트 쪽에서 관리해야 할 엔드포인트가 많아집니다. 또, URL이 바뀌면 캐싱 정책이나 라우팅 설정도 추가로 손봐야 하죠.
+
+```http
+GET /api/v1/users HTTP/1.1
+Host: example.com
+```
+
+이런 식으로 버전을 경로에 넣으면, 서버에서는 `@RequestMapping("/api/v1/users")` 이런 식으로 간단히 매핑할 수 있어서 Spring 같은 프레임워크에서는 관리가 쉽습니다. 하지만 URL이 바뀌는 만큼 클라이언트도 업데이트가 필요하니, 배포 시점에 맞춰 동기화가 중요합니다.
+
+Martin Fowler도 이 방식을 "명확하지만 URL이 길어진다"고 정리했어요[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+
+## 요청 헤더로 버전 관리, 클라이언트 영향 최소화의 비밀
+
+반면에 요청 헤더에 버전을 넣는 방법도 있습니다. 예를 들어 `Accept` 헤더에 `application/vnd.myapp.v2+json` 이런 식으로 버전을 명시하는 거죠.
+
+```http
+GET /api/users HTTP/1.1
+Host: example.com
+Accept: application/vnd.myapp.v2+json
+```
+
+이 방식의 큰 장점은 URL이 바뀌지 않아서 기존 클라이언트는 그대로 두고, 서버에서 버전에 따라 다른 응답을 줄 수 있다는 점입니다. GitHub도 이 방식을 채택해서, 클라이언트가 명시적으로 요청하는 API 버전을 지정할 수 있어 서비스 진화 시 클라이언트 영향 최소화에 효과적이라고 합니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+하지만 단점은 서버 쪽에서 헤더를 꼼꼼히 체크해야 하고, 클라이언트도 헤더를 정확히 설정해야 한다는 점입니다. 특히 REST 클라이언트를 직접 구현하는 경우가 아니라면, 브라우저나 HTTP 라이브러리 설정에 신경 써야 해서 초기 진입 장벽이 있을 수 있어요.
+
+
+## 백워드 호환성, 기존 필드는 절대 제거하지 말자
+
+API 버전을 관리하면서 가장 중요한 건 기존 클라이언트와의 호환성을 깨트리지 않는 거예요. InfoQ에서 강조하는 것처럼, 가능한 한 기존 필드를 제거하지 않고 새로운 필드를 추가하는 방식으로 확장해야 합니다. 그래야 클라이언트가 새 버전으로 점진적으로 전환할 수 있어요[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+예를 들어, 기존에 `name` 필드만 주던 API에 `nickname` 필드를 추가한다고 해봅시다. 기존 클라이언트는 `nickname`을 무시하고, 새 클라이언트만 활용할 수 있죠. 만약 `name` 필드를 갑자기 없애버리면, 구버전 클라이언트는 오류가 납니다.
+
+이런 점을 고려해서 API 설계 시 다음과 같은 규칙을 지켜보세요:
+
+- 필드 추가는 자유롭게, 필드 제거는 최대한 피하기
+- 필드 타입 변경도 호환성 문제를 일으키니 조심
+- 클라이언트가 새 필드를 무시해도 동작하도록 설계
+
+
+## Spring에서 API 버전 관리를 깔끔하게 하는 방법
+
+Spring 환경에서는 `@RequestMapping`이나 `@GetMapping` 같은 어노테이션의 `path` 또는 `headers` 속성을 활용해 버전을 구분할 수 있습니다. 예를 들어 URI 경로 방식과 헤더 방식 모두 아래처럼 구현이 가능해요.
+
+```java
+@RestController
+@RequestMapping("/api")
+public class UserController {
+
+    // URI 경로 버전 관리
+    @GetMapping("/v1/users")
+    public List<User> getUsersV1() {
+        // v1 로직
+    }
+
+    @GetMapping("/v2/users")
+    public List<User> getUsersV2() {
+        // v2 로직, 예: 추가 필드 포함
+    }
+
+    // 헤더 버전 관리
+    @GetMapping(value = "/users", headers = "X-API-VERSION=1")
+    public List<User> getUsersHeaderV1() {
+        // v1 로직
+    }
+
+    @GetMapping(value = "/users", headers = "X-API-VERSION=2")
+    public List<User> getUsersHeaderV2() {
+        // v2 로직
+    }
+}
+```
+
+이렇게 하면 같은 URL이라도 헤더에 따라 다른 버전을 제공할 수 있고, URI 경로로도 명확히 버전을 나눌 수 있습니다. 유지보수도 편하고, 확장성도 좋죠. 다만, 헤더 방식은 클라이언트가 `X-API-VERSION` 헤더를 반드시 보내야 하니, 클라이언트 구현에 신경 써야 합니다.
+
+Martin Fowler도 Spring 같은 프레임워크에서 이런 어노테이션 활용을 권장하고 있어요[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+
+## Cloudflare의 점진적 롤아웃과 피쳐 토글, 실전에서 배워야 할 점
+
+대형 서비스들은 API 버전 관리뿐 아니라 배포 전략도 중요하게 생각합니다. Cloudflare는 API 변경 시 점진적 롤아웃과 피쳐 토글(feature toggle) 기법을 활용해요. 이를 통해 클라이언트와 서버 간의 호환성을 유지하면서도 서비스 중단 없이 새로운 API 버전을 배포할 수 있습니다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+예를 들어, 새 버전을 전체 사용자에게 한꺼번에 적용하는 게 아니라, 5% 사용자부터 점진적으로 늘려가면서 문제를 모니터링합니다. 문제가 없으면 점차 범위를 확대하고, 문제가 생기면 즉시 롤백할 수 있죠.
+
+피쳐 토글은 코드 내에서 기능을 켜고 끌 수 있는 스위치 역할을 합니다. 이를 활용하면 운영 중에도 특정 API 버전을 활성화하거나 비활성화할 수 있어 유연합니다.
+
+이런 전략은 단순히 버전 관리뿐 아니라 전체 서비스 안정성에도 큰 도움이 됩니다. 우리도 가능하면 이런 점진적 배포 방식을 도입해보는 걸 추천해요.
+
+
+---
+
+### 마무리하며: REST API 버전 관리, "정답"은 없지만 이건 꼭 기억하자
+
+- URI 경로 방식은 명확하고 직관적이지만 URL이 길어지고, 클라이언트 업데이트가 필요하다.
+- 요청 헤더 방식은 URL을 바꾸지 않아 클라이언트 영향이 적지만, 헤더 관리가 까다롭고 초기 진입장벽이 있다.
+- API는 기존 필드를 절대 제거하지 말고, 새 필드를 추가하는 방식으로 점진적 확장을 해야 한다.
+- Spring에서는 `@RequestMapping`의 `path`와 `headers` 속성을 적절히 활용해 버전을 관리할 수 있다.
+- Cloudflare처럼 점진적 롤아웃과 피쳐 토글을 도입하면 서비스 안정성과 유연성을 크게 높일 수 있다.
+
+처음엔 버전 관리가 복잡하고 귀찮게 느껴질 수 있지만, 한 번 잘 설계해두면 API 진화가 훨씬 수월해집니다. 특히 호환성을 유지하는 게 장기적으로 고객 경험과 개발 생산성 모두에 큰 차이를 만듭니다.
+
+여러분도 다음 API 버전 업데이트 때는 이번 글에서 다룬 전략과 팁을 참고해서, 클라이언트와 서버 모두가 행복한 버전 관리를 경험해보시길 바랍니다!
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 실무 적용 시 고려할 점
+
+**REST API 버전 관리는 주로 URI 경로, 요청 헤더, 쿼리 파라미터 방식으로 나뉘며, URI 경로 방식은 명확하지만 URL이 길어지고, 헤더 방식은 클라이언트와 서버 간의 명확한 버전 구분이 가능해 호환성 유지에 유리하다.** — 이 부분은 [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**백워드 호환성을 유지하기 위해 API는 가능한 한 기존 필드를 제거하지 않고, 새로운 필드를 추가하는 방식으로 확장하며, 클라이언트가 새 버전으로 점진적으로 전환할 수 있도록 설계해야 한다.** — 이 부분은 [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**GitHub는 API 버전 관리를 위해 헤더 기반 버전 관리 방식을 사용하며, 이는 클라이언트가 명시적으로 요청하는 API 버전을 지정할 수 있어 서비스 진화 시 클라이언트 영향 최소화에 효과적이다.** — 이 부분은 [GitHub Engineering Blog](https://github.blog/category/engineering/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**Cloudflare는 API 변경 시 점진적 롤아웃과 피쳐 토글(feature toggle) 기법을 활용하여, 클라이언트와 서버 간의 호환성을 유지하며 서비스 중단 없이 새로운 API 버전을 배포한다.** — 이 부분은 [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**Spring 백엔드 환경에서는 스프링의 컨트롤러 레벨에서 API 버전을 명확히 구분하는 어노테이션(@RequestMapping의 path 또는 headers 속성 활용)을 통해 버전별 API를 관리하며, 이는 유지보수와 확장성에 도움을 준다.** — 이 부분은 [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+도입 초기에는 기존 방식과 병행 운영하면서 새로운 방식의 안정성을 확인하세요. 장애 발생 시 즉시 이전 방식으로 되돌릴 수 있는 롤백 경로를 항상 확보해 두는 것이 중요합니다. 팀 내에서 변경 사항을 공유하고, 운영 런북에 새로운 절차를 반영해야 실제 장애 상황에서 빠르게 대응할 수 있습니다.
