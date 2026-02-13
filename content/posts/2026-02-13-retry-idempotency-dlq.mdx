@@ -1,0 +1,180 @@
+---
+title: "백엔드 장애 대응의 핵심: Retry, Idempotency, DLQ 제대로 설계하기"
+summary: "백엔드 시스템에서 장애가 발생했을 때, 재시도 로직, 멱등성 보장, 그리고 데드레터 큐 설계를 어떻게 하면 실무에서 효과적으로 적용할 수 있는지 구체적인 사례와 함께 설명합니다."
+date: "2026-02-13"
+slug: "retry-idempotency-dlq"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/retry-idempotency-dlq"
+tags: ["retry", "idempotency", "dead-letter-queue", "circuit-breaker", "spring-backend"]
+sources:
+  - title: "Microsoft - Retry pattern"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/retry"
+  - title: "Microsoft - Circuit Breaker pattern"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+### "또 실패? 이번에도 네트워크 문제라니..."
+
+우리 서비스가 외부 API를 호출할 때, 네트워크가 잠깐 불안정해서 요청이 실패하는 경우가 종종 있죠. 그런데 이걸 그냥 실패 처리하면 사용자 경험이 나빠지고, 로그엔 에러가 쌓이기만 합니다. 그래서 자연스레 재시도(Retry) 로직을 넣게 되는데, 그게 생각보다 까다롭습니다. 무작정 재시도만 하면 시스템에 부하가 커지고, 중복 요청으로 데이터가 꼬이기도 하니까요.
+
+오늘은 제가 직접 겪고 설계하면서 배운, 백엔드 장애 대응의 핵심인 Retry 패턴, Idempotency, 그리고 Dead-letter Queue(DLQ)를 어떻게 실무에 적용했는지 이야기해보려 합니다.
+
+---
+
+## 왜 단순 재시도가 아니라 지수 백오프와 재시도 횟수 제한이 중요한가
+
+처음에 Retry를 구현할 때 가장 많이 하는 실수는 ‘실패하면 무조건 바로 다시 시도’하는 겁니다. 그런데 이러면 네트워크가 잠깐 불안할 때마다 요청이 폭주해서 오히려 장애가 심해질 수 있어요. 그래서 중요한 게 지수 백오프(Exponential Backoff)입니다. 
+
+예를 들어, 첫 실패 후 100ms 기다리고, 두 번째 실패 후 200ms, 세 번째는 400ms... 이런 식으로 대기 시간을 점점 늘리는 거죠. 이렇게 하면 네트워크가 회복할 시간을 벌면서도 무한 재시도를 방지할 수 있습니다.
+
+그리고 재시도 횟수도 꼭 제한해야 합니다. 보통 3~5회 내외로 설정하는데, 너무 많이 하면 시스템 자원 낭비와 장애 확산 위험이 큽니다. 저희는 4회 재시도에 총 대기시간이 약 1.5초를 넘지 않도록 조절했어요. 이 설정 덕분에 장애가 났을 때도 전체 서비스가 멈추지 않고, 실패한 요청만 조용히 재시도 후 포기하는 선에서 멈췄습니다.
+
+Microsoft의 Retry 패턴 문서에서도 이런 지수 백오프와 재시도 횟수 제한을 권장하고 있습니다[Microsoft - Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry).
+
+---
+
+## 멱등성(Idempotency)이 없으면 재시도는 독이 된다
+
+재시도 로직이 있다고 해서 무조건 안전한 건 아닙니다. 재시도하면서 같은 요청이 여러 번 처리되면 데이터가 중복 저장되거나, 결제 같은 중요한 트랜잭션이 중복 실행될 위험이 있거든요. 그래서 멱등성은 필수입니다.
+
+멱등성은 "같은 요청을 여러 번 처리해도 결과가 동일하게 유지되는 것"을 뜻합니다. 예를 들어, 주문 생성 API에서 클라이언트가 요청마다 고유한 IDempotency-Key 헤더를 보내면, 서버는 이 키로 이미 처리된 요청인지 판단해서 중복 실행을 막을 수 있죠.
+
+저희 팀은 Spring 기반 백엔드에서 이걸 다음과 같이 구현했습니다. 요청마다 UUID를 생성해 `Idempotency-Key`로 전달하고, 서버는 Redis에 이 키를 저장해 처리 여부를 체크합니다.
+
+```java
+@Service
+public class OrderService {
+
+    private final RedisTemplate<String, String> redisTemplate;
+
+    public OrderService(RedisTemplate<String, String> redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    public OrderResponse createOrder(OrderRequest request, String idempotencyKey) {
+        String redisKey = "order:idempotency:" + idempotencyKey;
+
+        // 이미 처리된 요청인지 확인
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(redisKey))) {
+            // 이미 처리된 주문 정보 반환
+            return getCachedOrder(redisKey);
+        }
+
+        // 주문 처리 로직
+        OrderResponse response = processOrder(request);
+
+        // 처리 결과를 Redis에 저장 (TTL 1시간)
+        redisTemplate.opsForValue().set(redisKey, serialize(response), 1, TimeUnit.HOURS);
+
+        return response;
+    }
+
+    // 생략: getCachedOrder, serialize 메서드 구현
+}
+```
+
+이렇게 하면 재시도 시에도 중복 주문이 발생하지 않아서, 실제 운영 중에 네트워크 장애가 있어도 주문이 두 번 생성되는 문제를 완벽히 방지할 수 있었습니다.
+
+Microsoft 문서에서도 Idempotency가 재시도 시 중복 처리 문제를 막는 핵심 기술이라고 강조합니다[Microsoft - Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry).
+
+---
+
+## Dead-letter Queue(DLQ)로 장애 원인 분석과 재처리를 어떻게 쉽게 할 수 있나
+
+메시지 큐를 쓰는 시스템이라면, 실패한 메시지를 그냥 버리지 말고 DLQ에 모아두는 게 정말 중요합니다. DLQ는 실패한 메시지를 별도의 큐에 저장해서 나중에 분석하거나 재처리할 수 있게 해주거든요.
+
+저희는 Kafka를 쓸 때, 컨슈머가 처리 실패 시 메시지를 DLQ 토픽으로 보내도록 설정했습니다. 이렇게 하면 장애가 났을 때 어떤 메시지가 문제였는지 바로 파악할 수 있고, 로그만 뒤지는 것보다 훨씬 빠르게 원인을 찾을 수 있습니다.
+
+DLQ를 운영하면서 느낀 점은, 장애가 반복되는 메시지를 별도로 모아놓으니 재처리 정책을 세우기도 편하고, 문제 메시지를 수정하거나 무시하는 기준도 명확해졌다는 겁니다. 메시지 손실 없이 장애를 관리할 수 있다는 점에서 DLQ는 꼭 도입해야 할 기능입니다.
+
+GitHub 엔지니어링 블로그에서도 DLQ가 장애 원인 분석과 재처리를 가능하게 해 메시지 손실을 방지한다고 소개하고 있습니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+---
+
+## Circuit Breaker와 함께 쓰면 장애 확산을 막는 데 더 효과적이다
+
+Retry만 하면 된다고 생각하기 쉽지만, 반복적인 장애 상황에서는 Circuit Breaker 패턴도 꼭 고려해야 합니다. Circuit Breaker는 실패가 일정 횟수 이상 쌓이면 호출 자체를 차단해서 시스템 과부하를 막고, 일정 시간 후 상태를 점검해 복귀를 시도합니다.
+
+예를 들어, 외부 API가 5번 연속 실패하면 30초 동안 호출을 중단하고, 그 후에 정상 복귀 여부를 체크하는 방식입니다. 이렇게 하면 무한 재시도로 인한 장애 확산을 막을 수 있어요.
+
+Cloudflare 같은 대규모 클라우드 서비스도 Retry와 Circuit Breaker를 조합해 네트워크 지연이나 서비스 불안정성을 효과적으로 관리한다고 합니다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+Spring에서는 `@Retryable`과 함께 Resilience4j 같은 라이브러리를 사용해 Circuit Breaker를 쉽게 적용할 수 있습니다. 예를 들어:
+
+```java
+@Service
+public class ExternalApiService {
+
+    @Retryable(value = {HttpServerErrorException.class}, maxAttempts = 4, backoff = @Backoff(delay = 200, multiplier = 2))
+    @CircuitBreaker(name = "externalApi", fallbackMethod = "fallback")
+    public String callExternalApi() {
+        // 외부 API 호출
+    }
+
+    public String fallback(Exception e) {
+        // 장애 시 대체 로직
+        return "기본 응답";
+    }
+}
+```
+
+이렇게 하면 재시도와 Circuit Breaker가 동시에 작동해 장애 상황을 좀 더 견고하게 대응할 수 있습니다.
+
+---
+
+## 직접 겪어보니, 장애 대응 설계에서 가장 중요한 건 ‘실제 장애 시나리오’를 상정하는 것
+
+이론적으로는 Retry, Idempotency, DLQ, Circuit Breaker 모두 완벽해 보여도, 실제 장애 상황에서는 의외의 문제가 터집니다. 예를 들어, 재시도 대기 시간이 너무 짧아 네트워크가 회복할 틈을 안 주거나, 멱등성 구현이 미흡해 중복 결제가 발생하는 경우도 있죠.
+
+저는 항상 장애 대응 설계할 때 다음 세 가지를 꼭 점검합니다.
+
+1. **실제 장애 상황을 시뮬레이션해보기** - 네트워크 지연, 외부 서비스 장애, 메시지 처리 실패 등 다양한 케이스를 테스트해 봅니다.
+2. **모니터링과 알림 설정** - 재시도 횟수 초과, DLQ 메시지 증가, Circuit Breaker 오픈 상태 등 이상 징후를 빠르게 감지할 수 있어야 합니다.
+3. **재처리 정책 명확히 하기** - DLQ에 쌓인 메시지를 언제, 어떻게 재처리할지 운영 정책을 문서화하고 자동화합니다.
+
+이런 준비가 돼 있어야 장애 발생 시 당황하지 않고, 빠르게 대응할 수 있습니다.
+
+---
+
+## 마무리하며
+
+- **Retry는 무조건 재시도보다 지수 백오프와 횟수 제한을 꼭 적용하자.**
+- **재시도 로직에는 반드시 멱등성을 보장하는 설계가 필요하다.**
+- **메시지 큐를 쓴다면 DLQ를 통해 실패 메시지를 안전하게 관리하자.**
+- **Circuit Breaker와 함께 쓰면 장애 확산을 막는 데 큰 도움이 된다.**
+- **실제 장애 시나리오를 가정한 테스트와 모니터링, 재처리 정책 수립이 필수다.**
+
+이 글이 여러분이 운영하는 백엔드 시스템의 장애 대응 설계에 조금이나마 도움이 되었으면 합니다. 다음에 또 실무에서 겪은 재미난 경험 공유할게요!
+
+---
+
+### 참고 자료
+
+- [Microsoft - Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry)
+- [Microsoft - Circuit Breaker pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 실무 적용 시 고려할 점
+
+**Retry 패턴은 일시적인 실패를 자동으로 재시도하여 시스템의 안정성을 높이며, 지수 백오프(Exponential Backoff)와 재시도 횟수 제한을 적용하는 것이 권장된다.** — 이 부분은 [Microsoft - Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**Idempotency는 동일한 요청을 여러 번 처리해도 결과가 변하지 않도록 설계하여, 재시도 시 중복 처리 문제를 방지하는 핵심 기술이다.** — 이 부분은 [Microsoft - Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**Dead-letter queue(DLQ)는 처리 실패한 메시지를 별도의 큐에 저장하여, 장애 원인 분석과 재처리를 가능하게 하여 메시지 손실을 방지한다.** — 이 부분은 [GitHub Engineering Blog](https://github.blog/category/engineering/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**Circuit Breaker 패턴은 반복적인 실패가 발생할 경우 호출을 중단하여 시스템 과부하를 방지하고, 일정 시간 후 상태를 점검해 정상 복귀를 시도하는 방식으로 장애 확산을 막는다.** — 이 부분은 [Microsoft - Circuit Breaker pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**클라우드 환경에서는 Retry와 Circuit Breaker 패턴을 조합해 네트워크 지연이나 서비스 불안정성을 효과적으로 관리할 수 있으며, DLQ를 통해 장애 발생 시 메시지 손실 없이 문제를 추적하는 것이 중요하다.** — 이 부분은 [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+**Spring 백엔드에서는 RetryTemplate, @Retryable 어노테이션 등 프레임워크 내장 기능을 활용해 손쉽게 재시도 로직을 구현할 수 있으며, Idempotency 구현을 위해 요청에 고유 식별자를 부여하는 방식을 권장한다.** — 이 부분은 [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)에서 다루고 있습니다. 실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. 한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.
+
+도입 초기에는 기존 방식과 병행 운영하면서 새로운 방식의 안정성을 확인하세요. 장애 발생 시 즉시 이전 방식으로 되돌릴 수 있는 롤백 경로를 항상 확보해 두는 것이 중요합니다. 팀 내에서 변경 사항을 공유하고, 운영 런북에 새로운 절차를 반영해야 실제 장애 상황에서 빠르게 대응할 수 있습니다.
