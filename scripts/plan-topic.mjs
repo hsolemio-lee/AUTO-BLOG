@@ -43,6 +43,14 @@ const TOPIC_POOLS = {
     "이벤트 기반 아키텍처 설계: Saga와 Outbox 패턴 실전 비교",
     "대규모 백엔드 아키텍처 리뷰 체크리스트: 장애를 줄이는 설계 기준",
     "백엔드 아키텍처 의사결정 기록(ADR) 작성법과 운영 적용 팁"
+  ],
+  agentic_coding: [
+    "AI Agentic Coding 도구 비교: Cursor vs Claude Code vs Windsurf 실전 리뷰",
+    "Claude Code로 백엔드 코드 리팩토링 자동화하기: 실전 워크플로우",
+    "AI 코딩 에이전트 도입 시 팀 생산성 측정 방법과 주의점",
+    "Agentic Coding 시대의 코드 리뷰: AI가 작성한 코드를 검증하는 체크리스트",
+    "GitHub Copilot Agent Mode 활용 가이드: 멀티 파일 수정과 테스트 자동화",
+    "AI Coding Agent의 보안 리스크: 프롬프트 인젝션부터 의존성 관리까지"
   ]
 };
 
@@ -63,7 +71,15 @@ const FOCUS_KEYWORDS = [
   "system design",
   "msa",
   "saga",
-  "outbox"
+  "outbox",
+  "cursor",
+  "copilot",
+  "claude code",
+  "windsurf",
+  "agentic",
+  "coding agent",
+  "code generation",
+  "ai coding"
 ];
 
 const SEARCH_INTENT_KEYWORDS = [
@@ -101,7 +117,13 @@ const HIGH_DEMAND_TERMS = [
   "architecture",
   "system design",
   "microservice",
-  "event-driven"
+  "event-driven",
+  "cursor",
+  "copilot",
+  "claude code",
+  "windsurf",
+  "agentic",
+  "coding agent"
 ];
 
 async function main() {
@@ -338,6 +360,17 @@ function inferCategory(title) {
   if (lower.includes("spring")) {
     return "spring_backend";
   }
+  if (
+    lower.includes("cursor") ||
+    lower.includes("copilot") ||
+    lower.includes("claude code") ||
+    lower.includes("windsurf") ||
+    lower.includes("agentic coding") ||
+    lower.includes("coding agent") ||
+    lower.includes("ai coding")
+  ) {
+    return "agentic_coding";
+  }
   if (lower.includes("ai") || lower.includes("llm") || lower.includes("model")) {
     return "ai_news";
   }
@@ -363,6 +396,9 @@ function inferCategory(title) {
 }
 
 function angleForCategory(category) {
+  if (category === "agentic_coding") {
+    return "Compare AI coding agents, evaluate productivity impact, and share practical workflows and security considerations for engineering teams.";
+  }
   if (category === "ai_news") {
     return "Turn current AI ecosystem news into backend implementation decisions and risk checks.";
   }
@@ -420,7 +456,13 @@ function scoreTrend(title) {
     "rag",
     "backend",
     "architecture",
-    "msa"
+    "msa",
+    "cursor",
+    "copilot",
+    "claude code",
+    "windsurf",
+    "agentic",
+    "coding agent"
   ];
   const hits = trendKeywords.filter((keyword) => containsKeyword(lower, keyword)).length;
   return Math.min(100, 50 + hits * 12);
@@ -464,6 +506,7 @@ async function pickWithOpenAi(scored, historyTitles) {
           constraints: {
             focus: [
               "ai_news",
+              "agentic_coding",
               "spring_backend",
               "backend_engineering",
               "cloud_platform",

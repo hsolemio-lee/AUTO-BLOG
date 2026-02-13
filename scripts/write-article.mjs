@@ -46,7 +46,12 @@ function inferTags(topic) {
   const lower = topic.toLowerCase();
   const tags = ["backend", "실무가이드"];
 
-  if (lower.includes("ai") || lower.includes("llm") || lower.includes("model")) {
+  if (
+    lower.includes("cursor") || lower.includes("copilot") || lower.includes("claude code") ||
+    lower.includes("windsurf") || lower.includes("agentic") || lower.includes("coding agent")
+  ) {
+    tags.push("agentic-coding", "ai-tool", "developer-productivity");
+  } else if (lower.includes("ai") || lower.includes("llm") || lower.includes("model")) {
     tags.push("ai-news", "llm");
   } else if (lower.includes("spring")) {
     tags.push("spring-backend", "java");
@@ -69,6 +74,13 @@ function inferTags(topic) {
 
 function inferCategory(topic) {
   const lower = topic.toLowerCase();
+  if (
+    lower.includes("cursor") || lower.includes("copilot") || lower.includes("claude code") ||
+    lower.includes("windsurf") || lower.includes("agentic") || lower.includes("coding agent") ||
+    lower.includes("ai coding")
+  ) {
+    return "agentic-coding";
+  }
   if (lower.includes("ai") || lower.includes("llm") || lower.includes("model") || lower.includes("rag")) {
     return "ai-news";
   }
@@ -187,7 +199,7 @@ async function writeWithOpenAi(research, slug) {
           angle: research.angle,
           slug,
           required_language: "ko-KR",
-          min_word_count: 1600,
+          min_word_count: 1800,
           writing_requirements: [
             "동료 엔지니어에게 설명하듯 자연스러운 구어체로 작성할 것",
             "매번 같은 섹션 구조(Problem/Core Idea/Implementation/Pitfalls/Checklist)를 반복하지 말 것",
@@ -199,6 +211,7 @@ async function writeWithOpenAi(research, slug) {
           required_sections: ["최소 4개 이상의 주제별 H2 제목", "코드 예시 1개 이상", "마지막에 참고 자료 섹션"],
           category_options: [
             "ai-news",
+            "agentic-coding",
             "spring-backend",
             "backend-engineering",
             "cloud-platform",
@@ -299,36 +312,26 @@ function hasReferenceHeading(markdown) {
 }
 
 function ensureMinLength(markdown, research) {
-  if (markdown.length >= 4200 && countWords(markdown) >= 1100) {
+  const words = countWords(markdown);
+  if (words >= 1100) {
     return markdown;
   }
 
-  const additionalSections = [];
+  // Expand each claim into a more detailed discussion
+  const claimExpansions = research.claims
+    .map((claim) =>
+      `**${claim.claim}** — 이 부분은 [${claim.source_title}](${claim.source_url})에서 다루고 있습니다. ` +
+      `실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. ` +
+      `한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.`
+    )
+    .join("\n\n");
 
-  // Add detailed claim analysis if content is too short
-  if (research.claims.length > 0) {
-    const claimDetails = research.claims
-      .map((claim, index) => {
-        const detail = `### ${index + 1}. ${claim.claim}\n\n이 부분은 [${claim.source_title}](${claim.source_url})에서 확인할 수 있습니다. 실무에서 이 원칙을 적용할 때는 서비스의 현재 상황과 팀의 역량을 함께 고려해야 합니다. 맹목적으로 따르기보다는, 자신의 환경에 맞게 조정하는 것이 핵심입니다.`;
-        return detail;
-      })
-      .join("\n\n");
+  const expansion = `\n\n## 실무 적용 시 고려할 점\n\n${claimExpansions}\n\n` +
+    `도입 초기에는 기존 방식과 병행 운영하면서 새로운 방식의 안정성을 확인하세요. ` +
+    `장애 발생 시 즉시 이전 방식으로 되돌릴 수 있는 롤백 경로를 항상 확보해 두는 것이 중요합니다. ` +
+    `팀 내에서 변경 사항을 공유하고, 운영 런북에 새로운 절차를 반영해야 실제 장애 상황에서 빠르게 대응할 수 있습니다.`;
 
-    additionalSections.push(`## 각 근거를 실무에 적용하기\n\n${claimDetails}`);
-  }
-
-  // Add a practical team adoption section
-  additionalSections.push(`## 팀에서 시작하는 법
-
-새로운 기술이나 패턴을 팀에 도입할 때 가장 흔한 실수는 한 번에 모든 것을 바꾸려는 것입니다. 경험상 효과적인 방법은 다음과 같습니다.
-
-첫 번째 스프린트에서는 현재 상태를 측정하는 것부터 시작하세요. 개선하려면 먼저 어디가 문제인지 숫자로 알아야 합니다. p95 응답시간, 에러율, 배포 빈도 같은 기본 지표만으로도 충분합니다.
-
-두 번째 스프린트에서 가장 영향이 큰 하나의 변경만 적용합니다. 여러 변경을 동시에 하면 어떤 변경이 효과가 있었는지 판단하기 어렵습니다.
-
-세 번째 스프린트에서 결과를 팀 회고에서 공유하고, 다음 개선 포인트를 결정합니다. 이 사이클을 반복하면 자연스럽게 팀의 엔지니어링 문화가 개선됩니다.`);
-
-  return `${markdown}\n\n${additionalSections.join("\n\n")}`;
+  return `${markdown}${expansion}`;
 }
 
 function countWords(markdown) {
