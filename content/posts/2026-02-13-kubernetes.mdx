@@ -1,0 +1,139 @@
+---
+title: "Kubernetes 무중단 배포 전략: 롤링 업데이트와 카나리 배포 비교 가이드"
+summary: "Kubernetes 환경에서 백엔드 엔지니어가 신뢰성 높은 클라우드 네이티브 배포 파이프라인을 설계할 수 있도록 롤링 업데이트와 카나리 배포 전략을 구현 중심으로 상세 비교합니다. 각 전략의 핵심 개념, 구현 방법, 주의사항과 실무 적용 체크리스트를 제공합니다."
+date: "2026-02-13"
+slug: "kubernetes"
+canonical_url: "https://example.dev/blog/kubernetes"
+tags: ["Kubernetes", "배포전략", "롤링업데이트", "카나리배포", "클라우드네이티브", "DevOps"]
+sources:
+  - title: "Kubernetes 공식 문서 - 롤링 업데이트 배포"
+    url: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#rolling-update-deployment"
+  - title: "Kubernetes 공식 문서 - 카나리 배포 개념"
+    url: "https://kubernetes.io/docs/concepts/cluster-administration/manage-deployment/#canary-deployments"
+  - title: "Kubernetes 튜토리얼 - 롤링 업데이트 소개"
+    url: "https://kubernetes.io/docs/tutorials/kubernetes-basics/update/update-intro/"
+  - title: "Istio 공식 문서 - 카나리 배포와 트래픽 관리"
+    url: "https://istio.io/latest/docs/tasks/traffic-management/canary-rollouts/"
+  - title: "Spring 공식 블로그 - Kubernetes 롤링 및 카나리 배포"
+    url: "https://spring.io/blog/2020/11/17/rolling-updates-and-canary-deployments-with-kubernetes"
+---
+
+## Problem
+
+클라우드 네이티브 환경에서 서비스의 무중단 배포는 필수입니다. 특히 Kubernetes 기반 백엔드 시스템에서는 새로운 버전을 배포할 때 서비스 중단 없이 안정적으로 전환하는 전략이 필요합니다. 그러나 롤링 업데이트와 카나리 배포 중 어떤 전략을 선택하고 어떻게 구현할지에 대한 명확한 가이드가 부족해, 엔지니어들이 적절한 배포 방식을 결정하기 어렵습니다.
+
+
+## Core Idea
+
+- **롤링 업데이트**는 기존 파드를 점진적으로 교체하여 서비스 중단 없이 새로운 버전을 배포하는 Kubernetes의 기본 배포 전략입니다. (출처: [Kubernetes 공식 문서 - 롤링 업데이트 배포](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#rolling-update-deployment))
+
+- **카나리 배포**는 새로운 버전을 소수의 사용자에게 먼저 배포하여 문제를 조기에 발견하고, 점진적으로 트래픽을 늘려 전체 배포로 확장하는 전략입니다. (출처: [Kubernetes 공식 문서 - 카나리 배포 개념](https://kubernetes.io/docs/concepts/cluster-administration/manage-deployment/#canary-deployments))
+
+
+## Implementation
+
+### 롤링 업데이트 구현 예시
+
+Kubernetes Deployment 리소스에서 `strategy.type`을 `RollingUpdate`로 설정하면 기본 롤링 업데이트가 활성화됩니다. 아래는 간단한 예시입니다.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-app
+spec:
+  replicas: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend-container
+        image: myrepo/backend-app:v2
+        ports:
+        - containerPort: 8080
+```
+
+- `maxUnavailable`은 업데이트 중 동시에 사용할 수 없는 파드 수를 제한합니다.
+- `maxSurge`는 업데이트 중 새로 생성할 수 있는 파드 수를 제한합니다.
+
+배포 시 `kubectl apply -f deployment.yaml` 명령어로 적용하면 Kubernetes가 자동으로 롤링 업데이트를 수행합니다.
+
+
+### 카나리 배포 구현 개요
+
+카나리 배포는 기본 Kubernetes만으로는 트래픽 분할이 어렵기 때문에, Istio 같은 서비스 메쉬를 활용하는 것이 일반적입니다. Istio를 사용하면 가중치 기반 트래픽 분할과 모니터링이 가능합니다.
+
+간단한 카나리 배포 워크플로우:
+
+1. 새로운 버전의 Deployment를 별도로 생성 (예: `backend-app-canary`)
+2. Istio VirtualService 리소스에서 트래픽의 일부만 카나리 버전으로 라우팅
+3. 모니터링 및 로그 분석으로 안정성 확인
+4. 문제가 없으면 점진적으로 트래픽 비율 증가
+5. 최종적으로 카나리 버전을 정식 버전으로 전환
+
+```yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: backend-app
+spec:
+  hosts:
+  - backend.example.com
+  http:
+  - route:
+    - destination:
+        host: backend-app
+        subset: stable
+      weight: 90
+    - destination:
+        host: backend-app
+        subset: canary
+      weight: 10
+```
+
+위 예시는 트래픽의 10%만 카나리 버전으로 보내는 설정입니다.
+
+
+## Pitfalls
+
+- **롤링 업데이트**
+  - 구현이 간단하지만, 새로운 버전이 문제를 포함할 경우 초기 사용자에게 바로 영향을 줄 수 있습니다.
+  - 롤백은 빠르지만, 이미 배포된 파드를 모두 교체해야 하므로 완전한 즉시 복구는 어렵습니다.
+
+- **카나리 배포**
+  - 서비스 메쉬 도입과 트래픽 분할 설정 등 초기 구성과 운영이 복잡합니다.
+  - 모니터링과 자동화가 필수이며, 그렇지 않으면 카나리 버전이 장기간 운영되어 리스크가 커질 수 있습니다.
+  - 작은 트래픽 비율에서 문제를 발견하지 못할 가능성도 존재합니다.
+
+- **Spring 백엔드 환경**에서는 롤링 업데이트가 널리 사용되며, 카나리 배포는 복잡한 트래픽 제어와 모니터링이 필요한 대규모 서비스에 적합합니다. (출처: [Spring 공식 블로그](https://spring.io/blog/2020/11/17/rolling-updates-and-canary-deployments-with-kubernetes))
+
+
+## Practical Checklist
+
+- [ ] 서비스 규모와 복잡도를 평가하여 롤링 업데이트 또는 카나리 배포 중 적합한 전략 선택
+- [ ] 롤링 업데이트 시 `maxUnavailable`과 `maxSurge` 설정으로 배포 속도와 안정성 조절
+- [ ] 카나리 배포 시 Istio, Linkerd 등 서비스 메쉬 도입 여부 결정
+- [ ] 카나리 배포용 별도 Deployment 및 VirtualService 리소스 구성
+- [ ] 모니터링 도구(예: Prometheus, Grafana)와 연동하여 배포 중 이상 징후 감지 체계 마련
+- [ ] 배포 자동화 파이프라인에 롤백 절차 포함
+- [ ] 배포 후 사용자 영향도 및 시스템 상태 점검
+
+
+## References
+
+- [Kubernetes 공식 문서 - 롤링 업데이트 배포](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#rolling-update-deployment)
+- [Kubernetes 공식 문서 - 카나리 배포 개념](https://kubernetes.io/docs/concepts/cluster-administration/manage-deployment/#canary-deployments)
+- [Kubernetes 튜토리얼 - 롤링 업데이트 소개](https://kubernetes.io/docs/tutorials/kubernetes-basics/update/update-intro/)
+- [Istio 공식 문서 - 카나리 배포와 트래픽 관리](https://istio.io/latest/docs/tasks/traffic-management/canary-rollouts/)
+- [Spring 공식 블로그 - Kubernetes 롤링 및 카나리 배포](https://spring.io/blog/2020/11/17/rolling-updates-and-canary-deployments-with-kubernetes)
+
