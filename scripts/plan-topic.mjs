@@ -13,53 +13,6 @@ import { readPromptTemplate } from "./lib/prompts.mjs";
 import { jaccardSimilarity } from "./lib/text.mjs";
 import { fetchTrendEntries } from "./lib/trends.mjs";
 
-const TOPIC_POOLS = {
-  ai_news: [
-    "2026년 AI 에이전트 백엔드 아키텍처 실전 가이드",
-    "RAG 성능 병목 원인과 해결 체크리스트 (백엔드 관점)",
-    "LLM API 비용 최적화: 토큰 비용 절감 설계 패턴",
-    "AI 모델 업데이트 대응 전략: 장애 없이 배포하는 방법"
-  ],
-  spring_backend: [
-    "Spring Boot 3 성능 최적화: p95 지연시간 줄이는 실전 방법",
-    "Spring Security JWT 운영 가이드: 키 회전과 토큰 만료 전략",
-    "Spring Data JPA N+1 문제 해결: 쿼리 튜닝 실전",
-    "Spring 이벤트 기반 백엔드: Outbox 패턴 적용 가이드"
-  ],
-  backend_engineering: [
-    "백엔드 장애 대응 가이드: Retry, Idempotency, DLQ 설계",
-    "REST API 버전 관리 전략: 호환성 유지 실전 패턴",
-    "고트래픽 백엔드 트랜잭션 경계 설계 방법",
-    "백엔드 관측성 구축: 로그·메트릭·트레이싱 실전 체크리스트"
-  ],
-  cloud_platform: [
-    "클라우드 비용 최적화: 백엔드 오토스케일링 가드레일 설계",
-    "Kubernetes 무중단 배포 전략: 롤링/카나리 비교 가이드",
-    "AWS vs GCP 백엔드 선택 기준: 관리형 DB 비교",
-    "멀티 AZ 장애 복구 설계: 클라우드 백엔드 고가용성 패턴"
-  ],
-  architecture: [
-    "MSA 전환 시 도메인 경계 설계: 모놀리스 분해 아키텍처 가이드",
-    "이벤트 기반 아키텍처 설계: Saga와 Outbox 패턴 실전 비교",
-    "대규모 백엔드 아키텍처 리뷰 체크리스트: 장애를 줄이는 설계 기준",
-    "백엔드 아키텍처 의사결정 기록(ADR) 작성법과 운영 적용 팁"
-  ],
-  frontend: [
-    "React 성능 최적화 실전: 렌더링 병목 줄이는 구조 개선",
-    "Next.js App Router 아키텍처 설계: 유지보수 가능한 프론트엔드 구성",
-    "프론트엔드 상태관리 선택 가이드: Redux, Zustand, TanStack Query 비교",
-    "대규모 프론트엔드 코드베이스에서 디자인 시스템 운영 전략"
-  ],
-  agentic_coding: [
-    "AI Agentic Coding 도구 비교: Cursor vs Claude Code vs Windsurf 실전 리뷰",
-    "Claude Code로 백엔드 코드 리팩토링 자동화하기: 실전 워크플로우",
-    "AI 코딩 에이전트 도입 시 팀 생산성 측정 방법과 주의점",
-    "Agentic Coding 시대의 코드 리뷰: AI가 작성한 코드를 검증하는 체크리스트",
-    "GitHub Copilot Agent Mode 활용 가이드: 멀티 파일 수정과 테스트 자동화",
-    "AI Coding Agent의 보안 리스크: 프롬프트 인젝션부터 의존성 관리까지"
-  ]
-};
-
 const FOCUS_KEYWORDS = [
   "ai",
   "llm",
@@ -147,7 +100,7 @@ async function main() {
   await ensureDir(STATE_DIR);
   const config = await loadSourcesConfig();
   const historyTitles = await loadHistoryTitles();
-  const candidates = await loadCandidates();
+  const candidates = await loadCandidates(config);
 
   const scored = candidates
     .map((candidate) => ({
@@ -234,14 +187,9 @@ async function loadHistoryTitles() {
   return titles;
 }
 
-async function loadCandidates() {
+async function loadCandidates(config) {
   const focusedHn = await fetchFocusedHnTitles();
   const trendEntries = await fetchTrendEntries({ maxPerFeed: 6 });
-
-  const poolEntries = Object.entries(TOPIC_POOLS)
-    .flatMap(([category, topics]) => topics.map((title) => ({ title, category })))
-    .slice(0, 10)
-    .map((item) => ({ ...item, source_type: "pool" }));
 
   const hnEntries = focusedHn.map((entry) => ({
     title: entry.title,
@@ -262,16 +210,18 @@ async function loadCandidates() {
     }));
 
   const dynamicCandidates = dedupeCandidates([...trendCandidates, ...hnEntries]);
-  const needsPoolFallback = dynamicCandidates.length < 18;
-  const merged = needsPoolFallback
-    ? [...dynamicCandidates, ...poolEntries]
-    : dynamicCandidates;
 
-  if (!needsPoolFallback) {
-    console.log(`Using dynamic candidates only (${dynamicCandidates.length})`);
+  if (dynamicCandidates.length === 0) {
+    throw new Error("No dynamic candidates available from trend feeds or Hacker News.");
   }
 
-  return dedupeCandidates(merged).slice(0, 30);
+  const minCandidates = config?.topic_selection?.min_candidates ?? 8;
+  const maxCandidates = config?.topic_selection?.max_candidates ?? 20;
+  if (dynamicCandidates.length < minCandidates) {
+    console.warn(`Dynamic candidates below minimum (${dynamicCandidates.length} < ${minCandidates}).`);
+  }
+
+  return dynamicCandidates.slice(0, maxCandidates);
 }
 
 async function fetchFocusedHnTitles() {
