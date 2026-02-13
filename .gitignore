@@ -2,3 +2,5 @@ node_modules/
 .next/
 .autoblog/
 npm-debug.log*
+.vercel
+.env*.local
