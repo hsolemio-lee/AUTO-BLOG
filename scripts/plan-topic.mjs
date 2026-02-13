@@ -165,6 +165,11 @@ async function loadHistoryTitles() {
     }
   }
 
+  const excludeFromEnv = process.env.BLOG_EXCLUDE_TITLES
+    ? process.env.BLOG_EXCLUDE_TITLES.split("||").map((item) => item.trim()).filter(Boolean)
+    : [];
+  titles.push(...excludeFromEnv);
+
   return titles;
 }
 

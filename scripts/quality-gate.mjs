@@ -75,6 +75,9 @@ async function main() {
 
   if (!report.pass) {
     console.error("Quality gate failed.");
+    if (report.reasons.length > 0) {
+      console.error(`Reasons: ${report.reasons.join(" | ")}`);
+    }
     process.exitCode = 1;
     return;
   }
