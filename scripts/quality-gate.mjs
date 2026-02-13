@@ -39,6 +39,12 @@ async function main() {
     fail(report, `At least ${requiredCitations} citations are required.`);
   }
 
+  // Check for fabricated URLs (common LLM hallucination patterns)
+  const fabricatedCount = countFabricatedUrls(article.sources ?? []);
+  if (fabricatedCount > 0) {
+    fail(report, `${fabricatedCount} source URL(s) appear to be fabricated (contain today's date or suspicious patterns).`);
+  }
+
   const reachableCount = await countReachableSources(article.sources ?? []);
   if (reachableCount < requiredCitations) {
     fail(report, `At least ${requiredCitations} reachable source links are required (found ${reachableCount}).`);
@@ -146,6 +152,40 @@ async function findHighestSimilarity(contentMarkdown) {
 function fail(report, reason) {
   report.pass = false;
   report.reasons.push(reason);
+}
+
+function countFabricatedUrls(sources) {
+  const today = new Date().toISOString().slice(0, 10);
+  let count = 0;
+
+  for (const source of sources) {
+    if (!source?.url) {
+      count += 1;
+      continue;
+    }
+
+    const url = String(source.url);
+
+    // Detect URLs containing today's date (LLMs often embed the current date)
+    if (url.includes(today)) {
+      count += 1;
+      continue;
+    }
+
+    // Detect URLs with date patterns that look auto-generated (e.g., /2026-02-13-)
+    const dateInPath = url.match(/\/\d{4}-\d{2}-\d{2}[-/]/);
+    if (dateInPath) {
+      const urlDate = dateInPath[0].slice(1, 11);
+      // If the date in the URL is within 7 days of today, likely fabricated
+      const daysDiff = Math.abs(Date.now() - new Date(urlDate).getTime()) / (1000 * 60 * 60 * 24);
+      if (daysDiff < 7) {
+        count += 1;
+        continue;
+      }
+    }
+  }
+
+  return count;
 }
 
 async function countReachableSources(sources) {

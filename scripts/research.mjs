@@ -9,11 +9,18 @@ async function main() {
   const topicData = await readJson(TOPIC_FILE);
   const topicTitle = topicData.selected_topic.title;
 
+  const trendSource = buildTrendSource(topicData.selected_topic);
   const baseSources = inferReliableSources(topicTitle);
-  const sourceList = baseSources.map((source) => ({
-    ...source,
-    published_at: new Date().toISOString().slice(0, 10)
-  }));
+  const today = new Date().toISOString().slice(0, 10);
+  const sourceList = [
+    ...(trendSource ? [trendSource] : []),
+    ...baseSources.map((source) => ({
+      ...source,
+      published_at: source.published_at ?? today
+    }))
+  ].filter((source, index, arr) =>
+    arr.findIndex((s) => s.url === source.url) === index
+  );
 
   const llmResearch = await buildResearchWithOpenAi({
     topic: topicTitle,
@@ -40,11 +47,25 @@ async function main() {
   console.log(`Research bundle created with ${sourceList.length} sources`);
 }
 
+function buildTrendSource(selectedTopic) {
+  if (!selectedTopic?.source_url || !isValidHttpUrl(selectedTopic.source_url)) {
+    return null;
+  }
+  return {
+    title: selectedTopic.source_name
+      ? `${selectedTopic.source_name} - ${selectedTopic.title}`
+      : selectedTopic.title,
+    url: selectedTopic.source_url,
+    published_at: selectedTopic.published_at ?? new Date().toISOString().slice(0, 10)
+  };
+}
+
 function buildTrustedSourceList(baseSourceList, llmSourceList) {
   if (!Array.isArray(llmSourceList) || llmSourceList.length === 0) {
     return baseSourceList;
   }
 
+  const knownUrls = new Set(baseSourceList.map((source) => source.url));
   const byUrl = new Map(baseSourceList.map((source) => [source.url, source]));
 
   for (const source of llmSourceList) {
@@ -55,19 +76,14 @@ function buildTrustedSourceList(baseSourceList, llmSourceList) {
       continue;
     }
 
+    // Only accept LLM sources that match our known base sources.
+    // This prevents the LLM from hallucinating URLs.
     if (byUrl.has(source.url)) {
       byUrl.set(source.url, {
         ...byUrl.get(source.url),
         title: String(source.title)
       });
-      continue;
     }
-
-    byUrl.set(source.url, {
-      title: String(source.title),
-      url: String(source.url),
-      published_at: source.published_at ?? new Date().toISOString().slice(0, 10)
-    });
   }
 
   return [...byUrl.values()].slice(0, 6);

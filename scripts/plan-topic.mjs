@@ -132,12 +132,17 @@ async function main() {
     selected_topic: {
       title: selected.title,
       angle: llmDecision?.selected_topic?.angle ?? selected.angle,
-      score: selected.total
+      score: selected.total,
+      ...(selected.source_url && { source_url: selected.source_url }),
+      ...(selected.published_at && { published_at: selected.published_at }),
+      ...(selected.source && { source_name: selected.source })
     },
     fallback_topic: {
       title: fallback.title,
       angle: llmDecision?.fallback_topic?.angle ?? fallback.angle,
-      score: fallback.total
+      score: fallback.total,
+      ...(fallback.source_url && { source_url: fallback.source_url }),
+      ...(fallback.published_at && { published_at: fallback.published_at })
     },
     candidates: scored.slice(0, 8).map((item) => ({
       ...item,
@@ -199,10 +204,11 @@ async function loadCandidates() {
     .slice(0, 10)
     .map((item) => ({ ...item, source_type: "pool" }));
 
-  const hnEntries = focusedHn.map((title) => ({
-    title,
-    category: inferCategory(title),
-    source_type: "hn"
+  const hnEntries = focusedHn.map((entry) => ({
+    title: entry.title,
+    category: inferCategory(entry.title),
+    source_type: "hn",
+    source_url: entry.url
   }));
 
   const trendCandidates = trendEntries
@@ -211,7 +217,9 @@ async function loadCandidates() {
       title: entry.title,
       category: entry.category,
       source: entry.source,
-      source_type: "trend"
+      source_type: "trend",
+      source_url: entry.url,
+      published_at: entry.published_at
     }));
 
   const dynamicCandidates = dedupeCandidates([...trendCandidates, ...hnEntries]);
@@ -247,7 +255,7 @@ async function fetchFocusedHnTitles() {
         if (item?.title && typeof item.title === "string") {
           const lowered = item.title.toLowerCase();
           if (isFocusedTitle(lowered)) {
-            titles.push(item.title);
+            titles.push({ title: item.title, url: item.url ?? "" });
           }
         }
       })
@@ -315,7 +323,9 @@ function dedupeCandidates(candidates) {
     seen.add(key);
     unique.push({
       ...candidate,
-      angle: angleForCategory(candidate.category)
+      angle: angleForCategory(candidate.category),
+      ...(candidate.source_url && { source_url: candidate.source_url }),
+      ...(candidate.published_at && { published_at: candidate.published_at })
     });
   }
 
