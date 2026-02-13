@@ -14,28 +14,28 @@ import { jaccardSimilarity } from "./lib/text.mjs";
 
 const TOPIC_POOLS = {
   ai_news: [
-    "What backend teams should adopt from this week's AI platform releases",
-    "AI inference cost trends and what they mean for production APIs",
-    "How model gateway patterns improve reliability for AI features",
-    "Practical RAG architecture updates every backend engineer should track"
+    "2026년 AI 에이전트 백엔드 아키텍처 실전 가이드",
+    "RAG 성능 병목 원인과 해결 체크리스트 (백엔드 관점)",
+    "LLM API 비용 최적화: 토큰 비용 절감 설계 패턴",
+    "AI 모델 업데이트 대응 전략: 장애 없이 배포하는 방법"
   ],
   spring_backend: [
-    "Spring Boot 3 production tuning checklist for API latency",
-    "Secure Spring Backend authentication with JWT rotation and session hardening",
-    "Scaling Spring Data JPA without N+1 and slow query regressions",
-    "Event-driven backend design with Spring and outbox pattern"
+    "Spring Boot 3 성능 최적화: p95 지연시간 줄이는 실전 방법",
+    "Spring Security JWT 운영 가이드: 키 회전과 토큰 만료 전략",
+    "Spring Data JPA N+1 문제 해결: 쿼리 튜닝 실전",
+    "Spring 이벤트 기반 백엔드: Outbox 패턴 적용 가이드"
   ],
   backend_engineering: [
-    "Backend reliability patterns for idempotency, retries, and dead-letter queues",
-    "Designing stable REST APIs with versioning and backward compatibility",
-    "Database transaction boundaries in high-traffic backend services",
-    "Practical backend observability with logs, metrics, and distributed tracing"
+    "백엔드 장애 대응 가이드: Retry, Idempotency, DLQ 설계",
+    "REST API 버전 관리 전략: 호환성 유지 실전 패턴",
+    "고트래픽 백엔드 트랜잭션 경계 설계 방법",
+    "백엔드 관측성 구축: 로그·메트릭·트레이싱 실전 체크리스트"
   ],
   cloud_platform: [
-    "Cloud cost optimization for backend workloads with autoscaling guardrails",
-    "Kubernetes deployment strategies for zero-downtime backend releases",
-    "AWS and GCP managed database tradeoffs for backend teams",
-    "Designing resilient cloud architectures with multi-zone failover"
+    "클라우드 비용 최적화: 백엔드 오토스케일링 가드레일 설계",
+    "Kubernetes 무중단 배포 전략: 롤링/카나리 비교 가이드",
+    "AWS vs GCP 백엔드 선택 기준: 관리형 DB 비교",
+    "멀티 AZ 장애 복구 설계: 클라우드 백엔드 고가용성 패턴"
   ]
 };
 
@@ -52,6 +52,40 @@ const FOCUS_KEYWORDS = [
   "kubernetes",
   "database",
   "microservice"
+];
+
+const SEARCH_INTENT_KEYWORDS = [
+  "가이드",
+  "실전",
+  "체크리스트",
+  "비교",
+  "최적화",
+  "문제 해결",
+  "방법",
+  "전략",
+  "성능",
+  "보안",
+  "how to",
+  "checklist",
+  "guide",
+  "vs",
+  "troubleshooting"
+];
+
+const HIGH_DEMAND_TERMS = [
+  "spring boot",
+  "spring",
+  "kubernetes",
+  "aws",
+  "gcp",
+  "rag",
+  "llm",
+  "jwt",
+  "jpa",
+  "api",
+  "observability",
+  "idempotency",
+  "retry"
 ];
 
 async function main() {
@@ -168,7 +202,7 @@ async function fetchFocusedHnTitles() {
         const item = await itemResponse.json();
         if (item?.title && typeof item.title === "string") {
           const lowered = item.title.toLowerCase();
-          if (FOCUS_KEYWORDS.some((keyword) => lowered.includes(keyword))) {
+          if (isFocusedTitle(lowered)) {
             titles.push(item.title);
           }
         }
@@ -193,17 +227,19 @@ function scoreCandidate(title, historyTitles, config) {
   const novelty = Math.round((1 - similarity) * 100);
   const utility = scoreUtility(title);
   const trend = scoreTrend(title);
+  const search = scoreSearchIntent(title);
 
   const total = Math.round(
-    novelty * noveltyWeight + utility * utilityWeight + trend * trendWeight
+    novelty * noveltyWeight + utility * utilityWeight + trend * trendWeight + search * 0.2
   );
 
   return {
     novelty,
     utility,
     trend,
+    search,
     total,
-    reason: "Weighted by novelty, practical utility, and trend signals."
+    reason: "Weighted by novelty, practical utility, trend signals, and search intent."
   };
 }
 
@@ -273,16 +309,60 @@ function scoreUtility(title) {
     "ci",
     "api"
   ];
+  const opinionKeywords = ["why", "future", "opinion", "thoughts", "hot take"];
 
-  const hits = practicalKeywords.filter((keyword) => lower.includes(keyword)).length;
-  return Math.min(100, 55 + hits * 10);
+  const practicalHits = practicalKeywords.filter((keyword) => lower.includes(keyword)).length;
+  const opinionHits = opinionKeywords.filter((keyword) => lower.includes(keyword)).length;
+  return Math.min(100, Math.max(0, 55 + practicalHits * 10 - opinionHits * 15));
+}
+
+function scoreSearchIntent(title) {
+  const lower = title.toLowerCase();
+  const intentHits = SEARCH_INTENT_KEYWORDS.filter((keyword) => lower.includes(keyword)).length;
+  const demandHits = HIGH_DEMAND_TERMS.filter((keyword) => containsKeyword(lower, keyword)).length;
+  return Math.min(100, 45 + intentHits * 12 + demandHits * 8);
 }
 
 function scoreTrend(title) {
   const lower = title.toLowerCase();
-  const trendKeywords = ["ai", "llm", "agent", "release", "v1", "typescript", "react", "next"];
-  const hits = trendKeywords.filter((keyword) => lower.includes(keyword)).length;
+  const trendKeywords = [
+    "ai",
+    "llm",
+    "agent",
+    "release",
+    "spring",
+    "kubernetes",
+    "aws",
+    "gcp",
+    "rag",
+    "backend"
+  ];
+  const hits = trendKeywords.filter((keyword) => containsKeyword(lower, keyword)).length;
   return Math.min(100, 50 + hits * 12);
+}
+
+function isFocusedTitle(lowerTitle) {
+  if (!containsAnyKeyword(lowerTitle, FOCUS_KEYWORDS)) {
+    return false;
+  }
+
+  return (
+    containsAnyKeyword(lowerTitle, HIGH_DEMAND_TERMS) ||
+    containsAnyKeyword(lowerTitle, SEARCH_INTENT_KEYWORDS)
+  );
+}
+
+function containsAnyKeyword(text, keywords) {
+  return keywords.some((keyword) => containsKeyword(text, keyword));
+}
+
+function containsKeyword(text, keyword) {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (/^[a-z0-9\s-]+$/.test(keyword)) {
+    return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+  }
+
+  return text.includes(keyword);
 }
 
 async function pickWithOpenAi(scored, historyTitles) {
@@ -298,7 +378,9 @@ async function pickWithOpenAi(scored, historyTitles) {
         {
           constraints: {
             focus: ["ai_news", "spring_backend", "backend_engineering", "cloud_platform"],
-            avoid_duplicate_titles: true
+            avoid_duplicate_titles: true,
+            prioritize_search_intent: true,
+            avoid_clickbait: true
           },
           history_titles: historyTitles.slice(0, 30),
           candidate_topics: scored.slice(0, 15).map((item) => ({
