@@ -1,8 +1,8 @@
-const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "hello@example.dev";
+const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "hslyjy@gmail.com";
 
 export const metadata = {
   title: "Contact",
-  description: "Contact information for Auto Dev Blog"
+  description: "Contact information for Sol Dev Blog"
 };
 
 export default function ContactPage() {

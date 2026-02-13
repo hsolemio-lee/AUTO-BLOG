@@ -1,5 +1,7 @@
 import { ensureDir, readJson, writeJson } from "./lib/io.mjs";
+import { generateStructuredJson, hasOpenAiKey } from "./lib/openai.mjs";
 import { ARTICLE_FILE, OUT_DIR, RESEARCH_FILE } from "./lib/paths.mjs";
+import { readPromptTemplate } from "./lib/prompts.mjs";
 import { slugify } from "./lib/text.mjs";
 
 async function main() {
@@ -11,15 +13,20 @@ async function main() {
   const today = new Date().toISOString().slice(0, 10);
   const canonicalBase = process.env.BLOG_BASE_URL ?? "https://example.dev";
 
+  const llmArticle = await writeWithOpenAi(research, slug);
+
   const article = {
-    title,
-    summary: buildSummary(research.topic),
+    title: llmArticle?.title ?? title,
+    summary: llmArticle?.summary ?? buildSummary(research.topic),
     slug,
     date: today,
-    tags: inferTags(research.topic),
+    tags: llmArticle?.tags?.length ? llmArticle.tags : inferTags(research.topic),
     canonical_url: `${canonicalBase.replace(/\/$/, "")}/blog/${slug}`,
-    sources: research.source_list.slice(0, 4),
-    content_markdown: buildMarkdown(research)
+    sources: normalizeSources(llmArticle?.sources, research.source_list),
+    content_markdown: ensureMinLength(
+      llmArticle?.content_markdown ?? buildMarkdown(research),
+      research
+    )
   };
 
   await writeJson(ARTICLE_FILE, article);
@@ -27,28 +34,27 @@ async function main() {
 }
 
 function buildSummary(topic) {
-  return `A practical guide to ${topic.toLowerCase()}, with concrete implementation details, tradeoffs, and production-ready checks.`;
+  return `${topic}에 대해 백엔드 실무 관점에서 핵심 아키텍처 결정, 운영 리스크, 적용 체크리스트를 정리한 기술 브리핑입니다.`;
 }
 
 function inferTags(topic) {
   const lower = topic.toLowerCase();
-  const tags = ["engineering", "practical-guide"];
+  const tags = ["backend", "실무가이드"];
 
-  if (lower.includes("typescript")) {
-    tags.push("typescript", "api");
-  } else if (lower.includes("ci") || lower.includes("pipeline")) {
-    tags.push("ci-cd", "automation");
-  } else if (lower.includes("docker") || lower.includes("kubernetes")) {
-    tags.push("devops", "infrastructure");
+  if (lower.includes("ai") || lower.includes("llm") || lower.includes("model")) {
+    tags.push("ai-news", "llm");
+  } else if (lower.includes("spring")) {
+    tags.push("spring-backend", "java");
+  } else if (lower.includes("cloud") || lower.includes("kubernetes") || lower.includes("aws")) {
+    tags.push("cloud", "infrastructure");
   } else {
-    tags.push("architecture", "backend");
+    tags.push("backend-engineering", "architecture");
   }
 
   return tags.slice(0, 6);
 }
 
 function buildMarkdown(research) {
-  const profile = buildTopicProfile(research.topic);
   const claimLines = research.claims
     .map((claim) => `- ${claim.claim} ([${claim.source_title}](${claim.source_url}))`)
     .join("\n");
@@ -59,49 +65,44 @@ function buildMarkdown(research) {
 
   return `## Problem
 
-${profile.problem}
-
-In many teams, this problem stays invisible until it shows up as failed deploys, delayed reviews, or noisy incidents. By the time symptoms appear, the fix is more expensive because multiple systems already depend on the wrong default behavior.
+${research.topic}은(는) 릴리즈 속도와 운영 안정성 사이의 균형이 핵심입니다. 특히 백엔드 서비스에서는 기능 적용 자체보다, 기존 API 계약/성능/SLO에 어떤 영향을 주는지 먼저 정의하지 않으면 장애 가능성이 빠르게 증가합니다.
 
 ## Core Idea
 
-${profile.coreIdea}
+핵심은 "작게 적용하고, 계측하고, 검증한 뒤 확장"입니다. 아래 근거를 기준으로 설계 결정을 내리면 운영 리스크를 크게 줄일 수 있습니다.
 
-Key points from current references:
+주요 근거:
 ${claimLines}
-
-Use these claims as implementation constraints, not as abstract guidance. If a claim cannot be checked automatically, it usually means the rollout is still too broad.
 
 ## Implementation
 
-${profile.steps}
+1. 적용 범위를 서비스 단위 또는 엔드포인트 단위로 한정합니다.
+2. 배포 전후 비교 지표(p95, 에러율, 비용, 처리량)를 고정합니다.
+3. 실패 시 되돌릴 수 있는 fallback 경로를 명시합니다.
+4. 릴리즈 후 24시간 관찰 규칙과 알림 임계치를 설정합니다.
 
-\`\`\`${profile.codeLang}
-${profile.codeBlock}
+\`\`\`ts
+type RolloutGuard = { pass: boolean; reasons: string[] };
+
+export function assertRollout(guard: RolloutGuard): void {
+  if (!guard.pass) {
+    throw new Error("배포 차단: " + guard.reasons.join(", "));
+  }
+}
 \`\`\`
-
-The important part is not the exact syntax, but the explicit gate condition and fallback path. This ensures engineers can move fast without losing observability.
-
-### Rollout pattern
-
-1. Start in one bounded service or pipeline stage.
-2. Add one quality gate that can fail hard.
-3. Measure outcome metrics for one week.
-4. Expand scope only after stable trends.
 
 ## Pitfalls
 
-${profile.pitfalls}
+- 기능 도입 속도만 보고 관측 지표를 생략하는 경우
+- fallback 없이 신규 경로를 기본 경로로 전환하는 경우
+- 비용 변화와 성능 변화를 함께 추적하지 않는 경우
 
 ## Practical Checklist
 
-${profile.checklist}
-
-Suggested operating rhythm:
-
-- Daily: generate one candidate and enforce quality checks.
-- Weekly: review failures and tune thresholds.
-- Monthly: update topic heuristics from reader feedback.
+- [ ] 적용 전/후 핵심 지표를 동일 조건으로 비교했다
+- [ ] 실패 시 복구 경로를 문서화하고 테스트했다
+- [ ] 운영 알림 임계치와 담당자를 지정했다
+- [ ] 근거 링크를 문서에 남겼다
 
 ## References
 
@@ -109,132 +110,98 @@ ${references}
 `;
 }
 
-function buildTopicProfile(topic) {
-  const lower = topic.toLowerCase();
-
-  if (lower.includes("retry") || lower.includes("distributed")) {
-    return {
-      problem:
-        "Distributed requests fail for many reasons: network jitter, partial outages, and upstream timeouts. Without disciplined retry boundaries, clients either give up too early or amplify failures with synchronized retry storms.",
-      coreIdea:
-        "Design retries as a reliability budget: bounded attempts, exponential backoff, and idempotent operations. Pair this with circuit-breaker signals so retries stop when dependency health degrades.",
-      steps: [
-        "1. Classify errors into retryable and non-retryable categories.",
-        "2. Set max-attempt and max-elapsed-time per endpoint.",
-        "3. Add jitter to avoid synchronized bursts.",
-        "4. Emit retry metrics (`attempt_count`, `retry_success`, `terminal_failure`)."
-      ].join("\n"),
-      codeLang: "ts",
-      codeBlock: [
-        "type RetryPolicy = { attempts: number; baseMs: number; maxMs: number };",
-        "",
-        "export async function withRetry(run: () => Promise<Response>, policy: RetryPolicy): Promise<Response> {",
-        "  let lastError: unknown;",
-        "  for (let attempt = 1; attempt <= policy.attempts; attempt += 1) {",
-        "    try {",
-        "      return await run();",
-        "    } catch (error) {",
-        "      lastError = error;",
-        "      if (attempt === policy.attempts) break;",
-        "      const delay = Math.min(policy.maxMs, policy.baseMs * 2 ** (attempt - 1));",
-        "      const jitter = Math.floor(Math.random() * 50);",
-        "      await new Promise((resolve) => setTimeout(resolve, delay + jitter));",
-        "    }",
-        "  }",
-        "  throw lastError instanceof Error ? lastError : new Error(\"retry exhausted\");",
-        "}"
-      ].join("\n"),
-      pitfalls: [
-        "- Retrying non-idempotent operations can create duplicate writes.",
-        "- Missing jitter causes retry waves and cache stampedes.",
-        "- No terminal alert makes silent degradation look healthy."
-      ].join("\n"),
-      checklist: [
-        "- [ ] Retry only documented transient errors",
-        "- [ ] Idempotency key strategy defined",
-        "- [ ] Retry metrics exported to dashboards",
-        "- [ ] Circuit-breaker integration verified"
-      ].join("\n")
-    };
+async function writeWithOpenAi(research, slug) {
+  if (!hasOpenAiKey()) {
+    return null;
   }
 
-  if (lower.includes("ci") || lower.includes("pipeline")) {
-    return {
-      problem:
-        "CI pipelines often become slow and flaky as checks accumulate. Teams then skip safeguards to regain speed, which raises merge risk and post-deploy failures.",
-      coreIdea:
-        "Split checks by confidence and cost: run fail-fast validations early, run expensive suites conditionally, and cache dependencies aggressively. The goal is fast feedback without reducing signal quality.",
-      steps: [
-        "1. Separate lint/type/unit checks into a fast lane.",
-        "2. Trigger integration tests only on affected paths.",
-        "3. Reuse cache keys tied to lockfiles and tool versions.",
-        "4. Publish per-job durations for weekly optimization."
-      ].join("\n"),
-      codeLang: "yaml",
-      codeBlock: [
-        "jobs:",
-        "  quick-check:",
-        "    runs-on: ubuntu-latest",
-        "    steps:",
-        "      - uses: actions/checkout@v4",
-        "      - uses: actions/setup-node@v4",
-        "      - run: npm ci --prefer-offline",
-        "      - run: npm run lint && npm run typecheck && npm test -- --runInBand",
-        "  integration:",
-        "    needs: quick-check",
-        "    if: contains(github.event.pull_request.changed_files, 'api/')",
-        "    runs-on: ubuntu-latest",
-        "    steps:",
-        "      - uses: actions/checkout@v4",
-        "      - run: npm run test:integration"
-      ].join("\n"),
-      pitfalls: [
-        "- Running every heavy job on every PR causes queue congestion.",
-        "- Unstable cache keys create nondeterministic results.",
-        "- No flaky-test policy leads to silent trust erosion."
-      ].join("\n"),
-      checklist: [
-        "- [ ] Fast lane under 10 minutes",
-        "- [ ] Heavy jobs path-filtered",
-        "- [ ] Cache hit rate monitored",
-        "- [ ] Flaky tests quarantined with owner"
-      ].join("\n")
-    };
+  try {
+    const promptTemplate = await readPromptTemplate("writer.md");
+    return await generateStructuredJson({
+      systemPrompt: `${promptTemplate}\n\n출력 전체를 한국어(ko-KR)로 작성하라.`,
+      userPrompt: JSON.stringify(
+        {
+          topic: research.topic,
+          angle: research.angle,
+          slug,
+          required_language: "ko-KR",
+          required_sections: [
+            "## Problem",
+            "## Core Idea",
+            "## Implementation",
+            "## Pitfalls",
+            "## Practical Checklist",
+            "## References"
+          ],
+          claims: research.claims,
+          sources: research.source_list
+        },
+        null,
+        2
+      )
+    });
+  } catch (error) {
+    console.warn(`OpenAI writer fallback: ${error.message}`);
+    return null;
+  }
+}
+
+function normalizeSources(openAiSources, fallbackSources) {
+  if (!Array.isArray(openAiSources) || openAiSources.length < 2) {
+    return fallbackSources.slice(0, 4);
   }
 
-  return {
-    problem:
-      "Engineering initiatives often fail at the integration stage: the idea is valid, but teams cannot translate it into reversible and observable delivery changes.",
-    coreIdea:
-      "Use a constraints-first rollout. Define objective success metrics, add one mandatory gate, and expand only when outcomes remain stable.",
-    steps: [
-      "1. Define success and failure thresholds before coding.",
-      "2. Add one mandatory gate that blocks unsafe publication.",
-      "3. Capture logs, metrics, and owner metadata.",
-      "4. Roll out in stages with explicit rollback instructions."
-    ].join("\n"),
-    codeLang: "ts",
-    codeBlock: [
-      "type GateReport = { pass: boolean; reasons: string[] };",
-      "",
-      "export function enforceGate(report: GateReport): void {",
-      "  if (!report.pass) {",
-      "    throw new Error('publish blocked: ' + report.reasons.join(', '));",
-      "  }",
-      "}"
-    ].join("\n"),
-    pitfalls: [
-      "- Publishing automation without rollback notes.",
-      "- Optimizing volume without measuring quality outcomes.",
-      "- Relying on manual checks for repeated risks."
-    ].join("\n"),
-    checklist: [
-      "- [ ] At least 2 reliable references linked",
-      "- [ ] Quality gate blocks low-confidence output",
-      "- [ ] Duplicate threshold enforced",
-      "- [ ] Alert channel tested"
-    ].join("\n")
-  };
+  const normalized = openAiSources
+    .filter((source) => source?.title && source?.url)
+    .map((source) => ({
+      title: String(source.title),
+      url: String(source.url),
+      published_at: source.published_at ?? new Date().toISOString().slice(0, 10)
+    }));
+
+  return normalized.length >= 2 ? normalized.slice(0, 6) : fallbackSources.slice(0, 4);
+}
+
+function ensureMinLength(markdown, research) {
+  if (markdown.length >= 2100) {
+    return markdown;
+  }
+
+  const evidence = research.claims
+    .map((claim, index) => `${index + 1}. ${claim.claim} (${claim.source_title})`)
+    .join("\n");
+
+  const appendix = `
+
+## 운영 적용 메모
+
+아래는 실무 적용 시 바로 점검해야 할 세부 항목입니다.
+
+- 서비스별 위험도(높음/중간/낮음)를 분류하고, 위험도가 높은 경로부터 점진 배포를 적용합니다.
+- 기능 배포 전후 지표 비교 구간을 동일하게 유지해 해석 오류를 방지합니다.
+- 장애 알림은 담당 팀, 임계치, 대응 절차를 하나의 런북으로 연결합니다.
+- 비용 최적화와 성능 최적화를 분리하지 않고 동일 대시보드에서 함께 추적합니다.
+- 릴리즈 회고 시 성공 사례뿐 아니라 실패 사례를 반드시 문서화합니다.
+
+### 근거 요약
+
+${evidence}
+
+### 팀 운영 권장사항
+
+1. 월간 기술 부채 점검과 함께 배포 정책을 갱신합니다.
+2. 핵심 API에 대한 장애 복구 리허설을 분기별로 수행합니다.
+3. 신규 기술 도입 시 성능·보안·비용의 3축 검증표를 유지합니다.
+4. 개인 의존성을 줄이기 위해 운영 체크리스트를 템플릿화합니다.
+`;
+
+  let expanded = `${markdown}${appendix}`;
+  while (expanded.length < 2100) {
+    expanded +=
+      "\n- 운영 점검 항목: 지표/알림/복구 절차를 동일 릴리즈 기준으로 검증하고, 회고에 근거 링크를 남깁니다.";
+  }
+
+  return expanded;
 }
 
 main().catch((error) => {

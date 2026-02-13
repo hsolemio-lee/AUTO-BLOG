@@ -41,9 +41,11 @@ export default function RootLayout({ children }) {
         <div className="shell">
           <header className="header">
             <a className="brand" href="/">
-              Auto Dev Blog
+              Sol Dev Blog
             </a>
-            <p className="tagline">Daily practical engineering notes, generated and reviewed by quality gates.</p>
+            <p className="tagline">
+              Expert notes on AI news, Spring backend architecture, distributed systems, and cloud operations.
+            </p>
             <nav className="meta-nav" aria-label="Site">
               <Link href="/privacy">Privacy</Link>
               <Link href="/contact">Contact</Link>
@@ -51,7 +53,7 @@ export default function RootLayout({ children }) {
           </header>
           <main>{children}</main>
           <footer className="footer">
-            <p>Built for automated engineering publishing.</p>
+            <p>Built for production-grade backend and cloud engineering publishing.</p>
           </footer>
         </div>
       </body>

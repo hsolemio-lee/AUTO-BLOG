@@ -2,20 +2,56 @@ import fs from "node:fs/promises";
 import yaml from "js-yaml";
 
 import { ensureDir, fileExists, readJson, writeJson } from "./lib/io.mjs";
+import { generateStructuredJson, hasOpenAiKey } from "./lib/openai.mjs";
 import {
   CONTENT_DIR,
   SOURCES_CONFIG_FILE,
   STATE_DIR,
   TOPIC_FILE
 } from "./lib/paths.mjs";
+import { readPromptTemplate } from "./lib/prompts.mjs";
 import { jaccardSimilarity } from "./lib/text.mjs";
 
-const FALLBACK_TOPICS = [
-  "Practical TypeScript patterns for safer API boundaries",
-  "How to design retry logic for distributed systems",
-  "Building reliable CI pipelines with incremental checks",
-  "Feature flags in modern web applications",
-  "Database indexing strategies every backend engineer should know"
+const TOPIC_POOLS = {
+  ai_news: [
+    "What backend teams should adopt from this week's AI platform releases",
+    "AI inference cost trends and what they mean for production APIs",
+    "How model gateway patterns improve reliability for AI features",
+    "Practical RAG architecture updates every backend engineer should track"
+  ],
+  spring_backend: [
+    "Spring Boot 3 production tuning checklist for API latency",
+    "Secure Spring Backend authentication with JWT rotation and session hardening",
+    "Scaling Spring Data JPA without N+1 and slow query regressions",
+    "Event-driven backend design with Spring and outbox pattern"
+  ],
+  backend_engineering: [
+    "Backend reliability patterns for idempotency, retries, and dead-letter queues",
+    "Designing stable REST APIs with versioning and backward compatibility",
+    "Database transaction boundaries in high-traffic backend services",
+    "Practical backend observability with logs, metrics, and distributed tracing"
+  ],
+  cloud_platform: [
+    "Cloud cost optimization for backend workloads with autoscaling guardrails",
+    "Kubernetes deployment strategies for zero-downtime backend releases",
+    "AWS and GCP managed database tradeoffs for backend teams",
+    "Designing resilient cloud architectures with multi-zone failover"
+  ]
+};
+
+const FOCUS_KEYWORDS = [
+  "ai",
+  "llm",
+  "model",
+  "spring",
+  "backend",
+  "api",
+  "cloud",
+  "aws",
+  "gcp",
+  "kubernetes",
+  "database",
+  "microservice"
 ];
 
 async function main() {
@@ -25,25 +61,39 @@ async function main() {
   const candidates = await loadCandidates();
 
   const scored = candidates
-    .map((title) => ({ title, ...scoreCandidate(title, historyTitles, config) }))
+    .map((candidate) => ({
+      title: candidate.title,
+      category: candidate.category,
+      angle: candidate.angle,
+      ...scoreCandidate(candidate.title, historyTitles, config)
+    }))
     .sort((a, b) => b.total - a.total);
 
-  const selected = scored[0];
-  const fallback = scored[1] ?? scored[0];
+  const llmDecision = await pickWithOpenAi(scored, historyTitles);
+  const selected = findCandidate(scored, llmDecision?.selected_topic?.title) ?? scored[0];
+  const fallback =
+    findCandidate(scored, llmDecision?.fallback_topic?.title) ??
+    scored.find((item) => item.title !== selected.title) ??
+    scored[0];
 
   const output = {
     date: new Date().toISOString(),
     selected_topic: {
       title: selected.title,
-      angle: "Explain the concept with implementation steps and concrete tradeoffs.",
+      angle: llmDecision?.selected_topic?.angle ?? selected.angle,
       score: selected.total
     },
     fallback_topic: {
       title: fallback.title,
-      angle: "Cover a pragmatic migration path and failure modes.",
+      angle: llmDecision?.fallback_topic?.angle ?? fallback.angle,
       score: fallback.total
     },
-    candidates: scored.slice(0, 8)
+    candidates: scored.slice(0, 8).map((item) => ({
+      ...item,
+      reason:
+        llmDecision?.candidates?.find((candidate) => candidate.title === item.title)?.reason ??
+        item.reason
+    }))
   };
 
   await writeJson(TOPIC_FILE, output);
@@ -85,19 +135,28 @@ async function loadHistoryTitles() {
 }
 
 async function loadCandidates() {
-  const fromHn = await fetchHnTitles();
-  const merged = [...fromHn, ...FALLBACK_TOPICS];
-  return [...new Set(merged)].slice(0, 20);
+  const focusedHn = await fetchFocusedHnTitles();
+  const poolEntries = Object.entries(TOPIC_POOLS).flatMap(([category, topics]) =>
+    topics.map((title) => ({ title, category }))
+  );
+
+  const hnEntries = focusedHn.map((title) => ({
+    title,
+    category: inferCategory(title)
+  }));
+
+  const merged = [...hnEntries, ...poolEntries];
+  return dedupeCandidates(merged).slice(0, 30);
 }
 
-async function fetchHnTitles() {
+async function fetchFocusedHnTitles() {
   try {
     const topIdsResponse = await fetch("https://hacker-news.firebaseio.com/v0/topstories.json");
     if (!topIdsResponse.ok) {
       return [];
     }
 
-    const ids = (await topIdsResponse.json()).slice(0, 12);
+    const ids = (await topIdsResponse.json()).slice(0, 30);
     const titles = [];
 
     await Promise.all(
@@ -108,7 +167,10 @@ async function fetchHnTitles() {
         }
         const item = await itemResponse.json();
         if (item?.title && typeof item.title === "string") {
-          titles.push(item.title);
+          const lowered = item.title.toLowerCase();
+          if (FOCUS_KEYWORDS.some((keyword) => lowered.includes(keyword))) {
+            titles.push(item.title);
+          }
         }
       })
     );
@@ -145,6 +207,58 @@ function scoreCandidate(title, historyTitles, config) {
   };
 }
 
+function dedupeCandidates(candidates) {
+  const seen = new Set();
+  const unique = [];
+
+  for (const candidate of candidates) {
+    const key = candidate.title.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push({
+      ...candidate,
+      angle: angleForCategory(candidate.category)
+    });
+  }
+
+  return unique;
+}
+
+function inferCategory(title) {
+  const lower = title.toLowerCase();
+
+  if (lower.includes("spring")) {
+    return "spring_backend";
+  }
+  if (lower.includes("ai") || lower.includes("llm") || lower.includes("model")) {
+    return "ai_news";
+  }
+  if (
+    lower.includes("cloud") ||
+    lower.includes("kubernetes") ||
+    lower.includes("aws") ||
+    lower.includes("gcp")
+  ) {
+    return "cloud_platform";
+  }
+  return "backend_engineering";
+}
+
+function angleForCategory(category) {
+  if (category === "ai_news") {
+    return "Turn current AI ecosystem news into backend implementation decisions and risk checks.";
+  }
+  if (category === "spring_backend") {
+    return "Explain Spring backend patterns with production-grade tuning, security, and rollout guidance.";
+  }
+  if (category === "cloud_platform") {
+    return "Translate cloud platform updates into concrete architecture and cost/reliability tradeoffs.";
+  }
+  return "Focus on practical backend engineering patterns and operational decision points.";
+}
+
 function scoreUtility(title) {
   const lower = title.toLowerCase();
   const practicalKeywords = [
@@ -169,6 +283,50 @@ function scoreTrend(title) {
   const trendKeywords = ["ai", "llm", "agent", "release", "v1", "typescript", "react", "next"];
   const hits = trendKeywords.filter((keyword) => lower.includes(keyword)).length;
   return Math.min(100, 50 + hits * 12);
+}
+
+async function pickWithOpenAi(scored, historyTitles) {
+  if (!hasOpenAiKey()) {
+    return null;
+  }
+
+  try {
+    const promptTemplate = await readPromptTemplate("topic-planner.md");
+    return await generateStructuredJson({
+      systemPrompt: promptTemplate,
+      userPrompt: JSON.stringify(
+        {
+          constraints: {
+            focus: ["ai_news", "spring_backend", "backend_engineering", "cloud_platform"],
+            avoid_duplicate_titles: true
+          },
+          history_titles: historyTitles.slice(0, 30),
+          candidate_topics: scored.slice(0, 15).map((item) => ({
+            title: item.title,
+            category: item.category,
+            novelty: item.novelty,
+            utility: item.utility,
+            trend: item.trend,
+            total: item.total,
+            default_angle: item.angle
+          }))
+        },
+        null,
+        2
+      )
+    });
+  } catch (error) {
+    console.warn(`OpenAI topic planner fallback: ${error.message}`);
+    return null;
+  }
+}
+
+function findCandidate(candidates, title) {
+  if (!title) {
+    return null;
+  }
+
+  return candidates.find((candidate) => candidate.title.toLowerCase() === String(title).toLowerCase());
 }
 
 main().catch((error) => {

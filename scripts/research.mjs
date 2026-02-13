@@ -1,5 +1,7 @@
 import { ensureDir, readJson, writeJson } from "./lib/io.mjs";
+import { generateStructuredJson, hasOpenAiKey } from "./lib/openai.mjs";
 import { RESEARCH_FILE, STATE_DIR, TOPIC_FILE } from "./lib/paths.mjs";
+import { readPromptTemplate } from "./lib/prompts.mjs";
 import { inferReliableSources } from "./lib/sources.mjs";
 
 async function main() {
@@ -13,14 +15,20 @@ async function main() {
     published_at: new Date().toISOString().slice(0, 10)
   }));
 
-  const claims = buildClaims(topicTitle, sourceList);
+  const llmResearch = await buildResearchWithOpenAi({
+    topic: topicTitle,
+    angle: topicData.selected_topic.angle,
+    sourceList
+  });
+
+  const claims = llmResearch?.claims ?? buildClaims(topicTitle, sourceList);
 
   const output = {
     topic: topicTitle,
     angle: topicData.selected_topic.angle,
     claims,
-    conflicts: [],
-    source_list: sourceList
+    conflicts: llmResearch?.conflicts ?? [],
+    source_list: llmResearch?.source_list?.length ? llmResearch.source_list : sourceList
   };
 
   await writeJson(RESEARCH_FILE, output);
@@ -31,36 +39,58 @@ function buildClaims(topicTitle, sourceList) {
   const title = topicTitle.toLowerCase();
   const claims = [];
 
-  if (title.includes("typescript")) {
+  if (title.includes("ai") || title.includes("llm") || title.includes("model")) {
     claims.push(
       {
-        claim: "Stricter TypeScript boundaries reduce runtime contract mismatches.",
+        claim: "AI 모델 릴리즈 변경사항은 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 함께 점검해야 안정적으로 반영할 수 있다.",
         confidence: "high"
       },
       {
-        claim: "Combining runtime validation with static types improves API resilience.",
+        claim: "모델 게이트웨이 계층에서 fallback 모델과 타임아웃 정책을 분리하면 장애 전파를 줄일 수 있다.",
         confidence: "high"
+      }
+    );
+  } else if (title.includes("spring")) {
+    claims.push(
+      {
+        claim: "Spring 백엔드 성능 최적화는 트랜잭션 범위 축소와 쿼리 패턴 최적화(N+1 제거)가 핵심이다.",
+        confidence: "high"
+      },
+      {
+        claim: "JWT 키 회전과 짧은 토큰 만료 정책은 Spring 보안 운영에서 필수적인 기본값이다.",
+        confidence: "high"
+      }
+    );
+  } else if (title.includes("cloud") || title.includes("kubernetes") || title.includes("aws") || title.includes("gcp")) {
+    claims.push(
+      {
+        claim: "클라우드 백엔드는 오토스케일링 상한과 비용 경보를 함께 설정해야 비용 급증을 방지할 수 있다.",
+        confidence: "high"
+      },
+      {
+        claim: "멀티 AZ/멀티 존 장애 전환 테스트는 설계 문서보다 실제 복구 시나리오 검증에 더 중요하다.",
+        confidence: "medium"
       }
     );
   } else if (title.includes("ci") || title.includes("pipeline")) {
     claims.push(
       {
-        claim: "Incremental checks reduce CI latency while preserving confidence.",
+        claim: "증분 체크 전략은 CI 시간을 줄이면서도 품질 신호를 유지하는 데 효과적이다.",
         confidence: "medium"
       },
       {
-        claim: "Fail-fast jobs and dependency caching are common CI optimization patterns.",
+        claim: "Fail-fast 단계와 의존성 캐시는 CI 최적화의 가장 검증된 패턴이다.",
         confidence: "high"
       }
     );
   } else {
     claims.push(
       {
-        claim: "A small, iterative rollout strategy lowers production risk for new engineering practices.",
+        claim: "작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.",
         confidence: "high"
       },
       {
-        claim: "Tracking failure modes early improves maintainability and incident response.",
+        claim: "실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.",
         confidence: "high"
       }
     );
@@ -74,6 +104,33 @@ function buildClaims(topicTitle, sourceList) {
       source_title: source.title
     };
   });
+}
+
+async function buildResearchWithOpenAi({ topic, angle, sourceList }) {
+  if (!hasOpenAiKey()) {
+    return null;
+  }
+
+  try {
+    const promptTemplate = await readPromptTemplate("researcher.md");
+    return await generateStructuredJson({
+      systemPrompt: `${promptTemplate}\n\n모든 claim과 설명은 한국어로 작성하라.`,
+      userPrompt: JSON.stringify(
+        {
+          topic,
+          angle,
+          required_language: "ko-KR",
+          preferred_sources: sourceList,
+          focus_scope: ["AI news", "Spring backend", "Backend engineering", "Cloud platforms"]
+        },
+        null,
+        2
+      )
+    });
+  } catch (error) {
+    console.warn(`OpenAI research fallback: ${error.message}`);
+    return null;
+  }
 }
 
 main().catch((error) => {

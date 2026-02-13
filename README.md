@@ -1,6 +1,6 @@
-# Auto Dev Blog
+# Sol Dev Blog
 
-Daily automated developer blog pipeline design and starter scaffolding.
+Daily automated developer blog pipeline focused on AI news, Spring backend, cloud, and practical backend engineering.
 
 ## Goals
 

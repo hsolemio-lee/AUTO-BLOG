@@ -1,10 +1,13 @@
 :root {
-  --bg: #f6f2ea;
-  --text: #1f1d19;
-  --muted: #5e584e;
-  --card: #fffdf9;
-  --line: #d8d1c5;
-  --accent: #0b6e4f;
+  --bg: #f2f5fb;
+  --surface: #ffffff;
+  --surface-2: #f8faff;
+  --text: #0f172a;
+  --muted: #475569;
+  --line: #d3deef;
+  --accent: #1d4ed8;
+  --accent-2: #0f766e;
+  --shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
 }
 
 * {
@@ -15,51 +18,65 @@ body {
   margin: 0;
   color: var(--text);
   background:
-    radial-gradient(circle at 20% 10%, #efe6d8 0%, transparent 30%),
-    radial-gradient(circle at 90% 5%, #e4f0ea 0%, transparent 25%),
-    var(--bg);
-  font-family: "IBM Plex Sans", "Noto Sans KR", sans-serif;
+    radial-gradient(circle at 8% 5%, rgba(29, 78, 216, 0.18) 0%, transparent 24%),
+    radial-gradient(circle at 92% 4%, rgba(15, 118, 110, 0.16) 0%, transparent 30%),
+    linear-gradient(180deg, #eff4fd 0%, var(--bg) 40%, #edf1f8 100%);
+  font-family: "Sora", "Pretendard", "Noto Sans KR", sans-serif;
   line-height: 1.55;
 }
 
 .shell {
-  max-width: 840px;
+  max-width: 940px;
   margin: 0 auto;
-  padding: 28px 20px 40px;
+  padding: 26px 18px 44px;
 }
 
 .header {
-  margin-bottom: 28px;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 14px;
+  margin-bottom: 24px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 20px;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.95) 0%, rgba(241, 246, 255, 0.95) 100%);
+  box-shadow: var(--shadow);
 }
 
 .brand {
   display: inline-block;
   text-decoration: none;
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   color: var(--text);
 }
 
 .tagline {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
+  max-width: 720px;
 }
 
 .meta-nav {
   display: flex;
-  gap: 14px;
-  margin-top: 10px;
-  font-size: 14px;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 13px;
+}
+
+.meta-nav a {
+  text-decoration: none;
+  border: 1px solid #bdd0ef;
+  background: #edf3ff;
+  color: #1e3a8a;
+  border-radius: 999px;
+  padding: 6px 12px;
 }
 
 .footer {
-  margin-top: 22px;
-  border-top: 1px solid var(--line);
+  margin-top: 26px;
   padding-top: 12px;
   color: var(--muted);
   font-size: 13px;
+  text-align: center;
 }
 
 h1,
@@ -74,14 +91,45 @@ h3 {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 12px;
+  gap: 14px;
+}
+
+.hero-panel {
+  margin-bottom: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  padding: 18px;
+  background: linear-gradient(130deg, rgba(29, 78, 216, 0.08), rgba(15, 118, 110, 0.08));
+  box-shadow: var(--shadow);
+}
+
+.hero-panel p {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
+.topic-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.topic-row span {
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid #c9d8f0;
+  color: #0f3e8d;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .post-card {
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: var(--shadow);
 }
 
 .meta {
@@ -98,27 +146,28 @@ h3 {
 }
 
 .tag {
-  background: #ebf4ef;
-  color: #0f4f3d;
-  border: 1px solid #cde2d8;
+  background: #eef4ff;
+  color: #1e3a8a;
+  border: 1px solid #c6d7f5;
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 12px;
 }
 
 .article {
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 18px;
+  border-radius: 18px;
+  padding: 22px;
+  box-shadow: var(--shadow);
 }
 
 .ad-block {
   margin: 18px 0;
   min-height: 120px;
-  border: 1px dashed #c8c1b5;
+  border: 1px dashed #b7c9e8;
   border-radius: 10px;
-  background: #fdfaf3;
+  background: var(--surface-2);
 }
 
 .summary {
@@ -129,7 +178,7 @@ h3 {
   overflow-x: auto;
   padding: 12px;
   border-radius: 8px;
-  background: #1f2933;
+  background: #0f172a;
   color: #f8fafc;
 }
 
@@ -146,12 +195,23 @@ a {
   color: var(--accent);
 }
 
+h2 a {
+  text-decoration: none;
+}
+
 @media (max-width: 640px) {
   .shell {
-    padding: 20px 14px 28px;
+    padding: 16px 12px 24px;
   }
 
   .brand {
     font-size: 24px;
+  }
+
+  .article,
+  .post-card,
+  .header,
+  .hero-panel {
+    padding: 14px;
   }
 }

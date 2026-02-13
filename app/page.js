@@ -21,7 +21,19 @@ export default async function HomePage() {
       <Script id="blog-list-schema" strategy="afterInteractive" type="application/ld+json">
         {JSON.stringify(listSchema)}
       </Script>
-      <h1>Latest Posts</h1>
+      <div className="hero-panel">
+        <h1>Latest Engineering Briefs</h1>
+        <p>
+          Daily posts focused on AI ecosystem updates, Spring backend implementation patterns, cloud-native
+          reliability, and practical backend techniques.
+        </p>
+        <div className="topic-row">
+          <span>AI News</span>
+          <span>Spring Backend</span>
+          <span>Backend Engineering</span>
+          <span>Cloud Platforms</span>
+        </div>
+      </div>
       {posts.length === 0 ? (
         <p>No posts yet. Run the automation pipeline to generate your first article.</p>
       ) : (
