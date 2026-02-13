@@ -4,6 +4,15 @@ import { ARTICLE_FILE, OUT_DIR, RESEARCH_FILE } from "./lib/paths.mjs";
 import { readPromptTemplate } from "./lib/prompts.mjs";
 import { slugify } from "./lib/text.mjs";
 
+const REQUIRED_SECTIONS = [
+  "## Problem",
+  "## Core Idea",
+  "## Implementation",
+  "## Pitfalls",
+  "## Practical Checklist",
+  "## References"
+];
+
 async function main() {
   await ensureDir(OUT_DIR);
   const research = await readJson(RESEARCH_FILE);
@@ -15,6 +24,11 @@ async function main() {
 
   const llmArticle = await writeWithOpenAi(research, slug);
 
+  const structuredMarkdown = normalizeMarkdownStructure(
+    llmArticle?.content_markdown ?? buildMarkdown(research),
+    research
+  );
+
   const article = {
     title: llmArticle?.title ?? title,
     summary: llmArticle?.summary ?? buildSummary(research.topic),
@@ -23,10 +37,7 @@ async function main() {
     tags: llmArticle?.tags?.length ? llmArticle.tags : inferTags(research.topic),
     canonical_url: `${canonicalBase.replace(/\/$/, "")}/blog/${slug}`,
     sources: normalizeSources(llmArticle?.sources, research.source_list),
-    content_markdown: ensureMinLength(
-      llmArticle?.content_markdown ?? buildMarkdown(research),
-      research
-    )
+    content_markdown: ensureMinLength(structuredMarkdown, research)
   };
 
   await writeJson(ARTICLE_FILE, article);
@@ -160,6 +171,26 @@ function normalizeSources(openAiSources, fallbackSources) {
     }));
 
   return normalized.length >= 2 ? normalized.slice(0, 6) : fallbackSources.slice(0, 4);
+}
+
+function normalizeMarkdownStructure(markdown, research) {
+  let normalized = markdown;
+
+  for (const section of REQUIRED_SECTIONS) {
+    if (!normalized.includes(section)) {
+      normalized += `\n\n${section}\n\n`;
+      if (section === "## References") {
+        const references = research.source_list
+          .map((source) => `- [${source.title}](${source.url})`)
+          .join("\n");
+        normalized += references;
+      } else {
+        normalized += "자동 생성 결과를 검증 중입니다. 이 섹션은 다음 생성 주기에서 강화됩니다.";
+      }
+    }
+  }
+
+  return normalized;
 }
 
 function ensureMinLength(markdown, research) {
