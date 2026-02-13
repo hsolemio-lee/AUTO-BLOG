@@ -31,7 +31,8 @@ See `docs/architecture.md` for full details.
 
 ## Operational Defaults
 
-- Schedule: weekdays at 08:00 Asia/Seoul.
+- Schedule: every day at 08:00 Asia/Seoul.
+- Daily volume: 5 posts per run (`BLOG_POSTS_PER_RUN=5`).
 - Publish strategy: draft PR mode by default.
 - Retry: one retry with backoff for transient failures.
 - Alerting: workflow failure notification hook placeholder.
@@ -41,10 +42,12 @@ See `docs/architecture.md` for full details.
 ```bash
 npm install
 npm run blog:run
+npm run blog:run:batch
 npm run dev
 ```
 
 - `npm run blog:run`: generates a post into `content/posts/`
+- `npm run blog:run:batch`: generates multiple posts in one run (default 5)
 - `npm run dev`: starts the blog web app at `http://localhost:3000`
 
 ## Monetization (Ads)
@@ -70,6 +73,8 @@ AdSense review readiness pages are available at:
 - Open Graph + Twitter metadata
 - JSON-LD (`Blog` / `BlogPosting`)
 - Auto-generated `sitemap.xml` and `robots.txt`
+- RSS feed endpoint at `/feed.xml`
+- Related posts and reading time on post detail pages
 
 Generated artifacts:
 

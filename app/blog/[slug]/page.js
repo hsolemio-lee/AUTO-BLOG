@@ -1,9 +1,10 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import Script from "next/script";
 import ReactMarkdown from "react-markdown";
 
 import AdSlot from "../../../components/ad-slot.js";
-import { getAllPosts, getPostBySlug } from "../../../lib/posts.js";
+import { getAllPosts, getPostBySlug, getRelatedPosts } from "../../../lib/posts.js";
 import { SITE_NAME } from "../../../lib/site.js";
 
 export async function generateStaticParams() {
@@ -69,13 +70,16 @@ export default async function BlogPostPage({ params }) {
     },
     keywords: post.tags.join(",")
   };
+  const relatedPosts = await getRelatedPosts(post.slug, post.tags, 3);
 
   return (
     <article className="article">
       <Script id={`post-schema-${post.slug}`} strategy="afterInteractive" type="application/ld+json">
         {JSON.stringify(articleSchema)}
       </Script>
-      <p className="meta">{post.date}</p>
+      <p className="meta">
+        {post.date} · {post.readingTimeMinutes} min read
+      </p>
       <h1>{post.title}</h1>
       <p className="summary">{post.summary}</p>
       <div className="tag-row">
@@ -88,6 +92,16 @@ export default async function BlogPostPage({ params }) {
       <AdSlot className="ad-block" slot={process.env.NEXT_PUBLIC_ADSENSE_POST_TOP_SLOT} />
       <section className="content">
         <ReactMarkdown>{post.markdown}</ReactMarkdown>
+      </section>
+      <section className="related-section">
+        <h2>Related Posts</h2>
+        <ul className="related-list">
+          {relatedPosts.map((item) => (
+            <li key={item.slug}>
+              <Link href={`/blog/${item.slug}`}>{item.title}</Link>
+            </li>
+          ))}
+        </ul>
       </section>
       <AdSlot className="ad-block" slot={process.env.NEXT_PUBLIC_ADSENSE_POST_BOTTOM_SLOT} />
     </article>

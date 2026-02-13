@@ -40,7 +40,9 @@ export default async function HomePage() {
         <ul className="post-list">
           {posts.map((post) => (
             <li key={post.slug} className="post-card">
-              <p className="meta">{post.date}</p>
+              <p className="meta">
+                {post.date} · {post.readingTimeMinutes} min read
+              </p>
               <h2>
                 <Link href={`/blog/${post.slug}`}>{post.title}</Link>
               </h2>

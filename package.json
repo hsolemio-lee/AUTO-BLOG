@@ -14,7 +14,8 @@
     "blog:quality": "node scripts/quality-gate.mjs",
     "blog:publish:pr": "node scripts/publish-pr.mjs",
     "blog:notify:failure": "node scripts/notify-failure.mjs",
-    "blog:run": "npm run blog:plan-topic && npm run blog:research && npm run blog:write && npm run blog:quality && npm run blog:publish:pr"
+    "blog:run": "npm run blog:plan-topic && npm run blog:research && npm run blog:write && npm run blog:quality && npm run blog:publish:pr",
+    "blog:run:batch": "node scripts/run-batch.mjs"
   },
   "dependencies": {
     "ajv": "^8.17.1",

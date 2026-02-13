@@ -14,12 +14,29 @@ async function main() {
     throw new Error("Cannot publish because quality gate did not pass.");
   }
 
-  const fileName = `${article.date}-${article.slug}.mdx`;
-  const filePath = path.join(CONTENT_DIR, fileName);
+  const filePath = await resolveUniqueFilePath(article.date, article.slug);
   const mdx = buildMdx(article);
 
   await fs.writeFile(filePath, mdx, "utf8");
   console.log(`Draft post created: ${path.relative(process.cwd(), filePath)}`);
+}
+
+async function resolveUniqueFilePath(date, slug) {
+  let attempt = 1;
+  while (attempt <= 20) {
+    const suffix = attempt === 1 ? "" : `-${attempt}`;
+    const fileName = `${date}-${slug}${suffix}.mdx`;
+    const filePath = path.join(CONTENT_DIR, fileName);
+
+    try {
+      await fs.access(filePath);
+      attempt += 1;
+    } catch {
+      return filePath;
+    }
+  }
+
+  throw new Error(`Unable to find unique file name for slug: ${slug}`);
 }
 
 function buildMdx(article) {

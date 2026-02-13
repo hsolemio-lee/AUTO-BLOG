@@ -2,7 +2,7 @@ name: Auto Dev Blog Post
 
 on:
   schedule:
-    - cron: "0 23 * * 0-4"
+    - cron: "0 23 * * *"
   workflow_dispatch:
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   generate-and-publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -27,36 +27,21 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Plan topic
-        run: npm run blog:plan-topic
+      - name: Generate daily batch posts
+        run: npm run blog:run:batch
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
-      - name: Build research bundle
-        run: npm run blog:research
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
-      - name: Generate article
-        run: npm run blog:write
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
-      - name: Run quality gates
-        run: npm run blog:quality
-
-      - name: Publish (PR mode)
-        run: npm run blog:publish:pr
+          BLOG_POSTS_PER_RUN: "5"
 
       - name: Create pull request
         uses: peter-evans/create-pull-request@v6
         with:
           branch: auto/blog-post-${{ github.run_id }}
-          commit-message: "chore(blog): add daily generated post"
-          title: "chore(blog): daily generated post"
+          commit-message: "chore(blog): add 5 daily generated posts"
+          title: "chore(blog): daily generated posts (5)"
           body: |
             ## Summary
-            - Generated daily developer blog post via automated pipeline
+            - Generated five daily developer blog posts via automated pipeline
             - Passed local quality gate checks before post file creation
           labels: automation, blog
 

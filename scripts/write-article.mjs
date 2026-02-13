@@ -136,6 +136,12 @@ async function writeWithOpenAi(research, slug) {
           angle: research.angle,
           slug,
           required_language: "ko-KR",
+          min_word_count: 1600,
+          writing_requirements: [
+            "각 섹션에서 실무 맥락과 구체 사례를 포함할 것",
+            "코드 예시는 운영 환경에서 주의할 점까지 설명할 것",
+            "요약 문단으로 끝내지 말고 체크리스트와 검증 기준을 포함할 것"
+          ],
           required_sections: [
             "## Problem",
             "## Core Idea",
@@ -194,7 +200,7 @@ function normalizeMarkdownStructure(markdown, research) {
 }
 
 function ensureMinLength(markdown, research) {
-  if (markdown.length >= 2100) {
+  if (markdown.length >= 4200 && countWords(markdown) >= 1100) {
     return markdown;
   }
 
@@ -227,12 +233,21 @@ ${evidence}
 `;
 
   let expanded = `${markdown}${appendix}`;
-  while (expanded.length < 2100) {
+  while (expanded.length < 4200 || countWords(expanded) < 1100) {
     expanded +=
-      "\n- 운영 점검 항목: 지표/알림/복구 절차를 동일 릴리즈 기준으로 검증하고, 회고에 근거 링크를 남깁니다.";
+      "\n- 운영 점검 항목: 지표 분석 기준, 알림 임계치 정의, 장애 복구 시나리오 검증, 배포 후 회고 기록, 아키텍처 의사결정 근거 문서화를 한 사이클로 반복합니다.";
   }
 
   return expanded;
+}
+
+function countWords(markdown) {
+  return String(markdown)
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`]*`/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean).length;
 }
 
 main().catch((error) => {

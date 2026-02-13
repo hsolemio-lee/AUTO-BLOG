@@ -40,6 +40,7 @@ async function main() {
   const schemaOk = validateSchema(article, schema, report);
   const requiredCitations = config.min_citations ?? 2;
   const similarityThreshold = config.max_similarity_with_existing_posts ?? 0.85;
+  const minWordCount = config.min_word_count ?? 900;
 
   if ((article.sources?.length ?? 0) < requiredCitations) {
     fail(report, `At least ${requiredCitations} citations are required.`);
@@ -58,6 +59,11 @@ async function main() {
       report,
       `Duplicate risk too high (${highestSimilarity.toFixed(2)} >= ${similarityThreshold.toFixed(2)}).`
     );
+  }
+
+  const wordCount = countWords(article.content_markdown);
+  if (wordCount < minWordCount) {
+    fail(report, `Minimum word count not met (${wordCount} < ${minWordCount}).`);
   }
 
   if (schemaOk && report.pass) {
@@ -100,8 +106,18 @@ async function readQualityConfig() {
 
   return {
     min_citations: parsed?.quality?.min_citations ?? 2,
-    max_similarity_with_existing_posts: parsed?.quality?.max_similarity_with_existing_posts ?? 0.85
+    max_similarity_with_existing_posts: parsed?.quality?.max_similarity_with_existing_posts ?? 0.85,
+    min_word_count: parsed?.quality?.min_word_count ?? 900
   };
+}
+
+function countWords(markdown) {
+  return String(markdown)
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`]*`/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean).length;
 }
 
 async function findHighestSimilarity(contentMarkdown) {

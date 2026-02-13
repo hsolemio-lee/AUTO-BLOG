@@ -191,6 +191,21 @@ h3 {
   margin: 0 0 12px;
 }
 
+.related-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.related-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.related-list li {
+  margin-bottom: 8px;
+}
+
 a {
   color: var(--accent);
 }

@@ -43,7 +43,7 @@
     },
     "content_markdown": {
       "type": "string",
-      "minLength": 2000,
+      "minLength": 3500,
       "description": "Full markdown body including required sections"
     }
   },

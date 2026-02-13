@@ -33,5 +33,5 @@ topic_selection:
 quality:
   min_citations: 2
   max_similarity_with_existing_posts: 0.85
-  min_word_count: 900
+  min_word_count: 1000
   require_code_example: true
