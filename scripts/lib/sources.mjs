@@ -64,6 +64,15 @@ const KEYWORD_SOURCE_MAP = [
     ]
   },
   {
+    keywords: ["cursor", "copilot", "claude code", "windsurf", "agentic", "coding agent", "ai coding"],
+    sources: [
+      { title: "Cursor Documentation", url: "https://docs.cursor.com/" },
+      { title: "GitHub Copilot Documentation", url: "https://docs.github.com/en/copilot" },
+      { title: "Anthropic - Claude Code Overview", url: "https://docs.anthropic.com/en/docs/claude-code/overview" },
+      { title: "Vercel AI SDK Documentation", url: "https://sdk.vercel.ai/docs/introduction" }
+    ]
+  },
+  {
     keywords: ["architecture", "system design", "msa", "microservice"],
     sources: [
       { title: "Martin Fowler - Microservices", url: "https://martinfowler.com/articles/microservices.html" },

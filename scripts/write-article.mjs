@@ -46,7 +46,12 @@ function inferTags(topic) {
   const lower = topic.toLowerCase();
   const tags = ["backend", "실무가이드"];
 
-  if (lower.includes("ai") || lower.includes("llm") || lower.includes("model")) {
+  if (
+    lower.includes("cursor") || lower.includes("copilot") || lower.includes("claude code") ||
+    lower.includes("windsurf") || lower.includes("agentic") || lower.includes("coding agent")
+  ) {
+    tags.push("agentic-coding", "ai-tool", "developer-productivity");
+  } else if (lower.includes("ai") || lower.includes("llm") || lower.includes("model")) {
     tags.push("ai-news", "llm");
   } else if (lower.includes("spring")) {
     tags.push("spring-backend", "java");
@@ -69,6 +74,13 @@ function inferTags(topic) {
 
 function inferCategory(topic) {
   const lower = topic.toLowerCase();
+  if (
+    lower.includes("cursor") || lower.includes("copilot") || lower.includes("claude code") ||
+    lower.includes("windsurf") || lower.includes("agentic") || lower.includes("coding agent") ||
+    lower.includes("ai coding")
+  ) {
+    return "agentic-coding";
+  }
   if (lower.includes("ai") || lower.includes("llm") || lower.includes("model") || lower.includes("rag")) {
     return "ai-news";
   }
@@ -199,6 +211,7 @@ async function writeWithOpenAi(research, slug) {
           required_sections: ["최소 4개 이상의 주제별 H2 제목", "코드 예시 1개 이상", "마지막에 참고 자료 섹션"],
           category_options: [
             "ai-news",
+            "agentic-coding",
             "spring-backend",
             "backend-engineering",
             "cloud-platform",

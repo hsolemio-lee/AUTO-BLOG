@@ -123,7 +123,22 @@ function buildClaims(topicTitle, sourceList) {
   const title = topicTitle.toLowerCase();
   const claims = [];
 
-  if (title.includes("ai") || title.includes("llm") || title.includes("model")) {
+  if (
+    title.includes("cursor") || title.includes("copilot") || title.includes("claude code") ||
+    title.includes("windsurf") || title.includes("agentic") || title.includes("coding agent") ||
+    title.includes("ai coding")
+  ) {
+    claims.push(
+      {
+        claim: "AI 코딩 에이전트의 생산성 효과는 반복적 보일러플레이트 작업에서 가장 크고, 복잡한 아키텍처 설계에서는 여전히 사람의 판단이 필수적이다.",
+        confidence: "high"
+      },
+      {
+        claim: "AI가 생성한 코드는 동작 여부와 별개로 보안 취약점, 의존성 관리, 테스트 커버리지를 별도로 검증해야 한다.",
+        confidence: "high"
+      }
+    );
+  } else if (title.includes("ai") || title.includes("llm") || title.includes("model")) {
     claims.push(
       {
         claim: "AI 모델 릴리즈 변경사항은 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 함께 점검해야 안정적으로 반영할 수 있다.",
