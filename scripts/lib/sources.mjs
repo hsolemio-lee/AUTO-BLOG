@@ -117,11 +117,9 @@ export function inferReliableSources(topicTitle) {
     }
   }
 
-  if (matched.length >= 2) {
-    return uniqueByUrl(matched);
-  }
-
-  return uniqueByUrl([...matched, ...FALLBACK_SOURCES]).slice(0, 4);
+  // Always append fallback sources for redundancy.
+  // If some matched URLs are 404, fallbacks keep the source count above the quality gate minimum.
+  return uniqueByUrl([...matched, ...FALLBACK_SOURCES]).slice(0, 6);
 }
 
 function uniqueByUrl(items) {
