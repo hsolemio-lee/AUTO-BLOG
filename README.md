@@ -1,6 +1,6 @@
 # Sol Dev Blog
 
-Daily automated developer blog pipeline focused on AI news, Spring backend, cloud, and practical backend engineering.
+Daily automated developer blog pipeline focused on AI, frontend, backend, cloud, and software architecture topics.
 
 ## Goals
 
@@ -83,6 +83,19 @@ AdSense review readiness pages are available at:
 - Tag and category browsing pages
 - Giscus comment support on post detail pages
 
+## Giscus Setup (Comments)
+
+1. Go to `https://giscus.app`, select your repo, and enable GitHub Discussions.
+2. Copy values for repository/category IDs and set these env vars:
+   - `NEXT_PUBLIC_GISCUS_REPO`
+   - `NEXT_PUBLIC_GISCUS_REPO_ID`
+   - `NEXT_PUBLIC_GISCUS_CATEGORY`
+   - `NEXT_PUBLIC_GISCUS_CATEGORY_ID`
+3. Optional behavior/style tuning:
+   - `NEXT_PUBLIC_GISCUS_MAPPING` (`pathname`, `url`, `title`, `og:title`)
+   - `NEXT_PUBLIC_GISCUS_THEME` (`preferred_color_scheme`, `light`, `dark`, etc.)
+4. Redeploy, then open any `/blog/[slug]` page and verify the comment thread is rendered.
+
 Generated artifacts:
 
 - `.autoblog/state/topic.json`
@@ -110,6 +123,8 @@ Generated artifacts:
 | `NEXT_PUBLIC_GISCUS_REPO_ID` | No | Giscus repository ID |
 | `NEXT_PUBLIC_GISCUS_CATEGORY` | No | Giscus discussion category |
 | `NEXT_PUBLIC_GISCUS_CATEGORY_ID` | No | Giscus category ID |
+| `NEXT_PUBLIC_GISCUS_MAPPING` | No | Giscus mapping strategy (default: `pathname`) |
+| `NEXT_PUBLIC_GISCUS_THEME` | No | Giscus theme (default: `preferred_color_scheme`) |
 
 ## Deployment
 

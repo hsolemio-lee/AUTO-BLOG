@@ -51,6 +51,15 @@ function inferTags(topic) {
     lower.includes("windsurf") || lower.includes("agentic") || lower.includes("coding agent")
   ) {
     tags.push("agentic-coding", "ai-tool", "developer-productivity");
+  } else if (
+    lower.includes("frontend") ||
+    lower.includes("react") ||
+    lower.includes("next.js") ||
+    lower.includes("vue") ||
+    lower.includes("css") ||
+    lower.includes("ui")
+  ) {
+    tags.push("frontend", "ui-engineering");
   } else if (lower.includes("ai") || lower.includes("llm") || lower.includes("model")) {
     tags.push("ai-news", "llm");
   } else if (lower.includes("spring")) {
@@ -74,6 +83,16 @@ function inferTags(topic) {
 
 function inferCategory(topic) {
   const lower = topic.toLowerCase();
+  if (
+    lower.includes("frontend") ||
+    lower.includes("react") ||
+    lower.includes("next.js") ||
+    lower.includes("vue") ||
+    lower.includes("css") ||
+    lower.includes("ui")
+  ) {
+    return "frontend";
+  }
   if (
     lower.includes("cursor") || lower.includes("copilot") || lower.includes("claude code") ||
     lower.includes("windsurf") || lower.includes("agentic") || lower.includes("coding agent") ||
@@ -211,6 +230,7 @@ async function writeWithOpenAi(research, slug) {
           required_sections: ["최소 4개 이상의 주제별 H2 제목", "코드 예시 1개 이상", "마지막에 참고 자료 섹션"],
           category_options: [
             "ai-news",
+            "frontend",
             "agentic-coding",
             "spring-backend",
             "backend-engineering",
@@ -270,39 +290,6 @@ function normalizeMarkdownStructure(markdown, research) {
   return normalized;
 }
 
-function pickFallbackHeadings(topic) {
-  const presets = [
-    {
-      context: "## 왜 이 주제가 중요한가",
-      core: "## 핵심 아이디어",
-      execution: "## 구현할 때 이렇게 접근해보자",
-      risks: "## 현업에서 자주 터지는 포인트",
-      apply: "## 바로 적용할 때 순서"
-    },
-    {
-      context: "## 배경과 문제 상황",
-      core: "## 이 글의 결론부터 말하면",
-      execution: "## 구현 전략과 코드 예시",
-      risks: "## 놓치기 쉬운 리스크",
-      apply: "## 팀에 적용하는 방법"
-    },
-    {
-      context: "## 지금 이걸 다뤄야 하는 이유",
-      core: "## 설계 관점에서 본 핵심",
-      execution: "## 실전 적용 시나리오",
-      risks: "## 운영 단계에서의 함정",
-      apply: "## 실행 계획"
-    }
-  ];
-
-  let hash = 0;
-  for (const char of topic) {
-    hash = (hash + char.charCodeAt(0)) % presets.length;
-  }
-
-  return presets[hash];
-}
-
 function countH2Sections(markdown) {
   return (String(markdown).match(/^##\s+/gm) ?? []).length;
 }
@@ -312,26 +299,43 @@ function hasReferenceHeading(markdown) {
 }
 
 function ensureMinLength(markdown, research) {
-  const words = countWords(markdown);
-  if (words >= 1100) {
+  if (countWords(markdown) >= 1000) {
     return markdown;
   }
 
-  // Expand each claim into a more detailed discussion
-  const claimExpansions = research.claims
-    .map((claim) =>
-      `**${claim.claim}** — 이 부분은 [${claim.source_title}](${claim.source_url})에서 다루고 있습니다. ` +
-      `실무에서는 서비스 규모, 팀 역량, 기존 인프라 상황에 따라 적용 범위를 조정해야 합니다. ` +
-      `한꺼번에 도입하기보다 가장 영향이 큰 부분부터 점진적으로 적용하고, 배포 전후 지표를 비교해 효과를 검증하는 것이 안전합니다.`
-    )
-    .join("\n\n");
+  const fallbackClaims = Array.isArray(research.claims) && research.claims.length > 0
+    ? research.claims
+    : [
+        {
+          claim: "운영 환경에서는 단계적 도입과 지표 기반 검증이 필수다.",
+          source_title: "참고 자료",
+          source_url: ""
+        }
+      ];
 
-  const expansion = `\n\n## 실무 적용 시 고려할 점\n\n${claimExpansions}\n\n` +
-    `도입 초기에는 기존 방식과 병행 운영하면서 새로운 방식의 안정성을 확인하세요. ` +
-    `장애 발생 시 즉시 이전 방식으로 되돌릴 수 있는 롤백 경로를 항상 확보해 두는 것이 중요합니다. ` +
-    `팀 내에서 변경 사항을 공유하고, 운영 런북에 새로운 절차를 반영해야 실제 장애 상황에서 빠르게 대응할 수 있습니다.`;
+  let expanded = markdown;
+  let sectionIndex = 1;
 
-  return `${markdown}${expansion}`;
+  while (countWords(expanded) < 1000 && sectionIndex <= 4) {
+    const claimExpansions = fallbackClaims
+      .map((claim) => {
+        const source = claim.source_url ? `([${claim.source_title}](${claim.source_url}))` : "";
+        return `- **${claim.claim}** ${source}\n  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. ` +
+          `초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. ` +
+          `특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.`;
+      })
+      .join("\n\n");
+
+    expanded +=
+      `\n\n## 운영에서 바로 점검할 항목 ${sectionIndex}\n\n${claimExpansions}\n\n` +
+      `추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. ` +
+      `에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. ` +
+      `배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.`;
+
+    sectionIndex += 1;
+  }
+
+  return expanded;
 }
 
 function countWords(markdown) {

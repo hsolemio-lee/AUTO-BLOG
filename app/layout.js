@@ -44,7 +44,7 @@ export default function RootLayout({ children }) {
               Sol Dev Blog
             </a>
             <p className="tagline">
-              Expert notes on AI news, Spring backend architecture, distributed systems, and cloud operations.
+              Expert notes on AI trends, frontend engineering, Spring backend architecture, and cloud operations.
             </p>
             <nav className="meta-nav" aria-label="Site">
               <Link href="/categories">Categories</Link>
@@ -56,7 +56,7 @@ export default function RootLayout({ children }) {
           </header>
           <main>{children}</main>
           <footer className="footer">
-            <p>Built for production-grade backend and cloud engineering publishing.</p>
+            <p>Built for production-grade software engineering publishing across frontend and backend.</p>
           </footer>
         </div>
       </body>

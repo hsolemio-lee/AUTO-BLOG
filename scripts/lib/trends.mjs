@@ -1,6 +1,7 @@
 const FEED_TIMEOUT_MS = 12000;
 
 export const TREND_FEEDS = [
+  { category: "software", source: "GeekNews", url: "https://news.hada.io/rss/news" },
   { category: "ai_news", source: "WIRED AI", url: "https://www.wired.com/feed/tag/ai/latest/rss" },
   { category: "ai_news", source: "Google AI Blog", url: "https://ai.googleblog.com/feeds/posts/default" },
   { category: "spring_backend", source: "Spring Blog", url: "https://spring.io/blog.atom" },
