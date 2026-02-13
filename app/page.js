@@ -37,6 +37,7 @@ export default async function HomePage() {
         </p>
         <div className="topic-row">
           <span>AI News</span>
+          <span>Frontend</span>
           <span>Spring Backend</span>
           <span>Backend Engineering</span>
           <span>Cloud Platforms</span>

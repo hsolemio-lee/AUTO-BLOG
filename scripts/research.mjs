@@ -65,7 +65,6 @@ function buildTrustedSourceList(baseSourceList, llmSourceList) {
     return baseSourceList;
   }
 
-  const knownUrls = new Set(baseSourceList.map((source) => source.url));
   const byUrl = new Map(baseSourceList.map((source) => [source.url, source]));
 
   for (const source of llmSourceList) {
@@ -220,7 +219,14 @@ async function buildResearchWithOpenAi({ topic, angle, sourceList }) {
           angle,
           required_language: "ko-KR",
           preferred_sources: sourceList,
-          focus_scope: ["AI news", "Spring backend", "Backend engineering", "Cloud platforms"]
+          focus_scope: [
+            "AI news",
+            "Frontend engineering",
+            "Spring backend",
+            "Backend engineering",
+            "Cloud platforms",
+            "Software architecture"
+          ]
         },
         null,
         2

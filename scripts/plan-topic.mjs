@@ -44,6 +44,12 @@ const TOPIC_POOLS = {
     "대규모 백엔드 아키텍처 리뷰 체크리스트: 장애를 줄이는 설계 기준",
     "백엔드 아키텍처 의사결정 기록(ADR) 작성법과 운영 적용 팁"
   ],
+  frontend: [
+    "React 성능 최적화 실전: 렌더링 병목 줄이는 구조 개선",
+    "Next.js App Router 아키텍처 설계: 유지보수 가능한 프론트엔드 구성",
+    "프론트엔드 상태관리 선택 가이드: Redux, Zustand, TanStack Query 비교",
+    "대규모 프론트엔드 코드베이스에서 디자인 시스템 운영 전략"
+  ],
   agentic_coding: [
     "AI Agentic Coding 도구 비교: Cursor vs Claude Code vs Windsurf 실전 리뷰",
     "Claude Code로 백엔드 코드 리팩토링 자동화하기: 실전 워크플로우",
@@ -72,6 +78,12 @@ const FOCUS_KEYWORDS = [
   "msa",
   "saga",
   "outbox",
+  "frontend",
+  "react",
+  "next.js",
+  "vue",
+  "css",
+  "ui",
   "cursor",
   "copilot",
   "claude code",
@@ -118,6 +130,11 @@ const HIGH_DEMAND_TERMS = [
   "system design",
   "microservice",
   "event-driven",
+  "frontend",
+  "react",
+  "next.js",
+  "typescript",
+  "ui",
   "cursor",
   "copilot",
   "claude code",
@@ -357,6 +374,16 @@ function dedupeCandidates(candidates) {
 function inferCategory(title) {
   const lower = title.toLowerCase();
 
+  if (
+    lower.includes("frontend") ||
+    lower.includes("react") ||
+    lower.includes("next.js") ||
+    lower.includes("vue") ||
+    lower.includes("css") ||
+    lower.includes("ui")
+  ) {
+    return "frontend";
+  }
   if (lower.includes("spring")) {
     return "spring_backend";
   }
@@ -411,6 +438,12 @@ function angleForCategory(category) {
   if (category === "architecture") {
     return "Explain architecture decisions with tradeoffs, migration path, and real operational constraints.";
   }
+  if (category === "frontend") {
+    return "Share frontend implementation patterns with performance, UX quality, and scalable component structure.";
+  }
+  if (category === "software") {
+    return "Turn practical software engineering updates into actionable implementation and operations guidance.";
+  }
   return "Focus on practical backend engineering patterns and operational decision points.";
 }
 
@@ -457,6 +490,10 @@ function scoreTrend(title) {
     "backend",
     "architecture",
     "msa",
+    "frontend",
+    "react",
+    "next.js",
+    "web",
     "cursor",
     "copilot",
     "claude code",
@@ -507,6 +544,8 @@ async function pickWithOpenAi(scored, historyTitles) {
             focus: [
               "ai_news",
               "agentic_coding",
+              "frontend",
+              "software",
               "spring_backend",
               "backend_engineering",
               "cloud_platform",
