@@ -40,6 +40,7 @@ export default async function HomePage() {
           <span>Spring Backend</span>
           <span>Backend Engineering</span>
           <span>Cloud Platforms</span>
+          <span>Architecture</span>
         </div>
         <div className="quick-links">
           <Link href="/categories">Browse Categories</Link>

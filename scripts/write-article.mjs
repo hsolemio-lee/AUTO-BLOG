@@ -4,14 +4,7 @@ import { ARTICLE_FILE, OUT_DIR, RESEARCH_FILE } from "./lib/paths.mjs";
 import { readPromptTemplate } from "./lib/prompts.mjs";
 import { slugify } from "./lib/text.mjs";
 
-const REQUIRED_SECTIONS = [
-  "## Problem",
-  "## Core Idea",
-  "## Implementation",
-  "## Pitfalls",
-  "## Practical Checklist",
-  "## References"
-];
+const REFERENCE_HEADINGS = ["## References", "## 참고 자료", "## Sources", "## 참고한 글"];
 
 async function main() {
   await ensureDir(OUT_DIR);
@@ -59,6 +52,14 @@ function inferTags(topic) {
     tags.push("spring-backend", "java");
   } else if (lower.includes("cloud") || lower.includes("kubernetes") || lower.includes("aws")) {
     tags.push("cloud", "infrastructure");
+  } else if (
+    lower.includes("architecture") ||
+    lower.includes("아키텍처") ||
+    lower.includes("system design") ||
+    lower.includes("msa") ||
+    lower.includes("saga")
+  ) {
+    tags.push("architecture", "system-design");
   } else {
     tags.push("backend-engineering", "architecture");
   }
@@ -77,10 +78,21 @@ function inferCategory(topic) {
   if (lower.includes("cloud") || lower.includes("kubernetes") || lower.includes("aws") || lower.includes("gcp")) {
     return "cloud-platform";
   }
+  if (
+    lower.includes("architecture") ||
+    lower.includes("아키텍처") ||
+    lower.includes("system design") ||
+    lower.includes("msa") ||
+    lower.includes("saga") ||
+    lower.includes("outbox")
+  ) {
+    return "architecture";
+  }
   return "backend-engineering";
 }
 
 function buildMarkdown(research) {
+  const headings = pickFallbackHeadings(research.topic);
   const claimLines = research.claims
     .map((claim) => `- ${claim.claim} ([${claim.source_title}](${claim.source_url}))`)
     .join("\n");
@@ -89,23 +101,23 @@ function buildMarkdown(research) {
     .map((source) => `- [${source.title}](${source.url})`)
     .join("\n");
 
-  return `## Problem
+  return `${headings.context}
 
-${research.topic}은(는) 릴리즈 속도와 운영 안정성 사이의 균형이 핵심입니다. 특히 백엔드 서비스에서는 기능 적용 자체보다, 기존 API 계약/성능/SLO에 어떤 영향을 주는지 먼저 정의하지 않으면 장애 가능성이 빠르게 증가합니다.
+${research.topic} 주제는 현업에서 "좋아 보이는데 실제 운영에 넣기 어렵다"는 반응이 자주 나옵니다. 이유는 단순합니다. 기능 자체보다도 API 계약, 장애 전파 범위, 운영 비용, 팀 대응 속도까지 같이 설계해야 하기 때문입니다. 이 글은 그 부분을 실무 중심으로 정리합니다.
 
-## Core Idea
+${headings.core}
 
-핵심은 "작게 적용하고, 계측하고, 검증한 뒤 확장"입니다. 아래 근거를 기준으로 설계 결정을 내리면 운영 리스크를 크게 줄일 수 있습니다.
+핵심은 "작게 적용 -> 지표로 검증 -> 안전하게 확장"입니다. 감으로 결정하지 않고, 관측 가능한 기준을 먼저 세우면 실패 확률이 확실히 줄어듭니다. 아래 근거를 실제 의사결정 체크포인트로 사용하세요.
 
 주요 근거:
 ${claimLines}
 
-## Implementation
+${headings.execution}
 
-1. 적용 범위를 서비스 단위 또는 엔드포인트 단위로 한정합니다.
+1. 적용 범위를 서비스 단위 또는 엔드포인트 단위로 한정합니다. (처음부터 전면 적용 금지)
 2. 배포 전후 비교 지표(p95, 에러율, 비용, 처리량)를 고정합니다.
-3. 실패 시 되돌릴 수 있는 fallback 경로를 명시합니다.
-4. 릴리즈 후 24시간 관찰 규칙과 알림 임계치를 설정합니다.
+3. 실패 시 되돌릴 수 있는 fallback 경로와 롤백 조건을 명시합니다.
+4. 릴리즈 후 24시간 관찰 규칙과 알림 임계치를 운영 런북에 연결합니다.
 
 \`\`\`ts
 type RolloutGuard = { pass: boolean; reasons: string[] };
@@ -117,20 +129,23 @@ export function assertRollout(guard: RolloutGuard): void {
 }
 \`\`\`
 
-## Pitfalls
+${headings.risks}
 
 - 기능 도입 속도만 보고 관측 지표를 생략하는 경우
 - fallback 없이 신규 경로를 기본 경로로 전환하는 경우
 - 비용 변화와 성능 변화를 함께 추적하지 않는 경우
+- 장애 대응 주체(누가, 언제, 무엇을) 정의가 없는 경우
 
-## Practical Checklist
+${headings.apply}
 
-- [ ] 적용 전/후 핵심 지표를 동일 조건으로 비교했다
-- [ ] 실패 시 복구 경로를 문서화하고 테스트했다
-- [ ] 운영 알림 임계치와 담당자를 지정했다
-- [ ] 근거 링크를 문서에 남겼다
+실무에서는 체크리스트보다 "의사결정 순서"가 더 중요합니다. 아래 순서대로만 실행해도 실패 확률이 크게 줄어듭니다.
 
-## References
+1. 먼저 성공 기준과 중단 기준을 한 문장으로 고정합니다.
+2. 모니터링 지표를 최소한으로 정리해, 배포 직후 바로 판단할 수 있게 만듭니다.
+3. 실패 로그를 중심으로 원인을 정리하고, 다음 배포 전에 룰을 하나만 개선합니다.
+4. 팀이 반복해서 쓰는 내용을 문서 템플릿으로 고정해 재사용합니다.
+
+## 참고 자료
 
 ${references}
 `;
@@ -153,23 +168,19 @@ async function writeWithOpenAi(research, slug) {
           required_language: "ko-KR",
           min_word_count: 1600,
           writing_requirements: [
-            "각 섹션에서 실무 맥락과 구체 사례를 포함할 것",
-            "코드 예시는 운영 환경에서 주의할 점까지 설명할 것",
-            "요약 문단으로 끝내지 말고 체크리스트와 검증 기준을 포함할 것"
+            "딱딱한 교과서 톤 대신 현업 엔지니어가 실제로 쓰는 자연스러운 문체로 작성할 것",
+            "독자가 바로 적용할 수 있도록 설정값, 의사결정 기준, 실패 사례를 포함할 것",
+            "유익성 중심으로 작성하고, 추상적 표현이나 과장 문구를 피할 것",
+            "코드 예시는 운영 환경에서 주의할 점과 검증 방법까지 설명할 것",
+            "섹션 제목은 주제에 맞게 자연스럽게 구성하고, 매 글마다 동일한 제목을 반복하지 말 것"
           ],
-          required_sections: [
-            "## Problem",
-            "## Core Idea",
-            "## Implementation",
-            "## Pitfalls",
-            "## Practical Checklist",
-            "## References"
-          ],
+          required_sections: ["최소 4개 이상의 H2 제목", "코드 예시", "마지막 참고자료 섹션"],
           category_options: [
             "ai-news",
             "spring-backend",
             "backend-engineering",
-            "cloud-platform"
+            "cloud-platform",
+            "architecture"
           ],
           claims: research.claims,
           sources: research.source_list
@@ -203,21 +214,58 @@ function normalizeSources(openAiSources, fallbackSources) {
 function normalizeMarkdownStructure(markdown, research) {
   let normalized = markdown;
 
-  for (const section of REQUIRED_SECTIONS) {
-    if (!normalized.includes(section)) {
-      normalized += `\n\n${section}\n\n`;
-      if (section === "## References") {
-        const references = research.source_list
-          .map((source) => `- [${source.title}](${source.url})`)
-          .join("\n");
-        normalized += references;
-      } else {
-        normalized += "자동 생성 결과를 검증 중입니다. 이 섹션은 다음 생성 주기에서 강화됩니다.";
-      }
-    }
+  if (countH2Sections(normalized) < 4) {
+    const headings = pickFallbackHeadings(research.topic);
+    normalized += `\n\n${headings.apply}\n\n현업 적용 포인트를 3~4개로 정리해 다음 배포 사이클에 반영하세요.`;
+  }
+
+  if (!hasReferenceHeading(normalized)) {
+    const references = research.source_list.map((source) => `- [${source.title}](${source.url})`).join("\n");
+    normalized += `\n\n## 참고 자료\n\n${references}`;
   }
 
   return normalized;
+}
+
+function pickFallbackHeadings(topic) {
+  const presets = [
+    {
+      context: "## 왜 이 주제가 중요한가",
+      core: "## 핵심 아이디어",
+      execution: "## 구현할 때 이렇게 접근해보자",
+      risks: "## 현업에서 자주 터지는 포인트",
+      apply: "## 바로 적용할 때 순서"
+    },
+    {
+      context: "## 배경과 문제 상황",
+      core: "## 이 글의 결론부터 말하면",
+      execution: "## 구현 전략과 코드 예시",
+      risks: "## 놓치기 쉬운 리스크",
+      apply: "## 팀에 적용하는 방법"
+    },
+    {
+      context: "## 지금 이걸 다뤄야 하는 이유",
+      core: "## 설계 관점에서 본 핵심",
+      execution: "## 실전 적용 시나리오",
+      risks: "## 운영 단계에서의 함정",
+      apply: "## 실행 계획"
+    }
+  ];
+
+  let hash = 0;
+  for (const char of topic) {
+    hash = (hash + char.charCodeAt(0)) % presets.length;
+  }
+
+  return presets[hash];
+}
+
+function countH2Sections(markdown) {
+  return (String(markdown).match(/^##\s+/gm) ?? []).length;
+}
+
+function hasReferenceHeading(markdown) {
+  return REFERENCE_HEADINGS.some((heading) => markdown.includes(heading));
 }
 
 function ensureMinLength(markdown, research) {

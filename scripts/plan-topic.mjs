@@ -11,6 +11,7 @@ import {
 } from "./lib/paths.mjs";
 import { readPromptTemplate } from "./lib/prompts.mjs";
 import { jaccardSimilarity } from "./lib/text.mjs";
+import { fetchTrendEntries } from "./lib/trends.mjs";
 
 const TOPIC_POOLS = {
   ai_news: [
@@ -36,6 +37,12 @@ const TOPIC_POOLS = {
     "Kubernetes 무중단 배포 전략: 롤링/카나리 비교 가이드",
     "AWS vs GCP 백엔드 선택 기준: 관리형 DB 비교",
     "멀티 AZ 장애 복구 설계: 클라우드 백엔드 고가용성 패턴"
+  ],
+  architecture: [
+    "MSA 전환 시 도메인 경계 설계: 모놀리스 분해 아키텍처 가이드",
+    "이벤트 기반 아키텍처 설계: Saga와 Outbox 패턴 실전 비교",
+    "대규모 백엔드 아키텍처 리뷰 체크리스트: 장애를 줄이는 설계 기준",
+    "백엔드 아키텍처 의사결정 기록(ADR) 작성법과 운영 적용 팁"
   ]
 };
 
@@ -51,7 +58,12 @@ const FOCUS_KEYWORDS = [
   "gcp",
   "kubernetes",
   "database",
-  "microservice"
+  "microservice",
+  "architecture",
+  "system design",
+  "msa",
+  "saga",
+  "outbox"
 ];
 
 const SEARCH_INTENT_KEYWORDS = [
@@ -85,7 +97,11 @@ const HIGH_DEMAND_TERMS = [
   "api",
   "observability",
   "idempotency",
-  "retry"
+  "retry",
+  "architecture",
+  "system design",
+  "microservice",
+  "event-driven"
 ];
 
 async function main() {
@@ -99,7 +115,8 @@ async function main() {
       title: candidate.title,
       category: candidate.category,
       angle: candidate.angle,
-      ...scoreCandidate(candidate.title, historyTitles, config)
+      source_type: candidate.source_type,
+      ...scoreCandidate(candidate.title, historyTitles, config, candidate.source_type)
     }))
     .sort((a, b) => b.total - a.total);
 
@@ -175,16 +192,38 @@ async function loadHistoryTitles() {
 
 async function loadCandidates() {
   const focusedHn = await fetchFocusedHnTitles();
-  const poolEntries = Object.entries(TOPIC_POOLS).flatMap(([category, topics]) =>
-    topics.map((title) => ({ title, category }))
-  );
+  const trendEntries = await fetchTrendEntries({ maxPerFeed: 6 });
+
+  const poolEntries = Object.entries(TOPIC_POOLS)
+    .flatMap(([category, topics]) => topics.map((title) => ({ title, category })))
+    .slice(0, 10)
+    .map((item) => ({ ...item, source_type: "pool" }));
 
   const hnEntries = focusedHn.map((title) => ({
     title,
-    category: inferCategory(title)
+    category: inferCategory(title),
+    source_type: "hn"
   }));
 
-  const merged = [...hnEntries, ...poolEntries];
+  const trendCandidates = trendEntries
+    .filter((entry) => isFocusedTitle(entry.title.toLowerCase()))
+    .map((entry) => ({
+      title: entry.title,
+      category: entry.category,
+      source: entry.source,
+      source_type: "trend"
+    }));
+
+  const dynamicCandidates = dedupeCandidates([...trendCandidates, ...hnEntries]);
+  const needsPoolFallback = dynamicCandidates.length < 18;
+  const merged = needsPoolFallback
+    ? [...dynamicCandidates, ...poolEntries]
+    : dynamicCandidates;
+
+  if (!needsPoolFallback) {
+    console.log(`Using dynamic candidates only (${dynamicCandidates.length})`);
+  }
+
   return dedupeCandidates(merged).slice(0, 30);
 }
 
@@ -220,7 +259,7 @@ async function fetchFocusedHnTitles() {
   }
 }
 
-function scoreCandidate(title, historyTitles, config) {
+function scoreCandidate(title, historyTitles, config, sourceType = "pool") {
   const noveltyWeight = config?.topic_selection?.novelty_weight ?? 0.4;
   const utilityWeight = config?.topic_selection?.utility_weight ?? 0.35;
   const trendWeight = config?.topic_selection?.trend_weight ?? 0.25;
@@ -233,9 +272,14 @@ function scoreCandidate(title, historyTitles, config) {
   const utility = scoreUtility(title);
   const trend = scoreTrend(title);
   const search = scoreSearchIntent(title);
+  const sourceScore = scoreSourcePriority(sourceType);
 
   const total = Math.round(
-    novelty * noveltyWeight + utility * utilityWeight + trend * trendWeight + search * 0.2
+    novelty * noveltyWeight +
+      utility * utilityWeight +
+      trend * trendWeight +
+      search * 0.2 +
+      sourceScore * 0.15
   );
 
   return {
@@ -243,9 +287,20 @@ function scoreCandidate(title, historyTitles, config) {
     utility,
     trend,
     search,
+    source: sourceType,
     total,
     reason: "Weighted by novelty, practical utility, trend signals, and search intent."
   };
+}
+
+function scoreSourcePriority(sourceType) {
+  if (sourceType === "trend") {
+    return 100;
+  }
+  if (sourceType === "hn") {
+    return 85;
+  }
+  return 40;
 }
 
 function dedupeCandidates(candidates) {
@@ -284,6 +339,16 @@ function inferCategory(title) {
   ) {
     return "cloud_platform";
   }
+  if (
+    lower.includes("architecture") ||
+    lower.includes("아키텍처") ||
+    lower.includes("system design") ||
+    lower.includes("msa") ||
+    lower.includes("saga") ||
+    lower.includes("outbox")
+  ) {
+    return "architecture";
+  }
   return "backend_engineering";
 }
 
@@ -296,6 +361,9 @@ function angleForCategory(category) {
   }
   if (category === "cloud_platform") {
     return "Translate cloud platform updates into concrete architecture and cost/reliability tradeoffs.";
+  }
+  if (category === "architecture") {
+    return "Explain architecture decisions with tradeoffs, migration path, and real operational constraints.";
   }
   return "Focus on practical backend engineering patterns and operational decision points.";
 }
@@ -340,7 +408,9 @@ function scoreTrend(title) {
     "aws",
     "gcp",
     "rag",
-    "backend"
+    "backend",
+    "architecture",
+    "msa"
   ];
   const hits = trendKeywords.filter((keyword) => containsKeyword(lower, keyword)).length;
   return Math.min(100, 50 + hits * 12);
@@ -382,7 +452,13 @@ async function pickWithOpenAi(scored, historyTitles) {
       userPrompt: JSON.stringify(
         {
           constraints: {
-            focus: ["ai_news", "spring_backend", "backend_engineering", "cloud_platform"],
+            focus: [
+              "ai_news",
+              "spring_backend",
+              "backend_engineering",
+              "cloud_platform",
+              "architecture"
+            ],
             avoid_duplicate_titles: true,
             prioritize_search_intent: true,
             avoid_clickbait: true

@@ -23,7 +23,7 @@
     "date": { "type": "string", "format": "date" },
     "category": {
       "type": "string",
-      "enum": ["ai-news", "spring-backend", "backend-engineering", "cloud-platform"]
+      "enum": ["ai-news", "spring-backend", "backend-engineering", "cloud-platform", "architecture"]
     },
     "tags": {
       "type": "array",

@@ -13,14 +13,7 @@ import {
 } from "./lib/paths.mjs";
 import { jaccardSimilarity } from "./lib/text.mjs";
 
-const REQUIRED_SECTIONS = [
-  "## Problem",
-  "## Core Idea",
-  "## Implementation",
-  "## Pitfalls",
-  "## Practical Checklist",
-  "## References"
-];
+const REFERENCE_HEADINGS = ["## References", "## 참고 자료", "## Sources", "## 참고한 글"];
 
 async function main() {
   await ensureDir(OUT_DIR);
@@ -46,11 +39,18 @@ async function main() {
     fail(report, `At least ${requiredCitations} citations are required.`);
   }
 
-  const missingSections = REQUIRED_SECTIONS.filter(
-    (section) => !article.content_markdown.includes(section)
-  );
-  if (missingSections.length > 0) {
-    fail(report, `Missing required sections: ${missingSections.join(", ")}`);
+  const reachableCount = await countReachableSources(article.sources ?? []);
+  if (reachableCount < requiredCitations) {
+    fail(report, `At least ${requiredCitations} reachable source links are required (found ${reachableCount}).`);
+  }
+
+  const h2Count = countH2Sections(article.content_markdown);
+  if (h2Count < 4) {
+    fail(report, `At least 4 H2 sections are required (found ${h2Count}).`);
+  }
+
+  if (!hasReferenceHeading(article.content_markdown)) {
+    fail(report, "References section is required.");
   }
 
   const highestSimilarity = await findHighestSimilarity(article.content_markdown);
@@ -146,6 +146,55 @@ async function findHighestSimilarity(contentMarkdown) {
 function fail(report, reason) {
   report.pass = false;
   report.reasons.push(reason);
+}
+
+async function countReachableSources(sources) {
+  let count = 0;
+  for (const source of sources.slice(0, 8)) {
+    if (await isReachableUrl(source.url)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+async function isReachableUrl(url) {
+  if (!url || typeof url !== "string") {
+    return false;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    let response = await fetch(url, {
+      method: "HEAD",
+      signal: controller.signal,
+      redirect: "follow"
+    });
+
+    if (!response.ok || response.status >= 400) {
+      response = await fetch(url, {
+        method: "GET",
+        signal: controller.signal,
+        redirect: "follow"
+      });
+    }
+
+    return response.ok && response.status < 400;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function countH2Sections(markdown) {
+  return (String(markdown).match(/^##\s+/gm) ?? []).length;
+}
+
+function hasReferenceHeading(markdown) {
+  return REFERENCE_HEADINGS.some((heading) => String(markdown).includes(heading));
 }
 
 main().catch((error) => {

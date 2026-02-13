@@ -21,18 +21,86 @@ async function main() {
     sourceList
   });
 
-  const claims = llmResearch?.claims ?? buildClaims(topicTitle, sourceList);
+  const trustedSourceList = buildTrustedSourceList(sourceList, llmResearch?.source_list);
+
+  const claims = normalizeClaims(
+    llmResearch?.claims ?? buildClaims(topicTitle, trustedSourceList),
+    trustedSourceList
+  );
 
   const output = {
     topic: topicTitle,
     angle: topicData.selected_topic.angle,
     claims,
     conflicts: llmResearch?.conflicts ?? [],
-    source_list: llmResearch?.source_list?.length ? llmResearch.source_list : sourceList
+    source_list: trustedSourceList
   };
 
   await writeJson(RESEARCH_FILE, output);
   console.log(`Research bundle created with ${sourceList.length} sources`);
+}
+
+function buildTrustedSourceList(baseSourceList, llmSourceList) {
+  if (!Array.isArray(llmSourceList) || llmSourceList.length === 0) {
+    return baseSourceList;
+  }
+
+  const byUrl = new Map(baseSourceList.map((source) => [source.url, source]));
+
+  for (const source of llmSourceList) {
+    if (!source?.url || !source?.title) {
+      continue;
+    }
+    if (!isValidHttpUrl(source.url)) {
+      continue;
+    }
+
+    if (byUrl.has(source.url)) {
+      byUrl.set(source.url, {
+        ...byUrl.get(source.url),
+        title: String(source.title)
+      });
+      continue;
+    }
+
+    byUrl.set(source.url, {
+      title: String(source.title),
+      url: String(source.url),
+      published_at: source.published_at ?? new Date().toISOString().slice(0, 10)
+    });
+  }
+
+  return [...byUrl.values()].slice(0, 6);
+}
+
+function normalizeClaims(claims, sourceList) {
+  if (!Array.isArray(claims) || claims.length === 0) {
+    return buildClaims("", sourceList);
+  }
+
+  return claims.map((claim, index) => {
+    const fallbackSource = sourceList[index % sourceList.length];
+    const selectedSource =
+      sourceList.find((source) => source.url === claim?.source_url) ??
+      sourceList.find((source) => source.title === claim?.source_title) ??
+      fallbackSource;
+
+    return {
+      claim: String(claim?.claim ?? "검증 가능한 근거를 기반으로 적용해야 합니다."),
+      source_url: selectedSource.url,
+      source_title: selectedSource.title,
+      confidence: claim?.confidence ?? "medium"
+    };
+  });
+}
+
+function isValidHttpUrl(url) {
+  try {
+    const parsed = new URL(String(url));
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 function buildClaims(topicTitle, sourceList) {
