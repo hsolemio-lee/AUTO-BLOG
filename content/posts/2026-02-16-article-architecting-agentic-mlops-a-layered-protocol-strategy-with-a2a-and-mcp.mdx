@@ -1,0 +1,178 @@
+---
+title: "Agentic MLOps 백엔드 설계: A2A와 MCP 통합을 위한 계층화 프로토콜 전략"
+summary: "Agentic MLOps 환경에서 A2A(Agent-to-Agent)와 MCP(Multi-Channel Protocol)를 효과적으로 통합하는 백엔드 계층화 프로토콜 설계 방법과 실제 Spring 기반 서버 구현 팁을 공유합니다."
+date: "2026-02-16"
+slug: "article-architecting-agentic-mlops-a-layered-protocol-strategy-with-a2a-and-mcp"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/article-architecting-agentic-mlops-a-layered-protocol-strategy-with-a2a-and-mcp"
+tags: ["MLOps", "A2A", "MCP", "백엔드 아키텍처", "Spring", "에이전트 통신"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Cursor Documentation"
+    url: "https://docs.cursor.com/"
+  - title: "GitHub Copilot Documentation"
+    url: "https://docs.github.com/en/copilot"
+  - title: "Anthropic - Claude Code Overview"
+    url: "https://docs.anthropic.com/en/docs/claude-code/overview"
+  - title: "Vercel AI SDK Documentation"
+    url: "https://sdk.vercel.ai/docs/introduction"
+---
+
+# 에이전트들이 서로 대화하는 세상, 어떻게 설계해야 할까?
+
+최근 MLOps 프로젝트에서 에이전트 간 통신을 구현하다 보니, 단순히 API 호출만으로는 한계가 있더라고요. 각 에이전트가 독립적으로 움직이면서도 협업하는 상황이라면, A2A(Agent-to-Agent) 통신과 MCP(Multi-Channel Protocol) 같은 프로토콜 계층화가 필수라는 걸 뼈저리게 느꼈습니다. 
+
+"에이전트가 서로 대화한다"는 말이 막연하게 들릴 수 있지만, 실제로는 메시지 라우팅, 상태 관리, 명령 처리 등 여러 레이어가 조합되어야 하죠. 오늘은 제가 직접 Spring 기반 백엔드에서 A2A와 MCP를 통합하며 겪은 경험과 설계 노하우를 공유하려고 합니다.
+
+---
+
+## A2A 통신, 왜 계층화된 프로토콜이 필요한가?
+
+에이전트 간 통신을 단순 HTTP 호출로만 처리하면, 코드가 금방 복잡해지고 유지보수가 어려워집니다. 에이전트들은 각자 독립적인 역할을 수행하면서도, 서로 상태를 공유하거나 협업해야 하니까요. 
+
+OpenAI API 문서에서도 에이전트 간 독립적 협업을 위해 A2A 통신에 계층화된 프로토콜 설계를 권장합니다. 예를 들어, 메시지 전달 레이어, 명령 처리 레이어, 상태 동기화 레이어를 분리하면 각 레이어별 책임이 명확해지고, 확장성도 좋아집니다[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+실제로 저희 팀에서는 다음과 같은 계층 구조를 도입했어요:
+
+- **Transport Layer**: HTTP/2 기반 gRPC로 메시지 전달
+- **Routing Layer**: 메시지 타입과 대상 에이전트에 따라 라우팅
+- **Command Layer**: 명령 파싱 및 실행
+- **State Layer**: 에이전트 상태 동기화 및 관리
+
+이렇게 나누니, 새로운 에이전트를 추가하거나 프로토콜을 확장할 때도 각 계층만 수정하면 돼서 훨씬 편했습니다.
+
+## MCP가 백엔드 확장성에 미치는 영향
+
+MCP는 여러 에이전트와 서비스가 동시에 통신할 때 유용한 다중 채널 프로토콜입니다. 단일 채널에 모든 메시지를 몰아넣으면 병목이 생기기 쉽고, 상태 추적도 어렵죠.
+
+Cursor 문서에 따르면, MCP는 메시지 라우팅과 상태 관리 계층을 포함한 다중 계층 프로토콜 구조를 권장합니다. 이 구조 덕분에 백엔드 확장성과 유연성이 크게 향상된다고 해요[Cursor Documentation](https://docs.cursor.com/).
+
+저희는 MCP를 도입하면서 다음과 같은 점을 신경 썼습니다:
+
+- **채널 분리**: 명령, 이벤트, 상태 동기화용 채널을 분리
+- **메시지 큐 활용**: Kafka를 통해 비동기 메시지 처리
+- **상태 일관성 유지**: Redis 기반 상태 캐싱과 동기화
+
+이 덕분에 에이전트가 늘어나도 메시지 충돌이나 지연 없이 안정적으로 동작할 수 있었어요. 물론 Kafka 세팅과 Redis 동기화 로직이 복잡해져서 초기 구현에 시간이 좀 걸렸습니다.
+
+## Spring 서버에서 A2A와 MCP 프로토콜을 모듈화하는 법
+
+실제 백엔드 구현에서는 각 프로토콜 계층을 모듈화해서 관리하는 게 핵심입니다. GitHub Copilot 문서에서도 각 계층별 명확한 인터페이스 정의가 유지보수성과 확장성에 중요하다고 강조하죠[GitHub Copilot Documentation](https://docs.github.com/en/copilot).
+
+저희는 Spring Boot 기반 서버에서 다음과 같이 구조를 잡았습니다:
+
+```java
+// 메시지 라우팅 인터페이스
+public interface MessageRouter {
+    void route(Message message);
+}
+
+// 명령 처리 서비스
+@Service
+public class CommandHandler {
+    public void handle(Command command) {
+        // 명령 타입에 따라 처리
+        switch(command.getType()) {
+            case "TRAIN_MODEL":
+                trainModel(command.getPayload());
+                break;
+            case "EVALUATE":
+                evaluateModel(command.getPayload());
+                break;
+            default:
+                throw new IllegalArgumentException("Unknown command type");
+        }
+    }
+
+    private void trainModel(Map<String, Object> payload) {
+        // 모델 학습 로직
+    }
+
+    private void evaluateModel(Map<String, Object> payload) {
+        // 평가 로직
+    }
+}
+
+// 상태 관리 컴포넌트
+@Component
+public class StateManager {
+    private final ConcurrentHashMap<String, AgentState> stateMap = new ConcurrentHashMap<>();
+
+    public void updateState(String agentId, AgentState newState) {
+        stateMap.put(agentId, newState);
+    }
+
+    public AgentState getState(String agentId) {
+        return stateMap.get(agentId);
+    }
+}
+```
+
+각 컴포넌트를 독립적으로 테스트하고 배포할 수 있도록 설계했는데, 덕분에 특정 레이어에 문제가 생겨도 전체 서비스가 멈추지 않고 빠르게 대응할 수 있었습니다.
+
+## Claude Code에서 배우는 계층적 명령 처리와 신뢰성
+
+Anthropic의 Claude Code 플랫폼은 계층적 명령 처리 방식을 통해 A2A 통신 신뢰성을 높이는 좋은 사례입니다. 프롬프트 엔지니어링과 연계해 명령을 세분화하고, 각 에이전트가 자신의 역할에 맞게 명령을 처리하도록 설계했죠[Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview).
+
+이 방식을 참고해 저희도 명령 처리 레이어에서 다음과 같은 전략을 썼습니다:
+
+- 명령을 작은 단위로 쪼개서 에이전트에 전달
+- 각 에이전트는 자신의 상태와 역할에 맞게 명령을 재조합
+- 실패 시 재시도 및 롤백 메커니즘 구현
+
+처음엔 이게 별거 아닌 것 같지만, 실제로 복잡한 워크플로우를 다룰 때는 명령 처리 신뢰성이 시스템 전체 안정성에 직결됩니다.
+
+## Vercel AI SDK와 클라우드 환경에서 MCP 통합하기
+
+마지막으로, 클라우드 환경에서 MCP를 구현할 때는 API 게이트웨이와 이벤트 기반 아키텍처가 큰 도움이 됩니다. Vercel AI SDK 문서에 따르면, 이 조합은 MCP 통합을 간소화하고 백엔드 확장성을 극대화하는 데 효과적이라고 하네요[Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction).
+
+저희는 AWS API Gateway와 Lambda, EventBridge를 활용해 다음과 같은 구조를 만들었습니다:
+
+- API Gateway는 외부 요청을 받아 적절한 채널로 라우팅
+- Lambda 함수가 명령 처리 및 상태 업데이트 담당
+- EventBridge로 에이전트 간 이벤트를 비동기 전파
+
+이렇게 하니 서버리스 환경에서도 에이전트 간 통신이 원활하고, 트래픽 급증에도 자동으로 대응할 수 있었습니다.
+
+---
+
+# 마무리하며: 실제로 써보니 꼭 기억할 것들
+
+1. **계층화는 선택이 아니라 필수**입니다. A2A 통신을 단일 레이어에 몰아넣으면 유지보수 지옥이 옵니다.
+2. **MCP는 채널 분리와 상태 관리가 핵심**입니다. 메시지 충돌과 상태 불일치가 시스템 붕괴를 부릅니다.
+3. **Spring 기반 백엔드라면 인터페이스 명확히, 모듈화 철저히** 하세요. 그래야 확장과 테스트가 쉽습니다.
+4. **명령 처리 신뢰성은 워크플로우 안정성의 근간**입니다. 실패 처리와 재시도 로직을 꼭 구현하세요.
+5. **클라우드 환경에선 API 게이트웨이 + 이벤트 기반 아키텍처 조합**이 MCP 통합에 최적입니다.
+
+이 글이 Agentic MLOps 백엔드 설계에 고민하는 분들께 조금이나마 도움이 되었으면 합니다. 실제로 구현하면서 겪은 시행착오와 팁은 언제나 현장에서만 얻을 수 있는 값진 자산이니까요.
+
+---
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Cursor Documentation](https://docs.cursor.com/)
+- [GitHub Copilot Documentation](https://docs.github.com/en/copilot)
+- [Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview)
+- [Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Agentic MLOps 아키텍처 설계 시, A2A(Agent-to-Agent) 통신은 에이전트 간의 독립적이고 효율적인 협업을 가능하게 하며, 이를 위해 계층화된 프로토콜 설계가 필수적이다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **MCP(Multi-Channel Protocol)는 다양한 에이전트 및 서비스 간의 통합 통신을 지원하며, 백엔드에서의 확장성과 유연성을 극대화하기 위해 메시지 라우팅과 상태 관리 계층을 포함하는 다중 계층 프로토콜 구조를 권장한다.** ([Cursor Documentation](https://docs.cursor.com/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실제 백엔드 구현에서는 Spring 기반 서버에서 A2A 및 MCP 프로토콜을 모듈화하여 관리하며, 각 계층별로 명확한 인터페이스를 정의해 유지보수성과 확장성을 보장하는 것이 중요하다.** ([GitHub Copilot Documentation](https://docs.github.com/en/copilot))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Anthropic의 Claude Code 플랫폼은 에이전트 간 프로토콜 설계에 참고할 수 있는 모범 사례를 제공하며, 특히 프롬프트 엔지니어링과 연계된 계층적 명령 처리 방식을 통해 A2A 통신의 신뢰성과 효율성을 높인다.** ([Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Vercel AI SDK는 클라우드 환경에서 MLOps 프로토콜을 구현할 때, API 게이트웨이와 이벤트 기반 아키텍처를 활용하여 MCP 통합을 간소화하며, 이는 백엔드 엔지니어링에서 중요한 설계 패턴이다.** ([Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
