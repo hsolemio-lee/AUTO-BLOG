@@ -30,7 +30,8 @@
         "spring-backend",
         "backend-engineering",
         "cloud-platform",
-        "architecture"
+        "architecture",
+        "scm"
       ]
     },
     "tags": {
