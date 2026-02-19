@@ -64,6 +64,15 @@ function inferTags(topic) {
     tags.push("ai-news", "llm");
   } else if (lower.includes("spring")) {
     tags.push("spring-backend", "java");
+  } else if (
+    lower.includes("scm") ||
+    lower.includes("supply chain") ||
+    lower.includes("logistics") ||
+    lower.includes("procurement") ||
+    lower.includes("inventory") ||
+    lower.includes("warehouse")
+  ) {
+    tags.push("scm", "supply-chain");
   } else if (lower.includes("cloud") || lower.includes("kubernetes") || lower.includes("aws")) {
     tags.push("cloud", "infrastructure");
   } else if (
@@ -105,6 +114,16 @@ function inferCategory(topic) {
   }
   if (lower.includes("spring") || lower.includes("jpa") || lower.includes("jwt")) {
     return "spring-backend";
+  }
+  if (
+    lower.includes("scm") ||
+    lower.includes("supply chain") ||
+    lower.includes("logistics") ||
+    lower.includes("procurement") ||
+    lower.includes("inventory") ||
+    lower.includes("warehouse")
+  ) {
+    return "scm";
   }
   if (lower.includes("cloud") || lower.includes("kubernetes") || lower.includes("aws") || lower.includes("gcp")) {
     return "cloud-platform";
@@ -235,7 +254,8 @@ async function writeWithOpenAi(research, slug) {
             "spring-backend",
             "backend-engineering",
             "cloud-platform",
-            "architecture"
+            "architecture",
+            "scm"
           ],
           claims: research.claims,
           sources: research.source_list
