@@ -225,6 +225,7 @@ async function buildResearchWithOpenAi({ topic, angle, sourceList }) {
             "Spring backend",
             "Backend engineering",
             "Cloud platforms",
+            "Supply chain management",
             "Software architecture"
           ]
         },

@@ -80,6 +80,33 @@ const KEYWORD_SOURCE_MAP = [
     ]
   },
   {
+    keywords: [
+      "scm",
+      "supply chain",
+      "supply-chain",
+      "logistics",
+      "procurement",
+      "inventory",
+      "warehouse",
+      "demand planning",
+      "s&op"
+    ],
+    sources: [
+      {
+        title: "Microsoft Learn - Dynamics 365 Supply Chain Management",
+        url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+      },
+      {
+        title: "Oracle Docs - SCM and Manufacturing",
+        url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+      },
+      {
+        title: "SAP Help Portal - Supply Chain Management",
+        url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+      }
+    ]
+  },
+  {
     keywords: ["ci", "cd", "pipeline", "github actions"],
     sources: [
       { title: "GitHub Actions Documentation", url: "https://docs.github.com/en/actions" },

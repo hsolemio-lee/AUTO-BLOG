@@ -13,6 +13,7 @@ export const TREND_FEEDS = [
     source: "GCP Release Notes",
     url: "https://cloud.google.com/feeds/gcp-release-notes.xml"
   },
+  { category: "scm", source: "Supply Chain Dive", url: "https://www.supplychaindive.com/feeds/news/" },
   { category: "architecture", source: "Martin Fowler", url: "https://martinfowler.com/feed.atom" },
   { category: "cloud_platform", source: "Azure Updates", url: "https://azure.microsoft.com/updates/feed/" }
 ];
