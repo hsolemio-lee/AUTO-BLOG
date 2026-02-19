@@ -31,6 +31,13 @@ const FOCUS_KEYWORDS = [
   "msa",
   "saga",
   "outbox",
+  "scm",
+  "supply chain",
+  "logistics",
+  "procurement",
+  "inventory",
+  "warehouse",
+  "demand planning",
   "frontend",
   "react",
   "next.js",
@@ -83,6 +90,13 @@ const HIGH_DEMAND_TERMS = [
   "system design",
   "microservice",
   "event-driven",
+  "scm",
+  "supply chain",
+  "logistics",
+  "procurement",
+  "inventory",
+  "warehouse",
+  "demand planning",
   "frontend",
   "react",
   "next.js",
@@ -338,6 +352,17 @@ function inferCategory(title) {
     return "spring_backend";
   }
   if (
+    lower.includes("scm") ||
+    lower.includes("supply chain") ||
+    lower.includes("logistics") ||
+    lower.includes("procurement") ||
+    lower.includes("inventory") ||
+    lower.includes("warehouse") ||
+    lower.includes("demand planning")
+  ) {
+    return "scm";
+  }
+  if (
     lower.includes("cursor") ||
     lower.includes("copilot") ||
     lower.includes("claude code") ||
@@ -384,6 +409,9 @@ function angleForCategory(category) {
   }
   if (category === "cloud_platform") {
     return "Translate cloud platform updates into concrete architecture and cost/reliability tradeoffs.";
+  }
+  if (category === "scm") {
+    return "Turn SCM updates into actionable engineering decisions across planning, procurement, inventory, and fulfillment systems.";
   }
   if (category === "architecture") {
     return "Explain architecture decisions with tradeoffs, migration path, and real operational constraints.";
@@ -440,6 +468,12 @@ function scoreTrend(title) {
     "backend",
     "architecture",
     "msa",
+    "scm",
+    "supply chain",
+    "logistics",
+    "procurement",
+    "inventory",
+    "warehouse",
     "frontend",
     "react",
     "next.js",
@@ -499,6 +533,7 @@ async function pickWithOpenAi(scored, historyTitles) {
               "spring_backend",
               "backend_engineering",
               "cloud_platform",
+              "scm",
               "architecture"
             ],
             avoid_duplicate_titles: true,
