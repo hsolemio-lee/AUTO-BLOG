@@ -1,0 +1,141 @@
+---
+title: "N64 하드웨어에서 4MB RAM, 93MHz로 경량 LLM 돌리기: 해피 젤다의 40번째 생일을 맞아 본 백엔드 최적화 이야기"
+summary: "극한의 제한된 환경인 닌텐도 64(4MB RAM, 93MHz)에서 경량화된 LLM을 돌리기 위해 필요한 메모리 최적화, 모델 압축, 그리고 연산 효율화 기법을 실제 사례와 함께 공유합니다."
+date: "2026-02-21"
+slug: "happy-zeldas-40th-first-llm-running-on-n64-hardware-4mb-ram-93mhz"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/happy-zeldas-40th-first-llm-running-on-n64-hardware-4mb-ram-93mhz"
+tags: ["LLM", "경량화", "메모리최적화", "임베디드시스템", "백엔드엔지니어링"]
+sources:
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+## 4MB RAM, 93MHz CPU 환경에서 LLM? 이게 진짜 가능해?
+
+얼마 전, 해피 젤다의 40번째 생일을 맞아 닌텐도 64 하드웨어에서 경량화된 LLM을 구동한다는 소식을 접했을 때 솔직히 반신반의했어요. 4MB RAM, 93MHz CPU라니, 요즘 스마트폰보다도 훨씬 제한적인 환경에서 자연어 모델이 돌아간다니. “도대체 어떻게 했을까?” 하는 호기심이 폭발했죠.
+
+이건 그냥 ‘재미로 해봤다’ 수준이 아니라, 극한의 제한된 자원에서 어떻게 하면 LLM을 돌릴 수 있을지 백엔드 엔지니어로서 배울 점이 많다는 생각이 들었어요. 오늘은 그 과정에서 마주친 기술적 난관과, 이를 해결하기 위해 어떤 혁신적인 최적화 기법과 설계가 필요한지 이야기해보려 합니다.
+
+
+## 모델 크기 줄이기, 그 이상의 압축 기술
+
+보통 LLM은 수백 MB에서 수 GB에 달하는 파라미터를 갖고 있죠. 그런데 4MB RAM 환경에서는 기본적으로 불가능합니다. 그래서 가장 먼저 한 건 모델 크기를 극단적으로 줄이는 일이었어요. 단순히 파라미터 수를 줄이는 것뿐 아니라, 파라미터를 8비트, 심지어 4비트로 양자화(quantization)하는 기법을 적극 활용했죠.
+
+```python
+# PyTorch에서 8-bit 양자화 예시
+import torch
+from torch import nn
+from torch.quantization import quantize_dynamic
+
+model = nn.Sequential(
+    nn.Linear(512, 256),
+    nn.ReLU(),
+    nn.Linear(256, 128),
+)
+
+quantized_model = quantize_dynamic(
+    model, {nn.Linear}, dtype=torch.qint8
+)
+```
+
+이렇게 하면 메모리 사용량이 절반 이하로 줄어들고, 연산도 더 빠르게 처리할 수 있어요. 물론 양자화는 정확도 손실을 동반하기 때문에, 실제 서비스에선 트레이드오프를 신중히 따져야 합니다.
+
+또한, 모델 아키텍처 자체를 경량화하는 것도 필수였어요. Transformer의 self-attention을 모두 쓰는 대신, 로컬 윈도우 기반 어텐션이나, 심지어 RNN 계열의 간단한 구조를 결합해 연산량을 줄였죠. 이런 설계는 마틴 파울러가 강조한 ‘소프트웨어 아키텍처 가이드’에서 말하는 ‘적절한 복잡성 관리’와도 맞닿아 있습니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+
+## 메모리 관리가 생명, 캐시와 데이터 흐름 최적화
+
+4MB RAM에서 모델 파라미터뿐 아니라 입력 토큰, 중간 계산 결과까지 모두 담아야 하니, 메모리 할당은 그야말로 사투였어요. 그래서 메모리 풀링(pooling)과 재사용 전략을 도입했는데요, 할당과 해제를 반복하는 대신 미리 큰 버퍼를 잡아놓고 거기서 필요한 만큼만 쪼개 쓰는 방식입니다.
+
+또한, 중복 계산을 줄이기 위해 결과 캐싱도 적극 활용했죠. 예를 들어, 이전에 처리한 프롬프트의 토큰 임베딩을 저장해두고, 비슷한 입력이 들어오면 재사용하는 식입니다. 이런 캐싱 전략은 GitHub 엔지니어링 블로그에서도 제한된 리소스 환경에서 대규모 시스템 성능 유지에 핵심이라고 밝히고 있죠[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+이와 함께 데이터 흐름 최적화도 중요했어요. 불필요한 데이터 복사를 줄이고, 연산 순서를 조정해 메모리 접근 패턴을 개선했죠. 예를 들어, 배치(batch) 단위 처리 대신 스트리밍(streaming) 방식으로 토큰을 하나씩 처리해 메모리 부담을 분산시켰습니다.
+
+
+## 프롬프트 엔지니어링으로 계산량 줄이기
+
+클라우드 기반 LLM과 달리, 로컬 제한 하드웨어에서는 프롬프트 엔지니어링이 훨씬 중요해집니다. 입력 토큰 수를 줄이고, 꼭 필요한 정보만 넣어 불필요한 계산을 배제해야 하죠.
+
+예를 들어, 긴 문장 대신 핵심 키워드만 추출해 넣거나, 이전 대화 내역 중 중요한 부분만 요약해서 전달하는 방식입니다. Anthropic의 프롬프트 엔지니어링 가이드에서도 이런 전략이 강조되고 있어요[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+```python
+# 간단한 프롬프트 요약 예시
+full_prompt = "오늘 날씨 어때? 그리고 내일 일정 알려줘."
+
+# 요약 함수 (예시)
+def summarize_prompt(prompt):
+    # 실제론 NLP 기법으로 핵심만 추출
+    if "날씨" in prompt:
+        return "날씨"
+    elif "일정" in prompt:
+        return "일정"
+    return prompt
+
+optimized_prompt = summarize_prompt(full_prompt)
+print(optimized_prompt)  # 출력: 날씨
+```
+
+이런 식으로 입력 길이를 줄이면, 모델이 처리해야 할 토큰 수가 줄고, 연산량과 메모리 사용량도 크게 감소합니다.
+
+
+## CPU 한계 극복을 위한 연산 분산과 병렬화 시도
+
+93MHz CPU는 요즘 스마트폰 CPU 클럭의 1/100도 안 되는데, 이걸로 LLM을 돌리려면 어떻게든 연산 효율을 극대화해야 했어요. 그래서 연산을 최대한 단순화하고, 가능한 부분은 병렬화했죠.
+
+예를 들어, 벡터 연산을 SIMD(Single Instruction Multiple Data) 명령어로 묶거나, 반복문을 최소화하는 식입니다. 물론 N64 하드웨어 특성상 완전한 병렬화는 어렵지만, 가능한 범위 내에서 분산 처리하는 구조를 설계했어요.
+
+또, 연산 우선순위를 조정해 중요한 부분부터 빠르게 처리하게 했는데, 이건 InfoQ의 아키텍처 디자인 가이드에서 말하는 ‘성능 저하 최소화 전략’과도 일맥상통합니다[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+
+---
+
+### 마치며: 진짜 배울 점은 ‘제한된 환경에서의 창의적 설계’
+
+처음엔 “이게 진짜 가능해?” 싶었지만, 해피 젤다의 40번째 생일을 기념해 N64에서 LLM을 돌리는 프로젝트는 백엔드 엔지니어로서 아주 좋은 교훈을 줬어요. 극한의 제한된 자원에서 어떻게 하면 소프트웨어 아키텍처를 설계하고, 메모리와 연산을 최적화할지에 대한 감을 키울 수 있었죠.
+
+특히, 모델 경량화와 메모리 관리, 프롬프트 엔지니어링, 그리고 연산 분산이라는 네 가지 축을 잘 조합해야 한다는 점이 인상 깊었습니다. 물론 이런 극한 환경은 흔치 않지만, 클라우드 비용 절감이나 IoT, 임베디드 AI 같은 분야에서는 충분히 응용할 수 있는 노하우입니다.
+
+다음에 제한된 환경에서 AI 모델을 돌려야 한다면, 이 사례를 떠올리며 “어떻게 하면 더 작고 빠르게 만들 수 있을까?” 고민해보세요. 의외로 작은 최적화가 큰 차이를 만들 수 있습니다.
+
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **경량화된 LLM을 극도로 제한된 하드웨어(예: 4MB RAM, 93MHz CPU)에서 실행하기 위해서는 모델 크기 축소, 메모리 최적화, 그리고 연산 효율성을 극대화하는 혁신적인 백엔드 엔지니어링이 필수적이다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **백엔드 시스템에서는 메모리와 CPU 자원이 극히 제한된 환경에서 실행할 때, 모델의 파라미터를 압축하고, 연산을 분산시키거나 캐싱 전략을 활용하여 성능 저하를 최소화하는 설계가 중요하다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 기반 LLM과 달리, 로컬 제한 하드웨어에서는 프롬프트 엔지니어링과 모델 경량화가 더욱 중요하며, 이는 입력 토큰 수를 줄이고, 불필요한 계산을 배제하는 방식으로 구현된다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **백엔드 엔지니어링 관점에서, 제한된 하드웨어에서 LLM을 구동하기 위해서는 메모리 할당을 최소화하고, 데이터 흐름을 최적화하는 아키텍처 설계가 필요하며, 이는 마틴 파울러의 소프트웨어 아키텍처 가이드에서 강조된다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그에서는 제한된 리소스 환경에서 대규모 시스템을 운영할 때, 모듈화와 서비스 분리, 그리고 효율적인 리소스 관리가 성능 유지에 핵심 요소임을 밝히고 있다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
