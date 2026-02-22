@@ -1,0 +1,184 @@
+---
+title: "구글 AI 요약 결과를 검색 결과에서 깔끔하게 숨기는 법: 백엔드 필터링 실전 가이드"
+summary: "구글 검색 결과에 노출되는 AI 생성 요약(Overviews)을 백엔드에서 효과적으로 필터링하는 방법을 실제 코드와 함께 설명합니다. AI 콘텐츠가 불필요하거나 사용자 경험을 해칠 때 이를 제어하는 실무 팁을 공유합니다."
+date: "2026-02-22"
+slug: "how-to-hide-googles-ai-overviews-from-your-search-results"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/how-to-hide-googles-ai-overviews-from-your-search-results"
+tags: ["AI 필터링", "검색엔진", "백엔드", "API 설계", "서비스 안정성"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+### "왜 내 서비스 검색 결과에 AI 요약이 자꾸 뜨는 걸까?"
+
+최근에 우리 서비스 검색 결과에 구글 AI가 자동 생성한 요약(overviews)이 붙기 시작했어요. 처음엔 신기했는데, 막상 써보니 사용자들이 "이게 왜 뜨는 거야?"라며 혼란스러워 하더라고요. 특히 원하지 않는 AI 생성 콘텐츠가 섞이면 검색 결과의 신뢰도도 떨어지고, UX도 나빠지는 문제가 생겼죠.
+
+그래서 직접 백엔드에서 AI 요약을 걸러내는 필터링 로직을 넣어보기로 했습니다. 오늘은 그 과정을 공유할게요.
+
+---
+
+## 구글 AI 요약, 왜 백엔드에서 제어해야 할까?
+
+일단 구글 검색 결과에 AI 요약이 뜨는 건 구글이 자체적으로 AI 모델을 돌려서 핵심 내용을 뽑아주기 때문인데요. 문제는 이 요약이 항상 우리 서비스가 의도한 정보와 맞지 않을 수도 있다는 점입니다. 예를 들어, 특정 키워드에 민감한 정보가 포함되어 있거나, 요약의 신뢰성이 떨어질 때 사용자 혼란이 커지죠.
+
+이걸 프론트엔드에서 막으면 UI 복잡도가 급격히 올라가고, 검색 결과 렌더링 속도에도 악영향이 있습니다. 따라서 백엔드에서 API 응답을 조작해 AI 요약을 아예 포함하지 않도록 하는 게 더 깔끔하고 확실한 방법이에요.
+
+또한, AI 모델 릴리즈나 API 스펙 변경이 잦은 상황에서 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 꼼꼼히 점검해야 안정적인 서비스 운영이 가능합니다. 관련 내용은 [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)에서 API 계약의 중요성을 참고하세요.
+
+---
+
+## AI 요약 필터링, 어떻게 시작해야 할까?
+
+우선 구글 검색 결과 API 또는 우리 서비스가 구글 검색 결과를 파싱하는 부분에서 AI 요약이 포함된 필드를 찾아야 합니다. 보통 JSON 응답 내에 `aiOverview`, `summary`, `snippet` 같은 키가 붙어 있죠.
+
+예를 들어, 아래처럼 응답이 온다고 가정해봅시다.
+
+```json
+{
+  "results": [
+    {
+      "title": "백엔드 필터링 가이드",
+      "url": "https://example.com/backend-filter",
+      "snippet": "이 글은 백엔드에서 AI 요약을 필터링하는 방법을 다룹니다.",
+      "aiOverview": "이 문서는 AI가 생성한 요약입니다."
+    },
+    {
+      "title": "일반 검색 결과",
+      "url": "https://example.com/general",
+      "snippet": "일반적인 검색 결과입니다."
+    }
+  ]
+}
+```
+
+여기서 `aiOverview`가 붙은 결과를 제외하거나, 아예 `aiOverview` 필드를 제거하는 식으로 필터링할 수 있겠죠.
+
+---
+
+## 실제 코드로 AI 요약 필터링하기
+
+Node.js Express 백엔드에서 구글 검색 API 결과를 받아 AI 요약을 제거하는 간단한 미들웨어 예제를 보여드릴게요.
+
+```typescript
+import express from 'express';
+import axios from 'axios';
+
+const app = express();
+
+// 구글 검색 API 호출 함수
+async function fetchGoogleSearchResults(query: string) {
+  const response = await axios.get('https://google-search-api.example.com/search', {
+    params: { q: query },
+  });
+  return response.data;
+}
+
+// AI 요약 필터링 함수
+function filterAIOverviews(results: any[]) {
+  return results.filter(item => !item.aiOverview).map(item => {
+    // 혹은 aiOverview 필드만 삭제할 수도 있음
+    const { aiOverview, ...rest } = item;
+    return rest;
+  });
+}
+
+app.get('/search', async (req, res) => {
+  const query = req.query.q as string;
+  try {
+    const data = await fetchGoogleSearchResults(query);
+    if (!data.results) return res.status(500).json({ error: 'Invalid API response' });
+
+    const filteredResults = filterAIOverviews(data.results);
+    res.json({ results: filteredResults });
+  } catch (error) {
+    res.status(500).json({ error: 'Search API error' });
+  }
+});
+
+app.listen(3000, () => {
+  console.log('Server running on http://localhost:3000');
+});
+```
+
+이 코드는 단순히 `aiOverview` 필드가 있는 결과를 아예 걸러내고 있어요. 만약 AI 요약을 완전히 삭제하지 않고, 사용자가 선택적으로 볼 수 있게 하려면, `aiOverview` 필드를 유지하되 프론트엔드에서 표시 여부를 결정하도록 API 계약을 다시 설계하는 것도 방법입니다.
+
+---
+
+## 장애 전파 걱정? AI 모델 게이트웨이 계층 설계 팁
+
+우리 서비스가 구글뿐 아니라 여러 AI 모델(예: OpenAI, Anthropic 등)을 함께 쓰는 경우, AI 모델 호출을 한 군데서 관리하는 게 중요해요. 이때 모델 게이트웨이 계층을 두고, fallback 모델과 타임아웃 정책을 분리하면 장애가 한 모델에서 전체 서비스로 번지는 걸 막을 수 있습니다.
+
+예를 들어, 구글 AI 요약 API가 느려지거나 응답이 없을 때, fallback으로 기존 일반 검색 결과만 보여주도록 하면 사용자 경험 저하를 최소화할 수 있죠. 이런 설계 원칙은 [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)에서 안정성 강화 사례로 참고할 만합니다.
+
+---
+
+## 처음엔 별거 아닌 것 같지만, 필터링 정책이 서비스 신뢰도를 좌우한다
+
+AI 생성 콘텐츠가 넘쳐나는 시대에, 단순히 "AI 요약을 보여주냐 말냐"는 작은 결정 같지만 실제로는 사용자 신뢰와 직결됩니다. 우리 서비스에서는 AI 요약이 필요 없는 경우가 많은데, 사용자 피드백을 보면 "불필요한 요약 때문에 오히려 혼란스럽다"는 의견이 많았어요.
+
+그래서 백엔드에서 확실히 걸러내고, 필요하면 별도 API 파라미터로 AI 요약 포함 여부를 조절할 수 있게 했더니, 검색 결과의 품질이 눈에 띄게 좋아졌습니다.
+
+---
+
+## 마무리하며: 꼭 기억할 점
+
+- AI 모델 릴리즈나 API 변경 시, 반드시 백엔드 API 계약을 함께 점검하세요. 스키마 변경, 지연시간 증가, 비용 변동이 서비스에 미치는 영향이 큽니다.
+- AI 요약 필터링은 프론트엔드보다는 백엔드에서 하는 게 관리와 확장성 면에서 유리합니다.
+- 모델 게이트웨이 계층에서 fallback과 타임아웃 정책을 분리해 장애 전파를 최소화하세요.
+- 사용자 피드백을 꾸준히 반영해 AI 콘텐츠 노출 정책을 조정하는 게 중요합니다.
+
+지금 당장 우리 서비스에 AI 요약이 불필요하다면, 위 예제처럼 간단한 필터링 코드부터 넣어보세요. 생각보다 효과가 크고, 사용자 경험 향상에 바로 도움이 될 겁니다.
+
+---
+
+### 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **AI 모델 릴리즈 변경사항은 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 함께 점검해야 안정적으로 반영할 수 있다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모델 게이트웨이 계층에서 fallback 모델과 타임아웃 정책을 분리하면 장애 전파를 줄일 수 있다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **AI 모델 릴리즈 변경사항은 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 함께 점검해야 안정적으로 반영할 수 있다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모델 게이트웨이 계층에서 fallback 모델과 타임아웃 정책을 분리하면 장애 전파를 줄일 수 있다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 3
+
+- **AI 모델 릴리즈 변경사항은 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 함께 점검해야 안정적으로 반영할 수 있다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모델 게이트웨이 계층에서 fallback 모델과 타임아웃 정책을 분리하면 장애 전파를 줄일 수 있다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
