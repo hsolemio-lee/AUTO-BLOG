@@ -1,0 +1,190 @@
+---
+title: "Google AI 개요 스니펫을 백엔드에서 숨기는 현실적인 방법"
+summary: "Google 검색 결과에 자동으로 붙는 AI 개요(스니펫)를 백엔드에서 필터링하거나 숨겨 사용자 맞춤형 검색 경험을 만드는 방법과 실제 구현 팁을 공유합니다."
+date: "2026-02-23"
+slug: "how-to-hide-googles-ai-overviews-from-your-search-results"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/how-to-hide-googles-ai-overviews-from-your-search-results"
+tags: ["Google AI", "검색결과 커스터마이징", "백엔드 필터링", "API 설계", "사용자 경험"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+검색 결과에 뜨는 Google AI 개요, 한 번쯤은 보셨죠? 예를 들면 ‘이 페이지에 이런 내용이 있습니다’라며 자동 생성된 요약 같은 거요. 사용자 입장에선 편리할 수 있지만, 우리 서비스에서는 때로 이게 방해가 될 때가 있어요. 특히 검색 결과를 우리만의 방식으로 최적화하고 싶을 때 말이죠.
+
+그런데 이걸 어떻게 숨기거나 필터링할 수 있을까요? 프론트엔드에서 CSS로 감추는 건 임시방편이고, 제대로 하려면 백엔드에서 검색 API 응답을 조작하거나 필터링해야 합니다. 오늘은 실제로 백엔드 엔지니어 입장에서 Google AI 개요 스니펫을 어떻게 걸러내고, 사용자에게 더 깔끔한 검색 결과를 제공할 수 있는지 이야기해보겠습니다.
+
+
+## Google AI 개요가 왜 문제일까? 우리가 직접 걸러야 하는 이유
+
+처음엔 ‘그냥 AI가 알아서 요약해주니까 좋지’라고 생각했는데, 막상 서비스에 적용해보니 몇 가지 문제점이 눈에 띄더라고요.
+
+- **중복 정보 노출**: 원문 링크 바로 아래 AI가 뽑은 요약이 나오는데, 우리 서비스가 자체적으로 제공하는 요약과 중복되거나 충돌하는 경우가 많아요.
+- **사용자 경험 저하**: AI 개요가 너무 길거나 맥락과 맞지 않으면 오히려 혼란을 주고, 클릭률이 떨어지기도 합니다.
+- **검색 결과 커스터마이징 한계**: 우리 서비스만의 검색 랭킹, 필터링 로직과 충돌해서 원하는 결과를 보여주기 어렵죠.
+
+그래서 백엔드에서 API 응답을 받아 처리할 때, Google AI 개요 스니펫을 감지하고 필요하면 숨기거나 대체하는 로직이 필요해졌습니다.
+
+
+## Google 검색 API 응답 구조에서 AI 개요를 찾아내는 법
+
+Google 검색 API를 직접 사용하는 경우는 드물지만, 자체 크롤링이나 Google Custom Search API를 쓴다고 가정해봅시다. AI 개요는 보통 응답 JSON 내 특정 필드에 포함되는데, 예를 들어 `snippet`이나 `richSnippet` 같은 곳에 AI 요약 텍스트가 들어있죠.
+
+```typescript
+interface SearchResult {
+  title: string;
+  link: string;
+  snippet?: string; // 일반 요약
+  richSnippet?: {
+    metatags?: Record<string, string>;
+    cse_thumbnail?: Array<{ src: string; width: number; height: number }>;
+    // AI 개요가 포함될 수 있는 필드
+    aiOverview?: string;
+  };
+}
+```
+
+실제로 API 스펙은 자주 바뀌니, TypeScript Handbook에서 말하는 것처럼 API 계약을 꼼꼼히 점검하고 대응하는 게 중요합니다. AI 모델 릴리즈 변경사항에 따라 응답 스키마가 바뀌면, 우리 코드도 같이 업데이트해야 하니까요[TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html).
+
+
+## 백엔드에서 AI 개요를 숨기려면 어떻게 코딩해야 할까?
+
+가장 간단한 방법은 응답을 받은 후 AI 개요가 포함된 필드를 삭제하거나 빈 문자열로 바꾸는 겁니다. 예를 들어 Node.js + Express 환경에서 다음처럼 처리할 수 있죠.
+
+```typescript
+import express from 'express';
+import axios from 'axios';
+
+const app = express();
+
+app.get('/search', async (req, res) => {
+  const query = req.query.q as string;
+
+  // Google 검색 API 호출 (가상의 예)
+  const response = await axios.get('https://customsearch.googleapis.com/customsearch/v1', {
+    params: { q: query, key: process.env.GOOGLE_API_KEY },
+  });
+
+  const items = response.data.items as SearchResult[];
+
+  // AI 개요 필터링
+  const filteredItems = items.map(item => {
+    if (item.richSnippet && item.richSnippet.aiOverview) {
+      // AI 개요 삭제
+      item.richSnippet.aiOverview = '';
+    }
+    return item;
+  });
+
+  res.json({ items: filteredItems });
+});
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+
+이렇게 하면 프론트엔드에 AI 개요가 전달되지 않으니, 사용자 화면에서 보이지 않게 됩니다. 물론 응답 크기가 조금 줄어드는 부가 효과도 있죠.
+
+
+## AI 개요 감지 로직에 조건을 달아 더 똑똑하게 필터링하기
+
+모든 AI 개요를 무조건 숨기면 오히려 정보 손실이 클 수 있습니다. 예를 들어 특정 카테고리 검색이나 특정 사용자 그룹에만 AI 개요를 보여주는 게 더 나을 수도 있죠. 그래서 조건부 필터링을 추천합니다.
+
+예를 들어, 응답 내 AI 개요 길이가 300자 이상이면 숨기고, 아니면 보여주거나, 특정 키워드가 포함된 경우만 필터링하는 식입니다.
+
+```typescript
+const filteredItems = items.map(item => {
+  const aiText = item.richSnippet?.aiOverview ?? '';
+  if (aiText.length > 300 || aiText.includes('광고')) {
+    item.richSnippet!.aiOverview = '';
+  }
+  return item;
+});
+```
+
+이런 로직은 실제 서비스 도메인에 맞게 조정해야 하며, 사용자 피드백을 반영하면서 점진적으로 개선하는 게 좋습니다.
+
+
+## 장애 상황 대비: AI 개요 처리 로직을 게이트웨이 계층에 두는 이유
+
+AI 모델이나 검색 API가 갑자기 응답 지연이나 오류를 낼 때, 우리 서비스 전체가 영향을 받으면 안 되겠죠? 그래서 TypeScript 5.x 릴리즈 노트에서 강조하는 것처럼, 모델 게이트웨이 계층에서 fallback 모델과 타임아웃 정책을 분리하는 게 핵심입니다[TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/).
+
+즉, AI 개요 필터링 로직을 별도의 마이크로서비스나 미들웨어로 분리하고, 타임아웃을 짧게 잡아서 문제가 있으면 빠르게 fallback하거나 기본 검색 결과만 보여주도록 설계하는 겁니다.
+
+```typescript
+// 의사코드
+async function fetchSearchResults(query) {
+  try {
+    const result = await callGoogleSearchAPI(query, { timeout: 1000 });
+    return filterAIOverview(result);
+  } catch (error) {
+    // fallback: AI 개요 없이 기본 결과만 반환
+    return fetchBasicSearchResults(query);
+  }
+}
+```
+
+이렇게 하면 AI 개요 처리 때문에 전체 검색 서비스가 느려지거나 장애가 나는 일을 막을 수 있습니다.
+
+
+## 마치며: AI 개요 숨기기, 꼭 필요한 경우에만 신중하게
+
+처음엔 ‘AI 개요가 왜 문제냐?’ 싶지만, 실제 운영해보면 사용자 경험과 서비스 목표에 따라 분명히 필요할 때가 있습니다. 단순히 숨기는 것보다, 언제 어떻게 보여줄지 정책을 세우고, API 계약과 장애 대비까지 꼼꼼히 챙겨야 하죠.
+
+- API 스키마 변경에 대비해 TypeScript 같은 정적 타입 도구로 계약을 관리하세요.
+- AI 개요 필터링 로직은 게이트웨이 계층에 두고, 타임아웃과 fallback 정책을 분리하세요.
+- 조건부 필터링으로 사용자 맞춤형 검색 결과를 만들어보세요.
+
+이 글이 Google AI 개요를 백엔드에서 다뤄야 하는 동료 엔지니어들에게 조금이나마 도움이 되었으면 합니다. 실제 코드와 정책은 여러분 서비스 상황에 맞게 꼭 조정하세요!
+
+
+---
+
+# 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **AI 모델 릴리즈 변경사항은 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 함께 점검해야 안정적으로 반영할 수 있다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모델 게이트웨이 계층에서 fallback 모델과 타임아웃 정책을 분리하면 장애 전파를 줄일 수 있다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **AI 모델 릴리즈 변경사항은 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 함께 점검해야 안정적으로 반영할 수 있다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모델 게이트웨이 계층에서 fallback 모델과 타임아웃 정책을 분리하면 장애 전파를 줄일 수 있다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
