@@ -1,0 +1,131 @@
+---
+title: "PepsiCo 캘리포니아 Frito-Lay 창고 폐쇄가 SCM 백엔드 시스템에 미친 영향과 대응 전략"
+summary: "PepsiCo의 대형 물류 창고 폐쇄 사례를 통해, 공급망 관리(SCM) 백엔드 시스템에서 재고, 주문 처리, 조달 자동화가 어떻게 영향을 받고, 이를 극복하기 위해 어떤 아키텍처적 접근과 코드 구현이 필요한지 살펴봅니다."
+date: "2026-02-26"
+slug: "pepsico-to-shutter-california-frito-lay-warehouse"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/pepsico-to-shutter-california-frito-lay-warehouse"
+tags: ["SCM", "공급망관리", "백엔드", "물류", "마이크로서비스"]
+sources:
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+  - title: "SAP Help Portal - Supply Chain Management"
+    url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## 대형 창고 폐쇄, 백엔드 시스템에선 무슨 일이 벌어질까?
+
+최근 PepsiCo가 캘리포니아에 위치한 Frito-Lay 물류 창고를 폐쇄한다는 소식이 전해졌죠. 평소 같으면 그냥 ‘물류 현장 이슈’ 정도로 넘길 수도 있지만, 우리 같은 백엔드 엔지니어 입장에선 이게 단순히 창고 문 닫는 이야기만은 아닙니다. 재고 데이터가 뒤죽박죽 되고, 주문 처리 흐름이 꼬이고, 심지어 조달 자동화 로직까지 싹 다 흔들릴 수 있기 때문이죠.
+
+실제로 공급망 관리(SCM) 시스템에서 주요 물류 거점이 사라지면, 재고 관리부터 주문 이행, 조달 자동화까지 백엔드 전반에 걸쳐 즉각적이고 복합적인 변화가 불가피합니다. Microsoft의 Dynamics 365 SCM 문서에서도 이런 중단 상황에서 재고 데이터 동기화와 주문 프로세스 재설계가 필수라고 명확히 밝히고 있어요[Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/).
+
+
+## 수요 예측부터 조달까지, 알고리즘과 로직이 다시 쓰여야 한다
+
+창고 하나가 사라진다는 건 단순히 물리적 공간이 줄어드는 게 아닙니다. Oracle의 SCM 문서에 따르면, 이런 대형 창고 폐쇄는 수요 예측과 공급 계획 알고리즘에도 큰 변화를 요구합니다. 기존에 한 창고에 몰려있던 재고가 여러 곳으로 분산되거나, 특정 지역에 공급이 집중되면서 알고리즘의 입력값과 가중치가 달라지거든요[Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/).
+
+이걸 백엔드 시스템에 반영하려면 조달 자동화 로직도 함께 조정해야 합니다. 예를 들어, 특정 공급자에게 주문을 몰아서 보내던 패턴이 깨지면서 주문 분산 전략이나 재고 보충 주기 자체를 바꿔야 하죠. 이런 작업은 단순 코드 수정이 아니라, SCM 시스템의 확장성과 유연성을 시험하는 도전입니다.
+
+
+## SAP SCM 모듈로 본 창고 폐쇄 대응법
+
+SAP SCM 솔루션은 이런 상황에 대비한 여러 모듈을 제공합니다. 창고 폐쇄 같은 공급망 중단 상황에서 재고 재배치, 주문 우선순위 조정, 공급자와의 통합 조달 프로세스 자동화를 지원하는 기능들이 대표적입니다. 덕분에 백엔드 시스템은 신속하게 변화에 대응할 수 있죠[ SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT).
+
+예를 들어, 재고가 갑자기 줄어드는 지역에 대해선 ‘안전 재고’ 설정을 자동으로 올리고, 주문 우선순위도 조정하는 식입니다. 물론, 이런 자동화는 시스템 복잡도를 높이기 때문에, 모든 로직을 무작정 자동화하기보단, 특정 비즈니스 규칙에 따라 예외 처리를 세밀하게 설계하는 게 중요합니다.
+
+
+## 이벤트 기반 아키텍처와 마이크로서비스가 답일까?
+
+이런 SCM 중단 상황에서 백엔드 아키텍처가 어떻게 설계되어 있느냐가 대응 속도와 품질을 좌우합니다. Martin Fowler의 아키텍처 가이드에 따르면, 이벤트 기반 아키텍처와 마이크로서비스, 그리고 비동기 메시징 패턴을 도입하면 시스템의 복원력과 확장성을 크게 높일 수 있다고 해요[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+실제로 이런 아키텍처는 창고 폐쇄 같은 돌발 상황이 발생했을 때, 각 서비스가 독립적으로 재고 변경 이벤트를 처리하고, 주문 처리 흐름을 비동기적으로 재조정할 수 있게 해 줍니다. 예를 들어, 재고 감소 이벤트가 발생하면, 이를 구독하는 주문 처리 서비스가 자동으로 주문 우선순위를 재조정하는 식이죠.
+
+
+## 실전 코드: 재고 변경 이벤트를 처리하는 간단한 예시
+
+아래는 Node.js 환경에서 Kafka를 이용해 재고 변경 이벤트를 비동기적으로 처리하는 간단한 코드입니다. 이런 이벤트 기반 패턴은 창고 폐쇄 같은 SCM 중단 상황에서 재고 데이터 동기화와 주문 프로세스 재설계에 유용합니다.
+
+```javascript
+const { Kafka } = require('kafkajs');
+
+const kafka = new Kafka({
+  clientId: 'scm-backend',
+  brokers: ['kafka-broker1:9092', 'kafka-broker2:9092'],
+});
+
+const consumer = kafka.consumer({ groupId: 'inventory-group' });
+
+async function run() {
+  await consumer.connect();
+  await consumer.subscribe({ topic: 'inventory-changes', fromBeginning: false });
+
+  await consumer.run({
+    eachMessage: async ({ topic, partition, message }) => {
+      const event = JSON.parse(message.value.toString());
+      console.log(`Received inventory update for product ${event.productId}: ${event.change}`);
+
+      // 재고 변경에 따른 주문 우선순위 조정 로직
+      if (event.change < 0) {
+        // 예: 재고 감소 시 주문 우선순위 높이기
+        await adjustOrderPriority(event.productId);
+      }
+    },
+  });
+}
+
+async function adjustOrderPriority(productId) {
+  // 실제 주문 DB 업데이트 로직
+  console.log(`Adjusting order priority for product ${productId}`);
+  // TODO: 주문 우선순위 조정 쿼리 실행
+}
+
+run().catch(console.error);
+```
+
+이 예시는 재고 변경 이벤트를 실시간으로 받아서 주문 우선순위를 조정하는 구조입니다. 물론, 실제 환경에선 장애 복구, 메시지 중복 처리, 트랜잭션 관리 같은 복잡도가 더해지지만, 이런 비동기 이벤트 기반 처리 패턴이 SCM 백엔드에서 얼마나 중요한지 감이 잡히실 겁니다.
+
+
+## 창고 폐쇄를 겪으며 느낀 시스템 설계의 본질
+
+처음엔 ‘창고 하나 닫는 게 백엔드에 무슨 큰일이야?’ 싶지만, 실제로 겪어보면 SCM 시스템의 복잡성과 민첩성이 얼마나 중요한지 절감하게 됩니다. 재고 데이터가 한 군데서 다른 여러 곳으로 분산되면서, 데이터 일관성 유지와 주문 처리 지연 최소화가 엄청난 도전이 되거든요.
+
+또, 이런 상황에서 기존의 모놀리식 백엔드가 얼마나 취약한지도 체감할 수 있었습니다. 반면, 이벤트 기반 마이크로서비스 아키텍처는 장애 격리와 빠른 대응에 큰 도움을 줬죠. 물론, 설계와 운영 난이도가 올라가고, 메시지 순서 보장, 장애 복구 같은 새로운 문제도 생기지만, 장기적으로는 확장성과 복원력 측면에서 투자할 가치가 충분합니다.
+
+
+## 동료에게 권하고 싶은 점들
+
+- **재고 변경 이벤트를 비동기적으로 처리하는 구조를 꼭 고민해보세요.** 창고 폐쇄 같은 돌발 상황에서 실시간 대응이 가능해집니다.
+- **수요 예측과 공급 계획 알고리즘을 백엔드에 하드코딩하지 말고, 외부 서비스나 별도 모듈로 분리하세요.** 그래야 창고 폐쇄 같은 상황에 맞춰 유연하게 조정할 수 있습니다.
+- **SAP, Oracle, Microsoft 같은 대형 SCM 솔루션의 모듈별 기능을 참고해보세요.** 직접 구축할 때 좋은 벤치마크가 됩니다.
+- **마이크로서비스와 이벤트 기반 아키텍처 도입은 필수는 아니지만, 중단 상황 대응력과 확장성을 크게 높입니다.** 다만 운영 복잡성은 감수해야 합니다.
+
+
+---
+
+## 참고 자료
+
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **공급망 관리(SCM) 시스템에서 주요 물류 거점의 폐쇄는 재고 관리, 주문 처리, 조달 자동화 백엔드 시스템에 즉각적이고 복합적인 영향을 미친다. 특히 재고 데이터 동기화와 주문 이행 프로세스의 재설계가 필요하다.** ([Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **대형 창고 폐쇄는 SCM 시스템 내에서 수요 예측과 공급 계획 알고리즘에 변화를 요구하며, 이는 조달 자동화 로직의 조정과 함께 백엔드 시스템의 확장성과 유연성을 시험한다.** ([Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **SAP SCM 솔루션은 창고 폐쇄와 같은 공급망 중단 상황에서 재고 재배치, 주문 우선순위 조정, 공급자와의 통합 조달 프로세스 자동화를 지원하는 모듈을 제공하여 백엔드 시스템의 신속한 대응을 가능하게 한다.** ([SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **백엔드 시스템 아키텍처 측면에서, 공급망 중단은 이벤트 기반 아키텍처와 마이크로서비스를 통한 시스템 분산 처리, 비동기 메시징 패턴 도입의 필요성을 부각시키며, 이는 시스템의 복원력과 확장성을 강화한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
