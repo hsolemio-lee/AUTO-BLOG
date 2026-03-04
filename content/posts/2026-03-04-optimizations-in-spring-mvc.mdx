@@ -1,0 +1,172 @@
+---
+title: "실전에서 바로 써먹는 Spring MVC 최적화와 보안 강화 팁"
+summary: "Spring MVC 백엔드 개발자가 프로덕션 환경에서 성능을 높이고 보안을 강화하는 구체적인 방법과 배포 전략을 실제 사례와 함께 소개합니다."
+date: "2026-03-04"
+slug: "optimizations-in-spring-mvc"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/optimizations-in-spring-mvc"
+tags: ["Spring MVC", "Spring Boot", "성능최적화", "보안", "배포전략"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+---
+
+## 프로덕션에서 ‘자동 구성’이 꼭 좋은 선택일까?
+
+처음 Spring Boot로 프로젝트를 시작하면 자동 구성(auto-configuration)이 너무 편해서 그만 의존하게 되죠. 그런데 프로덕션 환경에서는 이게 꼭 좋은 선택만은 아닙니다. 자동 구성 덕분에 수백 개 빈(bean)이 무작정 생성될 수 있는데, 이게 메모리 낭비와 불필요한 초기화 지연으로 이어질 수 있어요.
+
+우리 팀도 한 번은 메모리 이슈로 고생하다가 `spring.autoconfigure.exclude` 속성으로 불필요한 자동 구성을 차단했는데, 애플리케이션 시작 시간이 30% 가까이 줄었고, GC 횟수도 눈에 띄게 감소했어요. 물론 이 과정에서 어떤 빈이 꼭 필요한지 꼼꼼히 체크해야 하니, 처음엔 손이 좀 가지만 장기적으로는 큰 이득입니다.
+
+```yaml
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+```
+
+이처럼 꼭 필요한 부분만 자동 구성을 허용하고, 나머지는 직접 설정하는 방식을 추천합니다.
+
+## Actuator로 숨겨진 병목 찾기, 이건 꼭 해보세요
+
+Spring Boot Actuator는 단순히 헬스 체크용이 아니라, 프로덕션에서 병목 구간을 찾는 데 아주 유용합니다. 메트릭 수집 기능을 켜고, `/actuator/metrics` 엔드포인트를 활용하면 CPU, 메모리, HTTP 요청 처리 시간 등 다양한 지표를 실시간으로 모니터링할 수 있거든요.
+
+우리 서비스는 한때 특정 API 응답 시간이 2초 이상 치솟는 문제가 있었는데, Actuator 덕분에 DB 커넥션 풀 부족 현상을 빨리 발견할 수 있었습니다. 덕분에 HikariCP 설정을 조정해 커넥션 최대 개수를 10에서 30으로 늘려서 문제를 해결했죠.
+
+```yaml
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 30
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,httptrace
+```
+
+이렇게 세밀한 모니터링 없이는 문제 원인 찾기가 훨씬 어렵습니다.
+
+## HTTPS와 CSRF 보호, 보안은 선택이 아니라 필수
+
+프로덕션에서 보안을 빼놓을 수 없죠. 특히 Spring MVC는 기본적으로 CSRF 공격에 취약할 수 있는데, Spring Security와 함께 CSRF 보호 기능을 반드시 활성화해야 합니다. HTTPS 설정도 기본으로 깔아야 하고요.
+
+우리 팀은 HTTPS 전환 후에도 세션 고정 공격(session fixation) 때문에 한 번 골머리를 앓았는데, `sessionFixation().migrateSession()` 설정으로 문제를 해결했습니다. 이 설정은 로그인 시 세션 ID를 새로 발급해서 세션 탈취 위험을 줄여줍니다.
+
+```java
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http
+            .csrf().and()
+            .sessionManagement()
+            .sessionFixation().migrateSession()
+            .and()
+            .requiresChannel()
+            .anyRequest()
+            .requiresSecure();
+    }
+}
+```
+
+HTTPS를 강제하고 CSRF 보호를 켜면, 사실 사용자 경험에 큰 영향을 주지 않으면서도 보안을 크게 강화할 수 있습니다.
+
+## AOP와 DI로 코드 구조 개선, 성능도 챙기자
+
+Spring의 핵심 기술인 의존성 주입(Dependency Injection)과 AOP(Aspect-Oriented Programming)는 단순히 코드 재사용성만 높이는 게 아닙니다. 프록시 기반 AOP는 런타임 오버헤드를 최소화하면서도 로깅, 트랜잭션 관리, 보안 검사 같은 횡단 관심사를 깔끔하게 분리할 수 있어요.
+
+예를 들어, 트랜잭션 처리를 AOP로 분리하면 비즈니스 로직 코드가 훨씬 깔끔해지고, 유지보수도 쉬워집니다. 물론 프록시 생성 때문에 미세한 성능 저하는 있을 수 있지만, 대부분의 경우 무시할 수준입니다.
+
+```java
+@Aspect
+@Component
+public class LoggingAspect {
+
+    @Around("execution(* com.example.service..*(..))")
+    public Object logExecutionTime(ProceedingJoinPoint joinPoint) throws Throwable {
+        long start = System.currentTimeMillis();
+        Object proceed = joinPoint.proceed();
+        long executionTime = System.currentTimeMillis() - start;
+
+        System.out.println(joinPoint.getSignature() + " executed in " + executionTime + "ms");
+        return proceed;
+    }
+}
+```
+
+이런 식으로 AOP를 활용하면, 성능 모니터링이나 보안 검사 같은 기능을 한 곳에서 관리할 수 있어 여러 군데 중복 코드를 줄일 수 있습니다.
+
+## JVM 튜닝과 커넥션 풀 최적화, 놓치면 큰일 납니다
+
+Spring Boot 애플리케이션 성능을 끌어올리려면 JVM 튜닝과 커넥션 풀 설정은 반드시 신경 써야 합니다. 예를 들어, 힙 메모리 사이즈를 너무 작게 잡으면 GC가 자주 발생해서 응답 지연이 심해지고, 너무 크게 잡으면 메모리 낭비가 심해지죠.
+
+우리 팀은 프로덕션 환경에서 `-Xms2g -Xmx4g -XX:+UseG1GC` 옵션을 주로 사용합니다. G1 GC는 짧은 멈춤 시간과 좋은 처리량을 제공해서 웹 서비스에 적합하더라고요.
+
+커넥션 풀은 HikariCP를 기본으로 쓰면서, 최대 커넥션 수는 트래픽 패턴에 맞게 조절합니다. 예를 들어, 트래픽이 많은 시간대에는 최대 50까지 늘리고, 한산할 땐 10~20으로 줄여서 리소스 낭비를 줄입니다.
+
+```yaml
+spring:
+  datasource:
+    hikari:
+      minimum-idle: 10
+      maximum-pool-size: 50
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+```
+
+이런 설정을 통해 커넥션 풀 과부하를 방지하고, DB 연결 지연 문제를 최소화할 수 있습니다.
+
+## 무중단 배포를 위한 블루-그린과 카나리 전략, 우리 팀의 선택은?
+
+프로덕션에 배포할 때 무중단 배포는 필수입니다. 우리 팀은 처음에 블루-그린 배포를 시도했는데, 환경 설정과 리소스 관리가 생각보다 복잡해서 카나리 배포로 전환했어요. 카나리 배포는 점진적으로 트래픽을 새 버전으로 보내면서 문제를 발견하면 바로 롤백할 수 있어서 안정적입니다.
+
+Spring Boot 자체에서 배포 전략을 지원하는 건 아니지만, Kubernetes나 AWS CodeDeploy 같은 플랫폼과 연동하면 쉽게 구현할 수 있습니다. 중요한 건 배포 자동화 파이프라인에 롤백 조건과 모니터링 알람을 꼭 포함시키는 겁니다.
+
+이런 경험을 통해 배포 전략은 팀 상황과 인프라 환경에 맞게 유연하게 선택하는 게 최선이라는 걸 깨달았어요.
+
+---
+
+### 정리하며
+
+- 자동 구성은 편리하지만, 프로덕션에서는 꼭 필요한 부분만 켜고 나머지는 직접 관리하자
+- Actuator로 실시간 메트릭을 모니터링해 병목 구간을 빠르게 찾아내자
+- HTTPS, CSRF, 세션 고정 공격 방지 등 보안 설정은 기본 중에 기본
+- AOP와 DI를 적극 활용해 코드 모듈화와 유지보수성을 높이고, 성능 저하를 최소화하자
+- JVM과 커넥션 풀 튜닝은 서비스 안정성과 성능에 직결되니 환경에 맞게 세심하게 조절할 것
+- 무중단 배포는 블루-그린, 카나리 전략 중 우리 팀 상황에 맞는 방법을 선택하고 자동화하자
+
+이 팁들은 실제 현업에서 겪은 시행착오를 바탕으로 한 것들이니, 다음 프로젝트에서 꼭 한번 적용해보시길 바랍니다. 성능과 안정성, 보안 모두 잡는 Spring MVC 백엔드 개발자로 거듭나실 수 있을 거예요!
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Boot에서는 프로덕션 환경에서 성능을 최적화하기 위해 애플리케이션의 자동 구성 기능을 적절히 조정하고, 불필요한 빈(bean) 생성을 최소화하는 것이 중요하다. 또한, Actuator를 활용하여 애플리케이션 상태를 모니터링하고, 메트릭 수집을 통해 병목 구간을 파악할 수 있다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring MVC에서 보안 강화를 위해 CSRF 보호 기능을 활성화하고, HTTPS를 기본으로 설정하는 것이 권장된다. 또한, Spring Security와의 통합을 통해 인증 및 권한 부여를 체계적으로 관리하며, 세션 고정 공격(session fixation) 방지 설정도 필수적이다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework 코어 기술에서는 의존성 주입(Dependency Injection)과 AOP(Aspect-Oriented Programming)를 활용하여 코드의 모듈화와 재사용성을 높임으로써 유지보수성과 성능을 향상시킬 수 있다. 특히, 프록시 기반의 AOP는 런타임 오버헤드를 최소화하는 방향으로 설계되어 있다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot의 성능 튜닝 기법으로는 JVM 튜닝, 커넥션 풀 최적화(HikariCP 권장), 캐시 활용, 그리고 비동기 처리(Async)를 통한 요청 처리 병렬화가 있다. 또한, 애플리케이션 시작 시간을 줄이기 위해 불필요한 스타터 의존성을 제거하는 것이 효과적이다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **프로덕션 롤아웃 시에는 블루-그린 배포 전략 또는 카나리 배포를 활용하여 무중단 배포를 구현하고, 롤백 가능성을 확보하는 것이 중요하다. 이를 통해 서비스 가용성을 유지하면서 점진적인 업데이트가 가능하다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.

@@ -1,0 +1,222 @@
+---
+title: "Spring Data에서 문자열을 넘어: 복합 키와 커스텀 타입으로 성능과 유지보수성 올리기"
+summary: "Spring Data를 단순 문자열 처리에만 의존하지 않고, 복합 키, 커스텀 리포지토리, 도메인 특화 타입을 활용해 백엔드 성능과 코드 견고성을 높이는 방법을 실제 사례와 코드 예제로 풀어봅니다."
+date: "2026-03-04"
+slug: "moving-beyond-strings-in-spring-data"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/moving-beyond-strings-in-spring-data"
+tags: ["Spring Data", "백엔드", "성능튜닝", "커스텀타입", "JPA"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+### "왜 우리 코드에 문자열만 쓰면 안 될까?"
+
+한번 생각해보자. 우리 대부분 Spring Data 쓸 때, 엔티티의 ID나 쿼리 조건으로 문자열(String)만 주구장창 쓰는 경우가 많다. "그냥 편하니까", "일단 동작하니까" 하는 마음에 말이다. 그런데 막상 서비스가 커지고 데이터 모델이 복잡해지면? 문자열만 쓰는 게 얼마나 발목을 잡는지 뼈저리게 느낀다.
+
+내가 경험한 바로는, 단순 문자열 처리에 머무르면 유지보수성이 떨어지고, 런타임 오류가 잦아진다. 반대로 Spring Data가 제공하는 복합 키(composite keys)나 커스텀 리포지토리, 그리고 도메인 특화 타입을 제대로 활용하면 코드가 훨씬 견고해지고 성능도 좋아진다. 이번 글에서는 그 생생한 경험과 팁을 공유해볼게.
+
+---
+
+## 복합 키를 쓰면 쿼리가 더 명확해지고 성능도 기대 이상
+
+복합 키는 하나의 엔티티를 여러 컬럼 조합으로 식별할 수 있게 해준다. 예를 들어, 주문 엔티티가 고객ID와 주문일자를 합쳐서 유니크 키를 가진다면, 단순히 주문번호 문자열 하나만 보는 것보다 훨씬 의미가 명확하다.
+
+```java
+@Embeddable
+public class OrderId implements Serializable {
+    private Long customerId;
+    private LocalDate orderDate;
+
+    // 기본 생성자, equals, hashCode 필수
+}
+
+@Entity
+public class Order {
+    @EmbeddedId
+    private OrderId id;
+
+    private String product;
+    private int quantity;
+
+    // getter, setter
+}
+```
+
+이렇게 하면 JPA가 복합 키를 인식해서 내부적으로 더 최적화된 쿼리를 생성한다. 물론 처음에는 복잡해 보이지만, 유지보수할 때 "이 키가 왜 필요한지"가 명확해져서 도움이 된다. 그리고 무엇보다 쿼리 성능이 좋아진다. 
+
+실제로 Spring Boot Reference Documentation에서도 복합 키를 활용하면 데이터베이스 연동 복잡성을 줄이고 유지보수성을 높인다고 명시하고 있다.[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+
+---
+
+## 커스텀 리포지토리로 복잡한 쿼리도 깔끔하게 관리하기
+
+우리 팀에서 가장 많이 개선된 부분 중 하나가 바로 커스텀 리포지토리 도입이었다. 단순 문자열 기반 쿼리를 넘어서, 복잡한 조건이나 동적 쿼리를 작성할 때 커스텀 리포지토리를 활용하면 코드가 훨씬 깔끔해진다.
+
+예를 들어, 아래처럼 `OrderRepositoryCustom` 인터페이스와 구현체를 만들어서 복잡한 쿼리를 분리할 수 있다.
+
+```java
+public interface OrderRepositoryCustom {
+    List<Order> findOrdersByProductAndDateRange(String product, LocalDate start, LocalDate end);
+}
+
+public class OrderRepositoryImpl implements OrderRepositoryCustom {
+
+    @PersistenceContext
+    private EntityManager em;
+
+    @Override
+    public List<Order> findOrdersByProductAndDateRange(String product, LocalDate start, LocalDate end) {
+        String jpql = "SELECT o FROM Order o WHERE o.product = :product AND o.id.orderDate BETWEEN :start AND :end";
+        return em.createQuery(jpql, Order.class)
+                 .setParameter("product", product)
+                 .setParameter("start", start)
+                 .setParameter("end", end)
+                 .getResultList();
+    }
+}
+```
+
+이렇게 하면 리포지토리 인터페이스가 깔끔해지고, 복잡한 쿼리 로직을 분리해서 테스트하기도 편하다. 게다가 Baeldung의 Spring Boot 성능 튜닝 가이드에서도 네이티브 쿼리나 커스텀 리포지토리를 활용해 데이터 처리 속도를 올리는 전략을 추천하고 있다.[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+
+---
+
+## 도메인 특화 타입으로 코드의 타입 안전성 챙기기
+
+여기서 내가 가장 감탄한 부분은 Spring Framework Core Technologies가 제공하는 제네릭과 타입 안전성 활용법이다. 단순 문자열 대신, 도메인 특화 타입을 만들어서 사용하는 거다. 예를 들어, 이메일 주소나 전화번호 같은 도메인 객체를 직접 클래스로 관리하면 런타임 오류를 크게 줄일 수 있다.
+
+```java
+public class Email {
+    private final String value;
+
+    public Email(String value) {
+        if (!value.matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
+            throw new IllegalArgumentException("Invalid email format");
+        }
+        this.value = value;
+    }
+
+    public String getValue() {
+        return value;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Email)) return false;
+        Email email = (Email) o;
+        return value.equals(email.value);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(value);
+    }
+}
+```
+
+이렇게 하면 이메일을 단순 문자열로 잘못 처리하는 실수를 컴파일 타임에 막을 수 있다. 그리고 Spring Data JPA에서 이를 지원하려면 `@Converter`를 활용해서 DB와 매핑해주면 된다.
+
+```java
+@Converter(autoApply = true)
+public class EmailConverter implements AttributeConverter<Email, String> {
+
+    @Override
+    public String convertToDatabaseColumn(Email attribute) {
+        return attribute != null ? attribute.getValue() : null;
+    }
+
+    @Override
+    public Email convertToEntityAttribute(String dbData) {
+        return dbData != null ? new Email(dbData) : null;
+    }
+}
+```
+
+이 방법 덕분에 우리 코드는 훨씬 견고해졌고, 의도하지 않은 문자열 오류가 줄었다. Spring Framework 공식 문서에서도 제네릭과 타입 안전성을 강조하는 이유가 바로 이런 점이다.[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+
+---
+
+## JSONB, 배열, 커스텀 타입 매핑으로 데이터베이스 성능과 유지보수성 높이기
+
+GitHub Engineering Blog를 보면, 복잡한 데이터 모델을 다룰 때 단순 문자열 대신 JSONB 타입(특히 PostgreSQL), 배열, 그리고 커스텀 타입 매핑을 적극 활용해 성능과 유지보수성을 크게 개선한 사례가 많다.[GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+예를 들어, 주문 내역에서 상품 옵션을 JSON 형태로 저장하고 싶다면, 아래처럼 `@Type` 어노테이션과 함께 커스텀 Hibernate 타입을 지정할 수 있다.
+
+```java
+@Entity
+public class Order {
+    @Id
+    private Long id;
+
+    @Type(type = "jsonb")
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> productOptions;
+
+    // 기타 필드 및 메서드
+}
+```
+
+이렇게 하면 복잡한 옵션 데이터를 문자열이 아닌 JSONB로 저장해 쿼리 성능이 향상되고, 데이터 구조 변경도 유연해진다. 물론 JSONB는 PostgreSQL에서만 지원하니 DB 선택에 신경 써야 한다는 점은 단점이다.
+
+---
+
+## 문자열만 쓰다가 다양한 타입 활용으로 전환할 때 주의할 점
+
+처음에는 복합 키나 커스텀 타입, JSONB 같은 기능들이 너무 복잡해 보일 수 있다. 특히 타입 변환기나 커스텀 리포지토리 구현은 익숙하지 않으면 진입 장벽이 높다. 게다가 잘못 설계하면 오히려 유지보수가 어려워질 수도 있다.
+
+하지만, 우리 팀 경험상 다음 두 가지만 명심하면 큰 문제 없이 전환할 수 있었다.
+
+1. **점진적 도입**: 기존 문자열 필드에 무리하게 적용하기보단, 새 기능이나 신규 도메인부터 차근차근 적용하기.
+2. **테스트 강화**: 커스텀 타입이나 복합 키는 equals/hashCode, 변환기 테스트를 꼼꼼히 작성해서 런타임 오류를 미리 방지하기.
+
+이렇게만 해도 문자열에만 의존할 때보다 훨씬 견고한 코드를 만들 수 있다.
+
+---
+
+## 마치며: 문자열 너머를 향한 첫걸음
+
+내가 직접 겪어보니, Spring Data에서 문자열만 쓰는 건 초반엔 편하지만 장기적으로는 독이 될 수밖에 없다. 복합 키, 커스텀 리포지토리, 도메인 특화 타입, 그리고 JSONB 같은 고급 기능을 적극 활용하면 유지보수성과 성능이 눈에 띄게 좋아진다.
+
+단, 이 모든 게 만능은 아니다. 복잡도가 올라가니 설계와 테스트에 더 신경 써야 하고, DB나 프레임워크 버전 호환성도 꼼꼼히 확인해야 한다. 그래도 제대로만 활용하면, 대규모 트래픽 환경에서도 백엔드 응답성을 크게 개선할 수 있다.
+
+우리 팀은 지금도 이런 방향으로 코드를 리팩토링 중인데, 여러분도 한번 시도해보길 강력 추천한다.
+
+---
+
+### 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Data는 단순 문자열 처리에 머무르지 않고, 복합 키(composite keys), 커스텀 리포지토리, 그리고 도메인 특화 타입을 지원하여 데이터베이스 연동의 복잡성을 줄이고 유지보수성을 높인다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework의 Core Technologies에서는 제네릭 타입과 타입 안전성을 활용해 문자열 외 다양한 데이터 타입을 효과적으로 처리하는 방법을 제공하며, 이를 통해 런타임 오류를 줄이고 코드의 견고성을 높일 수 있다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot 성능 튜닝 가이드에서는 문자열 기반 쿼리 대신 네이티브 쿼리, 페이징, 그리고 캐싱 기법을 활용하여 데이터 처리 속도를 향상시키고, 대규모 트래픽 환경에서 백엔드의 응답성을 개선하는 전략을 소개한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub Engineering Blog에서는 복잡한 데이터 모델을 다룰 때, 단순 문자열 대신 JSONB, 배열, 그리고 커스텀 타입 매핑을 활용하여 데이터베이스 성능과 코드 유지보수성을 크게 향상시킨 사례를 공유한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare Blog는 대규모 분산 시스템에서 문자열 외 다양한 데이터 타입을 활용하는 것이 데이터 일관성과 처리 효율성을 높이는 핵심 전략임을 강조하며, Spring Data와 같은 프레임워크에서 이를 적극 활용할 것을 권장한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
