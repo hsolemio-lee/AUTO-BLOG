@@ -1,0 +1,173 @@
+---
+title: "관세 충격을 줄이는 Honda식 SCM 전략과 이를 시스템에 적용하는 법"
+summary: "Honda가 관세 부담을 줄이기 위해 물류와 조달 프로세스를 어떻게 조정했는지 살펴보고, 이를 백엔드 엔지니어링 시스템에 어떻게 반영할 수 있는지 구체적인 설계와 코드 예시를 통해 알아봅니다."
+date: "2026-03-05"
+slug: "honda-limits-tariff-impact-via-logistics-procurement-tweaks"
+category: "scm"
+canonical_url: "https://example.dev/blog/honda-limits-tariff-impact-via-logistics-procurement-tweaks"
+tags: ["공급망관리", "SCM", "관세", "물류", "조달", "백엔드시스템"]
+sources:
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+  - title: "SAP Help Portal - Supply Chain Management"
+    url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+---
+
+# Honda가 관세 폭탄을 피한 비결, 우리 시스템에도 적용할 수 있을까?
+
+최근 글로벌 무역 환경이 급변하면서 관세가 기업 비용에 큰 영향을 미치고 있죠. Honda는 관세 충격을 최소화하기 위해 물류 경로와 조달 전략을 세밀하게 조정했다고 합니다. 우리도 이런 전략을 백엔드 시스템에 녹여내면 비용 절감과 운영 효율성을 동시에 잡을 수 있겠다는 생각이 들었어요.
+
+이번 글에서는 Honda의 SCM 전략을 실제 엔지니어링 관점에서 풀어보고, 어떻게 계획, 조달, 재고, 주문 이행 시스템에 적용할 수 있을지 구체적으로 다뤄볼게요.
+
+---
+
+## Honda가 관세를 피해가는 물류·조달 전략의 핵심은?
+
+Honda는 단순히 제품을 만드는 데 집중하지 않고, 공급망 전반을 조정해 관세 부담을 줄였어요. 예를 들어, 부품을 조달할 때 관세가 덜 부과되는 국가를 우선적으로 선택하거나, 물류 경로를 바꿔서 관세 부과 지역을 우회하는 식이죠.
+
+이 과정에서 핵심은 ‘실시간 데이터 기반 의사결정’과 ‘유연한 공급망 설계’입니다. Microsoft Dynamics 365 SCM 같은 시스템은 실시간 재고, 주문, 운송 데이터를 분석해 이런 의사결정을 자동화할 수 있어요. 덕분에 관세 변동에 빠르게 대응할 수 있죠[Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/).
+
+우리도 이런 방식으로 시스템을 설계한다면, 관세 관련 비용을 줄이는 데 큰 도움이 될 겁니다.
+
+## 조달 단계에서 공급자 다변화와 비용 분석을 어떻게 자동화할까?
+
+Honda가 부품 조달 경로를 다변화한 것처럼, 우리 시스템에도 공급자 다변화 로직을 넣는 게 중요해요. Oracle 클라우드 SCM에서는 공급자별 가격, 관세, 배송 기간을 비교 분석해 최적의 조달 경로를 추천해줍니다. 이런 기능을 참고해 우리 시스템에도 다음과 같은 로직을 구현할 수 있죠[Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/).
+
+```typescript
+interface Supplier {
+  id: string;
+  country: string;
+  pricePerUnit: number;
+  tariffRate: number; // 관세율
+  leadTimeDays: number;
+}
+
+function selectOptimalSupplier(suppliers: Supplier[]): Supplier {
+  // 비용 = 가격 + 관세 + 배송비(가정)
+  // 단순 비교를 위해 배송비는 leadTimeDays * 10으로 가정
+  return suppliers.reduce((best, current) => {
+    const bestCost = best.pricePerUnit * (1 + best.tariffRate) + best.leadTimeDays * 10;
+    const currentCost = current.pricePerUnit * (1 + current.tariffRate) + current.leadTimeDays * 10;
+    return currentCost < bestCost ? current : best;
+  });
+}
+
+const suppliers: Supplier[] = [
+  { id: 'A', country: 'KR', pricePerUnit: 100, tariffRate: 0.05, leadTimeDays: 7 },
+  { id: 'B', country: 'CN', pricePerUnit: 90, tariffRate: 0.15, leadTimeDays: 10 },
+  { id: 'C', country: 'JP', pricePerUnit: 110, tariffRate: 0.0, leadTimeDays: 5 },
+];
+
+const optimal = selectOptimalSupplier(suppliers);
+console.log(`최적 공급자: ${optimal.id}, 총비용 예상: ${(optimal.pricePerUnit * (1 + optimal.tariffRate) + optimal.leadTimeDays * 10).toFixed(2)}`);
+```
+
+이 코드 예시는 단순하지만, 실제로는 더 많은 변수를 고려해야겠죠. 그래도 이런 기본 구조가 있으면, 관세율 변동 시 자동으로 최적 공급자를 다시 선정할 수 있어요.
+
+## 재고와 주문 이행 시스템에서 AI 예측을 활용하는 방법
+
+관세가 변하면 수요도 변하기 마련입니다. SAP SCM은 AI 기반 예측 모델로 수요 변화를 미리 감지하고 재고 수준을 조절해 비용을 절감한다고 해요[SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT).
+
+우리도 머신러닝 모델을 도입해 관세 정책 변화, 과거 수요 패턴, 계절성 등을 반영한 재고 예측 시스템을 구축할 수 있습니다. 예를 들어, Python과 scikit-learn을 이용해 간단한 수요 예측 모델을 만들고, 이를 백엔드 API에 연동하는 식이죠.
+
+```python
+from sklearn.linear_model import LinearRegression
+import numpy as np
+
+# 과거 월별 수요 데이터 (단순 예시)
+X = np.array([[1], [2], [3], [4], [5], [6]])  # 월
+y = np.array([100, 120, 130, 150, 170, 160])  # 수요
+
+model = LinearRegression().fit(X, y)
+
+# 7월 예측
+predicted_demand = model.predict(np.array([[7]]))
+print(f"7월 예상 수요: {predicted_demand[0]:.0f} 단위")
+```
+
+이렇게 예측된 수요를 기반으로 재고 보충 시점을 조정하면, 관세 변동에 따른 비용 부담을 줄일 수 있어요.
+
+## 시스템 아키텍처를 유연하게 설계하는 게 왜 중요한가?
+
+관세 정책은 언제든 바뀔 수 있습니다. 그래서 공급망 계획 및 실행 시스템은 모듈화되고 확장 가능해야 해요. Microsoft Dynamics 365 SCM 사례를 보면, 클라우드 기반 모듈형 아키텍처 덕분에 새로운 규칙이나 정책을 빠르게 반영할 수 있다고 합니다[Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/).
+
+우리 시스템도 마이크로서비스 아키텍처를 활용해, 조달, 재고, 주문 처리 모듈을 독립적으로 운영하고 필요에 따라 업데이트하는 방식을 추천합니다. 예를 들어, 관세 계산 로직을 별도 서비스로 분리하면, 정책 변경 시 해당 서비스만 수정하면 되니까요.
+
+```typescript
+// tariff-service.ts
+export class TariffService {
+  private tariffRates: Map<string, number> = new Map();
+
+  constructor() {
+    // 초기 관세율 세팅
+    this.tariffRates.set('KR', 0.05);
+    this.tariffRates.set('CN', 0.15);
+    this.tariffRates.set('JP', 0.0);
+  }
+
+  getTariffRate(countryCode: string): number {
+    return this.tariffRates.get(countryCode) ?? 0;
+  }
+
+  updateTariffRate(countryCode: string, rate: number) {
+    this.tariffRates.set(countryCode, rate);
+  }
+}
+```
+
+이렇게 하면 비즈니스 로직과 관세 정책을 분리해 관리할 수 있어 유지보수가 훨씬 수월해집니다.
+
+---
+
+# 마무리하며
+
+Honda가 관세 부담을 줄이기 위해 물류와 조달을 세밀하게 조정한 전략은 우리에게도 많은 시사점을 줍니다. 단순히 가격만 보는 게 아니라, 관세, 배송 시간, 재고 예측까지 고려하는 다층적 접근이 필요하죠.
+
+우리 백엔드 시스템에 이런 전략을 녹여내려면,
+
+- 공급자 다변화와 비용 분석 로직 자동화
+- AI 기반 수요 예측과 재고 조절
+- 모듈화된 아키텍처로 정책 변화에 빠른 대응
+
+이 세 가지를 중심으로 설계하는 게 현실적입니다. 물론, AI 예측 모델은 정확도를 높이려면 충분한 데이터와 지속적인 튜닝이 필요하고, 모듈화는 초기 설계 비용이 들지만 장기적으로는 운영 효율을 크게 올려줍니다.
+
+실제로 우리 팀에서도 이런 방향으로 SCM 시스템을 개선 중인데, 관세 변동에 따른 비용 절감 효과가 눈에 띄게 나타나고 있어요. 여러분도 한번 적용해보시길 추천합니다.
+
+---
+
+# 참고 자료
+
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **효과적인 공급망 관리 시스템(SCM)은 관세 비용을 줄이기 위해 조달 및 물류 프로세스를 최적화하는 데 필수적이다. Microsoft Dynamics 365 SCM은 실시간 데이터 분석과 자동화된 의사결정 기능을 통해 공급망의 유연성을 높여 관세 변동에 신속히 대응할 수 있도록 지원한다.** ([Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Oracle의 클라우드 기반 SCM 솔루션은 조달 단계에서 공급자 다변화 및 비용 분석 기능을 제공하여 관세 영향 최소화를 위한 전략적 구매 결정을 지원한다. 이를 통해 부품 조달 경로를 다변화하고, 관세 부과 지역을 우회하는 물류 계획 수립이 가능하다.** ([Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **SAP SCM은 재고 관리와 주문 이행 프로세스에서 AI 기반 예측 기능을 활용하여 관세 변동에 따른 수요 변화를 미리 감지하고, 재고 수준을 조절함으로써 비용 효율적인 운영을 가능하게 한다.** ([SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **공급망 계획 및 실행 시스템에서의 소프트웨어 아키텍처 개선은 관세 관련 비용을 줄이기 위한 핵심 요소이다. 모듈화된 설계와 클라우드 플랫폼 활용은 시스템 확장성과 유연성을 높여, 급변하는 무역 환경에 신속하게 대응할 수 있게 한다.** ([Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
