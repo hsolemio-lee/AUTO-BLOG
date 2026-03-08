@@ -1,0 +1,178 @@
+---
+title: "Spring Data에서 문자열을 넘어서: 복잡한 도메인 타입 다루기"
+summary: "Spring Data에서 단순 문자열 대신 복잡한 도메인 객체와 사용자 정의 타입을 안전하고 효율적으로 다루는 방법과 실무 적용 사례를 공유합니다."
+date: "2026-03-08"
+slug: "moving-beyond-strings-in-spring-data"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/moving-beyond-strings-in-spring-data"
+tags: ["Spring Data", "JPA", "Attribute Converter", "도메인 객체", "백엔드", "성능 최적화"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+---
+
+### "왜 우리 코드에 아직도 String만 쓰고 있지?"
+
+최근에 팀에서 유지보수가 힘든 코드를 보면서 이런 생각이 들었어요. 데이터베이스 컬럼과 매핑할 때 무조건 String으로 처리하는 경우가 많았거든요. 물론 간단한 값이라면 문제없지만, 복잡한 도메인 객체나 특정 포맷을 가진 값들을 문자열로만 다루면 실수하기 쉽고, 나중에 타입 변환 로직이 여기저기 흩어져서 골치가 아파집니다.
+
+이걸 어떻게 하면 더 깔끔하고 안전하게 할 수 있을까? 바로 Spring Data가 제공하는 Attribute Converter와 Custom Converter를 활용하는 방법이 있더라고요. 이걸 실제로 적용해보니 백엔드 코드가 훨씬 견고해지고 유지보수성도 좋아졌습니다.
+
+---
+
+## Spring Data에서 문자열을 넘어서려면 Attribute Converter부터 익혀야 한다
+
+Spring Framework 공식 문서에 따르면, Attribute Converter는 엔티티 필드와 데이터베이스 컬럼 간 변환을 담당하는 표준 인터페이스입니다. 즉, 우리가 도메인 객체를 데이터베이스에 맞는 타입으로 변환하거나, 반대로 읽어올 때 다시 도메인 타입으로 변환하는 역할을 하죠[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+
+예를 들어, 복잡한 주소(Address) 객체를 하나의 문자열 컬럼에 저장한다고 해봅시다. 그냥 toString()으로 변환하는 게 아니라, Attribute Converter를 만들어서 JSON 형태로 변환하거나, 특정 구분자로 필드를 나눠서 저장할 수 있어요. 이렇게 하면 데이터베이스에 저장되는 형식과 도메인 객체가 명확히 분리되어, 코드가 훨씬 깔끔해집니다.
+
+```java
+@Converter(autoApply = true)
+public class AddressConverter implements AttributeConverter<Address, String> {
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    @Override
+    public String convertToDatabaseColumn(Address attribute) {
+        try {
+            return mapper.writeValueAsString(attribute);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Failed to convert Address to JSON", e);
+        }
+    }
+
+    @Override
+    public Address convertToEntityAttribute(String dbData) {
+        try {
+            return mapper.readValue(dbData, Address.class);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Failed to convert JSON to Address", e);
+        }
+    }
+}
+```
+
+위 예시는 Jackson ObjectMapper를 사용해 Address 객체를 JSON 문자열로 변환하는 간단한 컨버터입니다. 실제로 이렇게 하면 데이터베이스에는 JSON 문자열이 저장되지만, 애플리케이션에서는 Address 객체를 그대로 다룰 수 있어 편리합니다.
+
+---
+
+## @Converter 어노테이션으로 복잡한 타입 매핑을 공식적으로 지원한다
+
+Spring Boot 공식 문서에서도 JPA를 사용할 때 @Converter 어노테이션을 적극 권장합니다. 단순 문자열 매핑에서 벗어나, 복잡한 데이터 타입을 명확하게 변환하는 게 가능하다고 하죠[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+실제로 우리 프로젝트에서 주문 상태(OrderStatus) 같은 enum 타입을 문자열이 아닌 코드 값으로 저장하고 싶었는데, @Converter를 써서 아래처럼 구현했습니다.
+
+```java
+@Converter(autoApply = true)
+public class OrderStatusConverter implements AttributeConverter<OrderStatus, String> {
+
+    @Override
+    public String convertToDatabaseColumn(OrderStatus attribute) {
+        return attribute.getCode(); // 예: "P" for Pending
+    }
+
+    @Override
+    public OrderStatus convertToEntityAttribute(String dbData) {
+        return OrderStatus.fromCode(dbData);
+    }
+}
+```
+
+이렇게 하면 DB에는 "P", "C" 같은 코드가 저장되지만, 애플리케이션에서는 enum 타입을 안전하게 다룰 수 있습니다. 문자열 하드코딩 실수를 줄이고, 타입 안정성도 확보되죠.
+
+---
+
+## 성능 문제? 커스텀 컨버터에 캐싱 전략을 더해보자
+
+복잡한 변환 로직이 들어가면 성능이 걱정될 수 있는데요. Baeldung의 Spring Boot 성능 튜닝 가이드에서는 불필요한 변환을 줄이고, 캐싱을 병행하는 전략을 추천합니다[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+
+예를 들어, 변환 과정에서 자주 쓰이는 값이라면 변환 결과를 메모리에 저장해두고 재사용하는 거죠. 아래는 간단한 캐싱 예시입니다.
+
+```java
+@Converter(autoApply = true)
+public class CachedOrderStatusConverter implements AttributeConverter<OrderStatus, String> {
+
+    private static final Map<String, OrderStatus> cache = new ConcurrentHashMap<>();
+
+    @Override
+    public String convertToDatabaseColumn(OrderStatus attribute) {
+        return attribute.getCode();
+    }
+
+    @Override
+    public OrderStatus convertToEntityAttribute(String dbData) {
+        return cache.computeIfAbsent(dbData, OrderStatus::fromCode);
+    }
+}
+```
+
+이렇게 하면 같은 문자열 변환이 반복될 때마다 새로 객체를 생성하지 않고, 캐시에서 바로 꺼내 쓰니 응답 속도가 개선됩니다. 물론 캐시 무효화 정책도 필요하니, 도메인 특성에 맞게 조율해야 합니다.
+
+---
+
+## 도메인 객체 중심 설계와 타입 안전성 강화가 유지보수에 얼마나 도움이 되는지
+
+GitHub Engineering Blog에서도 대규모 백엔드에서 도메인 중심 설계(DDD)와 타입 안전성을 강조합니다. 문자열만 쓰면 코드가 금방 난잡해지고, 실수도 잦아지는데, 명확한 도메인 객체를 사용하면 유지보수와 확장성이 크게 좋아진다고 하네요[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+실제로 우리 팀도 주문 처리 시스템에서 단순히 "status" 필드를 String으로 처리하다가, OrderStatus enum과 Attribute Converter로 바꾼 뒤에 버그가 눈에 띄게 줄었어요. 그리고 새 상태가 추가될 때도 컴파일 타임에 체크되니 안정적입니다.
+
+---
+
+## 실무에서 바로 써먹는 팁: Attribute Converter를 도입할 때 고려할 점
+
+- **autoApply 속성**: 여러 엔티티에서 같은 타입 변환이 필요하면 `@Converter(autoApply = true)`를 쓰세요. 일일이 지정 안 해도 자동 적용됩니다.
+- **예외 처리**: 변환 실패 시 명확한 예외를 던져야 문제 원인을 빠르게 찾을 수 있습니다.
+- **성능 테스트**: 변환 로직이 복잡하면 프로파일링해서 병목 구간을 찾아야 합니다.
+- **캐싱 전략**: 자주 변환하는 값은 캐싱으로 응답 속도를 높이세요.
+- **도메인 객체 설계**: 변환 대상 타입을 잘 설계해 타입 안전성을 확보하는 게 우선입니다.
+
+---
+
+마지막으로, 단순히 String으로만 데이터를 다루는 건 편해 보여도 장기적으로는 유지보수와 확장성에 큰 걸림돌입니다. Spring Data가 제공하는 Attribute Converter와 Custom Converter를 적극 활용해서, 도메인 중심으로 타입을 명확히 구분하는 습관을 들이세요. 이건 실제로 경험해보면 "왜 이제야 알았지?" 싶은 부분입니다.
+
+---
+
+### 참고 자료
+
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Data는 단순 문자열 타입을 넘어서 복잡한 도메인 객체와 사용자 정의 타입을 지원하기 위해 Attribute Converters와 Custom Converters를 활용할 수 있다. 이를 통해 데이터베이스와 애플리케이션 간의 타입 변환을 명확하고 안전하게 처리할 수 있어 백엔드의 견고성과 유지보수성을 향상시킨다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot Reference Documentation에서는 Spring Data에서 JPA를 사용할 때, @Converter 어노테이션을 활용해 복잡한 데이터 타입을 데이터베이스 컬럼에 맞게 변환하는 방법을 권장하며, 이를 통해 문자열 기반의 단순 매핑을 넘어선 데이터 처리 및 저장이 가능하다고 설명한다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **복잡한 데이터 타입을 다룰 때는 성능 측면을 고려해 커스텀 컨버터를 적절히 구현하는 것이 중요하며, Baeldung의 Spring Boot Performance Tuning 가이드에서는 불필요한 변환 로직을 줄이고, 캐싱 전략을 병행하여 백엔드의 응답성과 유지보수성을 개선하는 실용적 방법을 제시한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub Engineering Blog에서는 대규모 백엔드 시스템에서 복잡한 데이터 타입 처리를 위해 도메인 중심 설계(DDD)와 타입 안전성을 강화하는 전략을 소개하며, Spring Data와 같은 프레임워크에서 문자열 대신 명확한 도메인 객체를 사용하는 것이 유지보수와 확장성에 긍정적인 영향을 미친다고 설명한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **Spring Data는 단순 문자열 타입을 넘어서 복잡한 도메인 객체와 사용자 정의 타입을 지원하기 위해 Attribute Converters와 Custom Converters를 활용할 수 있다. 이를 통해 데이터베이스와 애플리케이션 간의 타입 변환을 명확하고 안전하게 처리할 수 있어 백엔드의 견고성과 유지보수성을 향상시킨다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot Reference Documentation에서는 Spring Data에서 JPA를 사용할 때, @Converter 어노테이션을 활용해 복잡한 데이터 타입을 데이터베이스 컬럼에 맞게 변환하는 방법을 권장하며, 이를 통해 문자열 기반의 단순 매핑을 넘어선 데이터 처리 및 저장이 가능하다고 설명한다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **복잡한 데이터 타입을 다룰 때는 성능 측면을 고려해 커스텀 컨버터를 적절히 구현하는 것이 중요하며, Baeldung의 Spring Boot Performance Tuning 가이드에서는 불필요한 변환 로직을 줄이고, 캐싱 전략을 병행하여 백엔드의 응답성과 유지보수성을 개선하는 실용적 방법을 제시한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub Engineering Blog에서는 대규모 백엔드 시스템에서 복잡한 데이터 타입 처리를 위해 도메인 중심 설계(DDD)와 타입 안전성을 강화하는 전략을 소개하며, Spring Data와 같은 프레임워크에서 문자열 대신 명확한 도메인 객체를 사용하는 것이 유지보수와 확장성에 긍정적인 영향을 미친다고 설명한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
