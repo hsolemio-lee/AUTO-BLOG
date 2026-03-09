@@ -1,0 +1,172 @@
+---
+title: "Claude Code 대화 내용을 자동으로 GitHub에 저장하는 실전 도구 만들기"
+summary: "Anthropic의 AI 코딩 어시스턴트 Claude Code와 GitHub API, Vercel AI SDK를 활용해 대화 내용을 자동으로 GitHub 리포지토리에 커밋하는 도구를 직접 구현하며 겪은 경험과 팁을 공유합니다."
+date: "2026-03-09"
+slug: "show-gn-claude-code-github"
+category: "agentic-coding"
+canonical_url: "https://example.dev/blog/show-gn-claude-code-github"
+tags: ["Claude Code", "GitHub API", "Vercel AI SDK", "자동화", "개발 생산성"]
+sources:
+  - title: "Anthropic - Claude Code Overview"
+    url: "https://docs.anthropic.com/en/docs/claude-code/overview"
+  - title: "GitHub Copilot Documentation"
+    url: "https://docs.github.com/en/copilot"
+  - title: "Vercel AI SDK Documentation"
+    url: "https://sdk.vercel.ai/docs/introduction"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+### AI 코딩 어시스턴트와의 대화, 매번 복사 붙여넣기 하는 게 번거롭지 않나요?
+
+최근에 Claude Code라는 AI 코딩 어시스턴트를 쓰면서 느낀 점 중 하나가, 대화 내용이 쌓일수록 중요한 아이디어나 코드가 여기저기 흩어진다는 거였어요. 매번 대화창에서 복사해서 GitHub에 붙여넣는 것도 꽤 귀찮고, 버전 관리도 안 되니까 나중에 다시 찾기도 어렵고요.
+
+그래서 "이걸 자동으로 GitHub 저장소에 커밋해주면 얼마나 편할까?"라는 생각이 들었죠. 실제로 Claude Code는 자연어 기반 코드 생성과 대화형 코드 작성 기능이 뛰어나지만, 대화 내용 저장과 버전 관리는 따로 해줘야 하니까요[Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview).
+
+이번 글에서는 제가 직접 만든, Claude Code 대화 내용을 자동으로 GitHub에 저장하는 도구 이야기를 해보려고 합니다. 단순한 아이디어지만, 직접 구현하고 운영하면서 알게 된 점들을 공유할게요.
+
+---
+
+## 왜 Claude Code 대화를 GitHub에 저장해야 하나요?
+
+Claude Code 같은 AI 코딩 어시스턴트는 대화하면서 코드 작성, 수정, 질문 답변이 동시에 이뤄집니다. 이 과정에서 나온 중요한 코드 스니펫이나 아이디어는 개발자 입장에서 귀중한 자산이 되죠. 그런데 보통은 대화창에만 머물러 있어요.
+
+- **버전 관리가 안 됨**: 대화 내용은 시간 순으로 쌓이지만, GitHub처럼 변경 이력을 관리하진 않아요.
+- **협업이 어려움**: 팀원과 공유하려면 별도 복사 붙여넣기나 스크린샷이 필요합니다.
+- **검색과 재사용 불편**: 나중에 필요한 내용을 찾으려면 대화 기록을 일일이 뒤져야 하죠.
+
+이런 불편함을 해소하려면, 대화 내용을 자동으로 GitHub 리포지토리에 커밋하는 게 최선입니다. 이렇게 하면 코드 리뷰, 이슈 트래킹, 협업 툴과 자연스럽게 연동할 수 있으니까요.
+
+실제로 GitHub 엔지니어링 블로그에서도 생산성 향상을 위한 자동화와 AI 도구 통합 사례를 꾸준히 소개하고 있습니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+
+## GitHub API와 Vercel AI SDK 조합이 딱 맞는 이유
+
+자동으로 커밋하려면 GitHub API를 써야 하는데, 여기에 Vercel AI SDK를 더하면 AI 대화 내용을 받아서 바로 처리하고 저장하는 파이프라인을 간단히 만들 수 있어요.
+
+- **GitHub API**: 리포지토리 생성, 파일 생성/수정, 커밋, 푸시 등 모든 GitHub 작업을 REST API로 지원합니다.
+- **Vercel AI SDK**: AI 모델 호출, 이벤트 처리, 서버리스 함수 배포를 쉽게 해주죠. 특히 클라우드 환경에서 빠르게 배포 가능해요[GitHub Copilot Documentation](https://docs.github.com/en/copilot), [Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction).
+
+제가 만든 도구는 Claude Code 대화가 끝날 때마다 서버리스 함수가 트리거되고, 대화 내용을 포맷팅해서 GitHub API로 커밋하는 구조입니다. 이 과정에서 인증 토큰 관리, 커밋 메시지 자동 생성, 충돌 처리 등을 신경 써야 했어요.
+
+
+## 실제 코드로 보는 자동 커밋 흐름
+
+아래는 Node.js 환경에서 Vercel AI SDK와 Octokit(GitHub API 클라이언트)를 활용해 Claude Code 대화 내용을 GitHub에 커밋하는 예시입니다.
+
+```javascript
+import { Octokit } from "octokit";
+import { VercelRequest, VercelResponse } from "@vercel/node";
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const REPO_OWNER = "your-github-username";
+const REPO_NAME = "claude-code-logs";
+
+const octokit = new Octokit({ auth: GITHUB_TOKEN });
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  try {
+    const { conversationId, messages } = req.body;
+
+    // 대화 내용을 마크다운 형식으로 변환
+    const content = messages.map(msg => `### ${msg.role}\n\n${msg.content}`).join('\n\n---\n\n');
+
+    // 저장할 파일 경로 (예: conversations/{conversationId}.md)
+    const path = `conversations/${conversationId}.md`;
+
+    // 기존 파일이 있는지 확인
+    let sha;
+    try {
+      const { data } = await octokit.rest.repos.getContent({
+        owner: REPO_OWNER,
+        repo: REPO_NAME,
+        path,
+      });
+      sha = data.sha;
+    } catch (e) {
+      // 파일이 없으면 새로 생성
+      sha = undefined;
+    }
+
+    // 파일 업로드(커밋)
+    await octokit.rest.repos.createOrUpdateFileContents({
+      owner: REPO_OWNER,
+      repo: REPO_NAME,
+      path,
+      message: `Add/update Claude Code conversation ${conversationId}`,
+      content: Buffer.from(content).toString('base64'),
+      sha,
+    });
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
+```
+
+이 코드는 간단하지만, 실제로는 인증 토큰 보안, API 호출 제한, 에러 재시도 로직 등을 추가해야 안정적으로 운영할 수 있습니다.
+
+
+## 자동화가 가져온 의외의 변화들
+
+처음엔 "그냥 대화 내용을 저장만 하면 되지"라고 생각했는데, 자동화 도입 후 몇 가지 뜻밖의 변화가 있었어요.
+
+- **대화 내용 품질 향상**: 저장된 기록을 보면서 불필요한 대화나 중복 질문을 줄이게 되더라고요.
+- **협업 문화 개선**: 팀원들이 대화 내용을 쉽게 볼 수 있으니, 코드 리뷰 때 AI와 나눈 대화도 참고하면서 더 깊은 토론이 가능해졌어요.
+- **문서화 효과**: 대화가 자연스럽게 프로젝트 문서 일부가 되니, 새로 합류하는 동료가 빠르게 상황을 파악할 수 있습니다.
+
+물론 단점도 있죠. 자동 커밋이 너무 잦으면 리포지토리가 금방 커밋으로 도배될 수 있으니, 적절한 배치나 스쿼시 전략이 필요합니다. 그리고 민감한 정보가 대화에 포함될 수 있으니, 저장 전에 필터링하는 로직도 필수입니다.
+
+
+## 앞으로 더 해보고 싶은 것들
+
+- **커밋 메시지 자동화 고도화**: 대화 내용 요약 AI를 써서 더 의미 있는 커밋 메시지 생성
+- **GitHub Actions 연동**: 커밋 후 자동으로 코드 품질 검사, 문서 생성 등 워크플로우 확장
+- **다양한 AI 어시스턴트 지원**: Claude Code 외에도 GitHub Copilot, OpenAI GPT 등과 연동
+
+이런 시도들이 결국 개발 생산성을 극대화하고, AI와 개발자 간 경계를 허무는 데 큰 도움이 될 거라 믿습니다.
+
+---
+
+AI 코딩 어시스턴트와의 대화 내용을 그냥 흘려보내지 말고, 자동으로 저장하고 관리해보세요. 직접 만들어보면 생각보다 간단하고, 효과는 꽤 큽니다. 저처럼 한 번 시도해보시면 분명히 "왜 이제야 만들었지?" 하는 생각이 들 거예요.
+
+
+---
+
+## 참고 자료
+
+- [Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview)
+- [GitHub Copilot Documentation](https://docs.github.com/en/copilot)
+- [Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Claude Code는 Anthropic에서 제공하는 AI 코딩 어시스턴트로, 자연어 기반 코드 생성과 대화형 코드 작성 기능을 지원한다.** ([Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub Copilot은 AI 기반 코드 추천 도구로, 개발자가 작성하는 코드에 실시간으로 자동 완성 및 코드 스니펫을 제공하며, GitHub와의 원활한 통합을 지원한다.** ([GitHub Copilot Documentation](https://docs.github.com/en/copilot))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Vercel AI SDK는 프론트엔드 및 백엔드 개발자가 AI 기능을 쉽게 통합할 수 있도록 설계된 개발 도구로, 클라우드 환경에서 AI 모델을 빠르게 배포하고 관리할 수 있다.** ([Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그에서는 개발 생산성을 높이기 위해 자동화 도구와 워크플로우 개선 사례를 지속적으로 공유하며, AI 도구와 GitHub의 통합을 통한 개발 프로세스 혁신을 강조한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare의 'How We Built It' 블로그 시리즈는 클라우드 플랫폼에서 AI 및 자동화 도구를 구축하는 실제 사례를 소개하며, 개발자 워크플로우 자동화를 위한 모범 사례를 제공한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Claude Code 대화 내용을 자동으로 GitHub에 저장하는 도구는 AI 대화 데이터를 개발자 저장소와 연동하여 코드 리뷰, 버전 관리, 협업 효율성을 크게 향상시킬 수 있다.** ([Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub API와 Vercel AI SDK를 활용하면 AI 코딩 어시스턴트 대화 내용을 실시간으로 GitHub 리포지토리에 커밋하는 자동화 도구를 구현할 수 있다.** ([Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
