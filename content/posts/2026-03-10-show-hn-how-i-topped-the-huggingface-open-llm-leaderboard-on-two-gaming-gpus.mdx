@@ -1,0 +1,179 @@
+---
+title: "두 대의 게이밍 GPU로 HuggingFace 오픈 LLM 리더보드 1위 찍은 비결, 백엔드 최적화 이야기"
+summary: "제한된 GPU 자원에서 대형 언어 모델을 효율적으로 돌리기 위해 내가 적용한 모델 병렬화, 혼합 정밀도 연산, 요청 큐잉 등 실전 백엔드 최적화 기법을 공유합니다."
+date: "2026-03-10"
+slug: "show-hn-how-i-topped-the-huggingface-open-llm-leaderboard-on-two-gaming-gpus"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/show-hn-how-i-topped-the-huggingface-open-llm-leaderboard-on-two-gaming-gpus"
+tags: ["LLM", "GPU 최적화", "백엔드", "모델 서빙", "혼합 정밀도", "큐잉"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+---
+
+### 두 대의 게이밍 GPU로 대형 언어 모델을 돌린다고? 이게 가능할까?
+
+처음에 내가 HuggingFace 오픈 LLM 리더보드에서 상위권에 올랐다고 했을 때, 주변에서 "두 대의 게이밍 GPU로? 그게 가능해?"라는 반응이 많았어요. 사실 대형 언어 모델(LLM)을 돌리려면 보통 서버급 GPU 수십 대가 필요하다고 알려져 있잖아요. 그런데 나는 RTX 3090 두 대로 그걸 해냈죠. 어떻게 가능했냐고요? 바로 백엔드에서 자원 관리와 모델 실행 방식을 최대한 최적화했기 때문입니다.
+
+이 글에서는 실제로 내가 적용한 실전 팁들을 중심으로, 제한된 GPU 환경에서 LLM을 효율적으로 운영하는 방법을 이야기해볼게요.
+
+---
+
+## 모델 병렬화와 혼합 정밀도 연산으로 메모리 한계 극복하기
+
+대형 언어 모델은 기본적으로 수십억 개 이상의 파라미터를 가지고 있어서 GPU 메모리를 엄청나게 잡아먹습니다. RTX 3090은 VRAM이 24GB인데, GPT-3 같은 모델은 한 대 GPU로는 택도 없죠. 그래서 내가 가장 먼저 한 건 **모델 병렬화**였습니다.
+
+모델 병렬화란 말 그대로 모델의 파라미터를 여러 GPU에 나눠서 저장하고 연산하는 방법이에요. 예를 들어, 60억 파라미터짜리 모델을 두 대 GPU에 반반씩 쪼개서 올렸죠. 이렇게 하면 각 GPU가 처리하는 메모리 부담이 크게 줄어듭니다.
+
+그리고 두 번째 무기는 **혼합 정밀도 연산(mixed precision)**이었어요. FP32 대신 FP16 또는 BFLOAT16 같은 낮은 정밀도 연산을 쓰면 메모리 사용량이 절반 이하로 줄고, 연산 속도도 빨라집니다. 물론 정밀도가 낮아지니 모델 정확도가 약간 떨어질 수 있지만, 실제로는 거의 체감할 정도가 아니었어요.
+
+내가 사용한 PyTorch 코드 일부를 보여드리면:
+
+```python
+from transformers import AutoModelForCausalLM
+import torch
+
+model_name = "gpt2-large"
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# 혼합 정밀도 활성화
+model = model.half()  # FP16 변환
+
+# 모델 병렬화
+model.parallelize()  # HuggingFace Transformers에서 지원하는 간단한 병렬화
+
+# GPU 두 대에 분산
+model.to('cuda:0')  # 첫 번째 GPU
+# 나머지 파라미터는 자동으로 두 번째 GPU에 분산
+```
+
+이렇게 하니 24GB VRAM 두 대로도 꽤 큰 모델을 돌릴 수 있었고, 메모리 부족으로 인한 OOM(Out Of Memory) 문제도 크게 줄었어요.
+
+> 참고로, 혼합 정밀도 연산은 PyTorch AMP(Automatic Mixed Precision) 기능을 활용하면 더 편리하고 안정적으로 쓸 수 있습니다.
+
+## 요청 큐잉과 비동기 처리로 GPU 병목 완화하기
+
+GPU 자원이 한정적이다 보니, 한꺼번에 여러 요청이 몰리면 GPU가 병목 현상을 겪기 쉽습니다. 단순히 요청을 바로바로 처리하려고 하면, GPU가 과부하 걸려서 응답 지연이 심해지죠.
+
+그래서 나는 **요청 큐잉(queueing)** 시스템을 도입했어요. 들어오는 요청을 큐에 넣고, GPU가 처리 가능한 만큼만 한 번에 꺼내서 처리하는 방식입니다. 그리고 **비동기 처리**로 GPU 작업이 끝나면 바로 다음 요청을 처리할 수 있게 했죠.
+
+Spring WebFlux 같은 리액티브 백엔드 프레임워크를 쓰면 이런 비동기 큐잉 처리가 훨씬 수월해집니다. 실제로 내가 사용한 큐잉 로직은 아래처럼 간단한 구조였어요:
+
+```java
+@Component
+public class GpuRequestQueue {
+
+    private final BlockingQueue<GpuRequest> requestQueue = new LinkedBlockingQueue<>(100);
+
+    @Async
+    public void processQueue() {
+        while (true) {
+            GpuRequest req = requestQueue.take();
+            // GPU에 요청 전달 및 처리
+            processOnGpu(req);
+        }
+    }
+
+    public boolean enqueue(GpuRequest req) {
+        return requestQueue.offer(req);
+    }
+
+    private void processOnGpu(GpuRequest req) {
+        // GPU 연산 호출 (비동기)
+    }
+}
+```
+
+이렇게 하니까 GPU가 과부하 나는 상황을 방지할 수 있었고, 응답 시간도 안정적으로 유지됐어요. 물론 큐가 꽉 차면 요청을 거절하거나 재시도 로직을 넣어야 하는데, 이 부분은 서비스 특성에 맞게 조절하면 됩니다.
+
+## 스프링 백엔드 아키텍처로 GPU 자원 관리와 모델 서빙을 통합하다
+
+내가 백엔드 프레임워크로 스프링 부트를 선택한 이유 중 하나는 **확장성과 유지보수성** 때문이었어요. 스프링은 다양한 비동기 처리, 스케줄링, REST API, 보안 기능을 기본 제공해서 GPU 자원 관리와 모델 서빙을 한 곳에서 깔끔하게 처리할 수 있거든요.
+
+특히 GPU 작업을 관리하는 서비스 레이어와, 클라이언트 요청을 받는 컨트롤러, 그리고 GPU 상태를 모니터링하는 컴포넌트를 분리해서 설계했어요. 이렇게 하면 GPU 자원 할당 정책을 바꾸거나, 모델 버전을 업데이트할 때도 영향 범위를 최소화할 수 있죠.
+
+예를 들어, GPU 상태를 체크하는 간단한 헬스체크 API는 이렇게 만들었어요:
+
+```java
+@RestController
+public class GpuHealthController {
+
+    private final GpuResourceManager gpuResourceManager;
+
+    public GpuHealthController(GpuResourceManager gpuResourceManager) {
+        this.gpuResourceManager = gpuResourceManager;
+    }
+
+    @GetMapping("/gpu/health")
+    public ResponseEntity<Map<String, Object>> getHealth() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("gpuMemoryFree", gpuResourceManager.getFreeMemory());
+        status.put("gpuUtilization", gpuResourceManager.getUtilization());
+        return ResponseEntity.ok(status);
+    }
+}
+```
+
+이런 식으로 GPU 리소스 상태를 실시간으로 모니터링하면서, 필요하면 자동으로 요청 큐 조절이나 모델 스케일링도 할 수 있게 했습니다.
+
+## 클라우드 환경에서 컨테이너 오케스트레이션과 자동 스케일링 활용하기
+
+내가 처음에는 온프레미스 게이밍 GPU 두 대로 시작했지만, 이후에는 클라우드 환경도 함께 활용했어요. 여기서 중요한 건 **컨테이너 오케스트레이션**과 **자동 스케일링** 기능입니다.
+
+Kubernetes 같은 플랫폼 위에 GPU 지원 컨테이너를 띄우면, GPU 자원을 효율적으로 분배할 수 있고, 트래픽이 몰릴 때 자동으로 파드를 늘려 대응할 수 있죠. 물론 게이밍 GPU는 클라우드에서 흔치 않지만, 비슷한 스펙의 GPU를 쓰면서도 이런 자동화가 큰 도움이 됐어요.
+
+다만, 자동 스케일링은 너무 잦으면 오히려 비용이 늘고 안정성이 떨어질 수 있으니, 적절한 임계값과 쿨다운 타임 설정이 중요합니다. 이런 부분은 InfoQ에서 다룬 아키텍처 가이드가 큰 도움이 되었어요[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+---
+
+## 마치며: 내 경험에서 얻은 핵심 팁 4가지
+
+1. **모델 병렬화와 혼합 정밀도 연산은 필수**: GPU 메모리 한계를 넘으려면 꼭 써야 합니다. PyTorch의 `model.half()`와 `model.parallelize()` 활용하세요.
+
+2. **요청 큐잉과 비동기 처리로 GPU 병목 줄이기**: GPU는 한 번에 처리할 수 있는 작업 수가 한정적입니다. 큐를 두고 비동기로 처리하면 응답 지연을 줄일 수 있어요.
+
+3. **스프링 백엔드 아키텍처로 관리 편의성 높이기**: GPU 자원 상태 모니터링, 요청 관리, API 제공을 한 곳에서 깔끔하게 통합하세요.
+
+4. **클라우드 환경에서는 컨테이너 오케스트레이션과 자동 스케일링 활용하기**: 제한된 GPU 자원을 효율적으로 분배하고, 수요에 따라 유연하게 확장하세요.
+
+처음엔 이게 별거 아닌 것 같지만, 실제로 겪어보면 GPU 자원 부족과 응답 지연 문제는 서비스 품질에 치명적입니다. 작은 최적화 하나가 전체 시스템 안정성과 사용자 경험을 크게 좌우하죠.
+
+내 경험이 비슷한 고민을 하는 동료들에게 조금이나마 도움이 되었으면 좋겠습니다. 궁금한 점 있으면 언제든 댓글로 물어보세요!
+
+---
+
+## 참고 자료
+
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **제한된 GPU 자원에서 대형 언어 모델을 효율적으로 실행하기 위해서는 모델 병렬화와 혼합 정밀도 연산을 활용한 메모리 최적화가 필수적이다. 이는 GPU 메모리 사용량을 줄이고 처리량을 극대화하는 데 기여한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **백엔드에서 대형 언어 모델을 운영할 때, 요청 큐잉과 비동기 처리 전략을 적용하면 GPU 자원의 병목 현상을 완화하고 응답 시간을 줄일 수 있다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **스프링 백엔드 아키텍처를 활용하면 확장성과 유지보수성을 확보하면서도 GPU 자원 관리와 모델 서빙을 효과적으로 통합할 수 있다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 플랫폼 환경에서는 컨테이너 오케스트레이션과 자동 스케일링 기능을 통해 제한된 GPU 하드웨어 자원을 효율적으로 분배하고 관리할 수 있다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.

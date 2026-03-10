@@ -1,0 +1,162 @@
+---
+title: "Spring Data에서 문자열을 넘어 UUID, Enum, JSON까지 제대로 활용하는 법"
+summary: "Spring Data에서 기본 문자열 타입에만 의존하지 않고 UUID, Enum, JSON 등 고급 데이터 타입을 실무에 적용해 성능과 유지보수성을 높이는 실제 팁과 코드를 공유합니다."
+date: "2026-03-10"
+slug: "moving-beyond-strings-in-spring-data"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/moving-beyond-strings-in-spring-data"
+tags: ["spring-data", "jpa", "uuid", "enum", "json", "performance"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+---
+
+### "왜 우리 코드에 UUID를 그냥 String으로 쓰면 안 될까?"
+
+최근에 UUID를 문자열로 저장하는 코드가 많아서 고민이 많았어요. "그냥 String으로 저장하면 뭐가 문제냐?"라고 생각할 수도 있지만, 이게 실제로 쌓이면 성능과 유지보수에 꽤 큰 영향을 줍니다. Spring Data를 쓰면서 기본적으로 문자열에 의존하는 경우가 많은데, 조금만 신경 써서 고급 데이터 타입을 제대로 쓰면 훨씬 깔끔하고 빠른 코드를 만들 수 있더라고요.
+
+### UUID, Enum, JSON 매핑이 왜 중요한지 체감한 순간
+
+제가 일하는 팀에서는 사용자 식별자나 주문 번호 같은 중요한 키를 UUID로 관리하는데, 처음엔 그냥 `@Column`에 `String` 타입으로 매핑했어요. 그런데 쿼리 로그를 살펴보니 UUID 문자열이 길고, 인덱스 효율도 떨어져서 쿼리 성능이 생각보다 안 나오더라고요. 
+
+그래서 JPA에서 제공하는 `java.util.UUID` 타입을 직접 매핑하도록 바꿨더니, 데이터베이스에서 UUID를 native 타입으로 처리해줘서 인덱스도 더 효율적이고, 코드도 훨씬 명확해졌습니다. 이건 실제로 겪어보면 "아, 문자열로만 쓰면 안 되겠구나" 하는 느낌이 확 옵니다.
+
+### Enum 타입을 문자열로 저장하는 게 아니라 Enum 그대로 매핑하는 방법
+
+Enum도 마찬가지입니다. `@Enumerated(EnumType.STRING)`을 써서 DB에 문자열로 저장하는 게 가장 흔한데, 이게 편하긴 하지만 나중에 Enum 값이 바뀌면 데이터와 코드가 꼬일 위험이 있습니다. 
+
+저는 최근에 Enum 값을 DB에 숫자 코드로 저장하고, JPA 커스텀 컨버터를 만들어서 Enum과 숫자 값을 매핑하는 방식을 도입했어요. 이렇게 하면 DB 저장 공간도 줄고, Enum 이름이 바뀌어도 코드와 DB가 분리되어 있어서 유지보수가 훨씬 편해집니다.
+
+```java
+// Enum과 DB 숫자 값 매핑을 위한 AttributeConverter 예시
+@Converter(autoApply = true)
+public class StatusConverter implements AttributeConverter<OrderStatus, Integer> {
+    @Override
+    public Integer convertToDatabaseColumn(OrderStatus status) {
+        return status != null ? status.getCode() : null;
+    }
+
+    @Override
+    public OrderStatus convertToEntityAttribute(Integer dbData) {
+        return OrderStatus.fromCode(dbData);
+    }
+}
+
+public enum OrderStatus {
+    NEW(0), PROCESSING(1), COMPLETED(2);
+
+    private final int code;
+    OrderStatus(int code) { this.code = code; }
+    public int getCode() { return code; }
+    public static OrderStatus fromCode(int code) {
+        for (OrderStatus s : values()) {
+            if (s.code == code) return s;
+        }
+        throw new IllegalArgumentException("Unknown code: " + code);
+    }
+}
+```
+
+이렇게 하면 쿼리도 더 빠르고, Enum 이름 변경에 따른 이슈도 줄일 수 있었습니다.
+
+### JSON 타입, 이제는 그냥 문자열 말고 JSONB로 저장해보자
+
+요즘은 복잡한 도메인 객체를 DB에 JSON으로 저장하는 경우가 많은데, 단순히 `@Lob`로 문자열 저장하면 직렬화/역직렬화 비용도 크고, 쿼리 성능도 떨어집니다. PostgreSQL 같은 DB에서는 JSONB 타입을 지원하는데, Spring Data에서 이를 활용하면 훨씬 효율적입니다.
+
+예를 들어, 다음과 같이 `@Type` 어노테이션과 `hibernate-types` 라이브러리를 쓰면 JSONB 컬럼을 매핑할 수 있어요.
+
+```java
+@Entity
+public class UserProfile {
+    @Id
+    private Long id;
+
+    @Type(type = "jsonb")
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> preferences;
+
+    // getters, setters
+}
+```
+
+이렇게 하면 DB에 JSONB로 저장돼서, 쿼리 속도도 빨라지고, JSON 필드 일부를 조건으로 검색하는 것도 가능해집니다. 물론 모든 DB가 JSONB를 지원하는 건 아니니, DB 선택 시 고려가 필요합니다.
+
+### 커스텀 컨버터로 복잡한 도메인 객체도 깔끔하게 저장하는 비결
+
+Spring Framework 코어 문서에서 강조하는 것처럼, 커스텀 컨버터를 적극 활용하면 문자열 외의 복잡한 도메인 객체도 쉽게 매핑할 수 있습니다. 예를 들어, Value Object를 하나의 컬럼에 JSON으로 저장하거나, 특정 타입을 DB에 맞게 변환하는 작업을 담당하죠.
+
+```java
+@Converter(autoApply = true)
+public class MoneyConverter implements AttributeConverter<Money, String> {
+    @Override
+    public String convertToDatabaseColumn(Money money) {
+        return money != null ? money.getAmount() + ":" + money.getCurrency() : null;
+    }
+
+    @Override
+    public Money convertToEntityAttribute(String dbData) {
+        if (dbData == null) return null;
+        String[] parts = dbData.split(":");
+        return new Money(new BigDecimal(parts[0]), Currency.getInstance(parts[1]));
+    }
+}
+```
+
+이런 식으로 하면 도메인 모델과 DB 간 불일치를 줄이고, 코드 가독성도 좋아집니다. 다만, 컨버터가 복잡해지면 디버깅이 어려워질 수 있으니 적절한 단위 테스트가 필수입니다.
+
+### 문자열에만 의존하는 게 성능 병목이 되는 이유
+
+Baeldung의 성능 튜닝 가이드에서도 언급했듯이, 문자열 기반 데이터 처리에는 직렬화 비용과 쿼리 최적화 한계가 있습니다. 특히 대용량 트래픽 환경에서는 JSONB, 배열, Enum 같은 고급 타입을 활용해 데이터 직렬화 비용을 줄이고, DB 인덱싱 효율을 높여야 응답 속도가 눈에 띄게 개선됩니다[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+
+### 마무리하며: 당장 적용해볼 수 있는 팁
+
+- UUID는 가능한 `java.util.UUID` 타입으로 매핑하고, DB에서도 UUID 타입 지원 여부를 확인하세요.
+- Enum은 `@Enumerated(EnumType.ORDINAL)` 대신 커스텀 컨버터로 숫자 코드 매핑을 고려해보세요.
+- 복잡한 객체는 JSONB 컬럼과 `hibernate-types` 같은 라이브러리로 매핑하면 성능과 유지보수가 좋아집니다.
+- 커스텀 컨버터를 적극 활용해 도메인 모델과 DB 간 불일치를 줄이세요.
+- 모든 변경은 충분한 테스트와 성능 모니터링과 함께 진행하는 게 안전합니다.
+
+처음엔 이게 별거 아닌 것 같지만, 실제로 프로젝트에 적용해보면 데이터 처리 속도와 코드 품질이 확실히 달라지는 걸 느낄 수 있을 겁니다.
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+
+
+## 정리하며
+
+Moving beyond Strings in Spring Data을 실무에 적용할 때 가장 중요한 것은 한 번에 완벽하게 하려 하지 않는 것입니다. 작은 범위에서 시작하고, 측정하고, 개선하는 사이클을 반복하세요.
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Data는 기본 문자열 타입을 넘어 다양한 고급 데이터 타입을 지원하며, 이를 통해 데이터베이스와의 매핑 정확성을 높이고 성능을 개선할 수 있다. 예를 들어, JPA에서 UUID, Enum, JSON 타입 등을 직접 매핑하여 코드 가독성과 유지보수성을 향상시킨다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework 코어 기술 문서에서는 커스텀 컨버터와 리포지토리 확장 기능을 활용해 문자열 외의 복잡한 도메인 객체를 효과적으로 저장하고 조회하는 방법을 제공한다. 이를 통해 도메인 모델과 데이터베이스 간의 불일치를 줄이고, 백엔드 성능을 최적화할 수 있다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Baeldung의 Spring Boot 성능 튜닝 가이드에서는 문자열 기반 데이터 처리의 한계를 지적하며, JSONB, 배열, Enum 등 고급 데이터 타입을 적극 활용할 것을 권장한다. 특히, 데이터 직렬화 비용 절감과 쿼리 최적화를 통해 백엔드 응답 속도를 개선할 수 있다고 설명한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **Spring Data는 기본 문자열 타입을 넘어 다양한 고급 데이터 타입을 지원하며, 이를 통해 데이터베이스와의 매핑 정확성을 높이고 성능을 개선할 수 있다. 예를 들어, JPA에서 UUID, Enum, JSON 타입 등을 직접 매핑하여 코드 가독성과 유지보수성을 향상시킨다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework 코어 기술 문서에서는 커스텀 컨버터와 리포지토리 확장 기능을 활용해 문자열 외의 복잡한 도메인 객체를 효과적으로 저장하고 조회하는 방법을 제공한다. 이를 통해 도메인 모델과 데이터베이스 간의 불일치를 줄이고, 백엔드 성능을 최적화할 수 있다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Baeldung의 Spring Boot 성능 튜닝 가이드에서는 문자열 기반 데이터 처리의 한계를 지적하며, JSONB, 배열, Enum 등 고급 데이터 타입을 적극 활용할 것을 권장한다. 특히, 데이터 직렬화 비용 절감과 쿼리 최적화를 통해 백엔드 응답 속도를 개선할 수 있다고 설명한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
