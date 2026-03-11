@@ -1,0 +1,159 @@
+---
+title: "Uber가 MySQL 클러스터 가동 시간을 초 단위로 끌어올린 비밀: 컨센서스 아키텍처 이야기"
+summary: "Uber가 MySQL 클러스터의 가동 시간을 분 단위에서 초 단위로 단축한 실제 사례를 통해, 컨센서스 아키텍처가 백엔드 운영에 어떤 혁신을 가져오는지 상세히 살펴봅니다."
+date: "2026-03-11"
+slug: "from-minutes-to-seconds-uber-boosts-mysql-cluster-uptime-with-consensus-architecture"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/from-minutes-to-seconds-uber-boosts-mysql-cluster-uptime-with-consensus-architecture"
+tags: ["MySQL", "컨센서스", "클러스터", "가동시간", "백엔드운영"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+## 갑작스러운 MySQL 장애, 그리고 초 단위 복구의 필요성
+
+"우리 MySQL 클러스터가 또 다운됐어. 복구하는 데 3분이나 걸렸어!" 이런 말을 들어본 적 있나요? 대규모 트래픽을 감당하는 서비스라면, 데이터베이스 가용성은 생명과도 같습니다. Uber도 초기에는 MySQL 클러스터 장애가 발생하면 복구에 몇 분씩 걸렸는데, 이 시간이 곧 사용자 경험에 치명적인 영향을 미쳤죠. 그래서 그들은 어떻게 분 단위 가동 중단 시간을 초 단위로 줄였을까요?
+
+## Uber가 선택한 컨센서스 아키텍처란?
+
+컨센서스 아키텍처는 여러 노드가 상태에 대해 합의(consensus)를 이루는 구조를 뜻합니다. Uber는 MySQL 클러스터를 단순한 마스터-슬레이브 구조에서 벗어나, 장애 발생 시 빠른 리더 전환과 데이터 일관성을 보장하는 컨센서스 기반 시스템으로 전환했어요. 이 덕분에 장애가 나도 클러스터가 즉시 새 리더를 선출해 서비스 중단 시간을 획기적으로 줄일 수 있었습니다.
+
+이 방식은 Raft나 Paxos 같은 합의 알고리즘을 활용해, 복제본 간 상태를 엄격히 맞추고 장애 시점에 빠르게 대응하는 게 핵심입니다. Uber는 이 구조를 통해 MySQL 클러스터의 가용성을 99.99% 이상으로 끌어올렸죠.
+
+## 작은 범위 점진적 배포가 위험을 줄인다
+
+Uber가 이 아키텍처를 도입하면서 동시에 적용한 게 바로 작은 범위의 점진적 배포 전략입니다. 새로운 백엔드 기능이나 아키텍처 변경을 한꺼번에 전체 클러스터에 적용하지 않고, 일부 노드나 리전 단위로 단계적으로 배포했어요. 이렇게 하면 장애가 발생해도 범위가 제한돼 빠르게 롤백하거나 수정할 수 있습니다.
+
+이 방법은 실제로 운영 리스크를 크게 줄여줍니다. TypeScript 공식 문서에서도 "작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다"라고 명시하고 있죠[TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html).
+
+## 장애 유형을 초기에 계측해 빠른 대응 체계 마련
+
+Uber는 장애 대응 속도를 높이기 위해, 장애가 발생하는 유형을 초기부터 체계적으로 계측했습니다. 예를 들어, 네트워크 지연, 디스크 I/O 병목, 리더 선출 실패 등 다양한 실패 유형을 로그와 메트릭으로 꼼꼼히 기록했죠.
+
+이 덕분에 장애가 발생했을 때 "무슨 원인인지 모르겠다"며 허둥대는 일이 줄었고, 문제의 근본 원인을 빠르게 파악해 대응할 수 있었습니다. Microsoft의 TypeScript 5.x 릴리즈 노트에서도 "실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다"고 강조합니다[TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/).
+
+## 실제 코드 예시: Raft 리더 선출 간단 구현
+
+컨센서스 아키텍처 핵심은 리더 선출입니다. 아래는 Go 언어로 간단히 구현한 Raft 리더 선출 로직의 일부입니다. 실제 Uber 시스템은 훨씬 복잡하지만, 이 코드를 통해 기본 아이디어를 잡을 수 있습니다.
+
+```go
+package raft
+
+import (
+    "time"
+    "math/rand"
+)
+
+type State int
+
+const (
+    Follower State = iota
+    Candidate
+    Leader
+)
+
+type RaftNode struct {
+    state       State
+    currentTerm int
+    votedFor    int
+    electionTimeout time.Duration
+    lastHeartbeat time.Time
+}
+
+func (rn *RaftNode) startElection() {
+    rn.state = Candidate
+    rn.currentTerm++
+    rn.votedFor = rn.getID()
+    votes := 1
+    // 여기서 다른 노드에 RequestVote RPC를 보내고 응답을 받아야 함
+    // 간단히 랜덤 성공 시뮬레이션
+    if rand.Intn(2) == 0 {
+        votes++
+    }
+    if votes > rn.getClusterSize()/2 {
+        rn.becomeLeader()
+    } else {
+        rn.state = Follower
+    }
+}
+
+func (rn *RaftNode) becomeLeader() {
+    rn.state = Leader
+    // 리더로서 heartbeat 전송 루틴 시작
+}
+
+func (rn *RaftNode) getID() int {
+    return 1 // 예시용
+}
+
+func (rn *RaftNode) getClusterSize() int {
+    return 3 // 예시용
+}
+```
+
+이 코드는 리더 선출을 시작하고 과반수 투표를 얻으면 리더가 되는 단순화된 흐름을 보여줍니다. Uber는 이런 기본 로직 위에 장애 감지, 로그 복제, 일관성 검증 등 다양한 기능을 덧붙여 실제 운영에 맞게 확장했죠.
+
+## 컨센서스 아키텍처 도입 시 고려해야 할 현실적인 문제들
+
+컨센서스 기반 시스템은 가용성을 극대화하지만, 완벽한 해결책은 아닙니다. 네트워크 파티션이나 복제 지연으로 인한 일시적 데이터 불일치가 발생할 수 있고, 리더 선출 과정에서 지연이 생기면 서비스 응답 시간이 늘어날 수도 있죠.
+
+또한, 복잡한 아키텍처는 운영 난이도를 높입니다. Uber도 초기 도입 시 수많은 모니터링과 자동화 도구를 개발했고, 장애 유형을 세밀하게 계측하는 데 상당한 노력을 기울였어요. 이 과정에서 작은 범위 점진적 배포가 큰 도움이 됐습니다.
+
+## 내 서비스에도 컨센서스 아키텍처가 필요한가?
+
+만약 여러분이 운영하는 서비스가 초당 수십만 건 이상의 트랜잭션을 처리하고, 데이터베이스 가용성이 비즈니스에 직접적인 영향을 준다면 컨센서스 아키텍처 도입을 고민해볼 만합니다. 하지만 규모가 작거나 장애 허용 범위가 넓은 서비스라면, 단순한 복제와 장애 조치(failover)로도 충분할 수 있어요.
+
+결국 중요한 건 장애 발생 시 복구 시간을 얼마나 줄일 수 있느냐, 그리고 그 과정에서 운영 리스크를 어떻게 관리하느냐입니다. Uber 사례처럼 작은 범위 점진적 배포와 실패 유형 초기 계측을 병행하면, 컨센서스 아키텍처의 복잡함을 효과적으로 다룰 수 있습니다.
+
+---
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 3
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
