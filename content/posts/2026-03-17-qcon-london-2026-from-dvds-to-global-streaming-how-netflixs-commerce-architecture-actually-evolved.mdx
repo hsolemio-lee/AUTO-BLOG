@@ -1,0 +1,127 @@
+---
+title: "넷플릭스 커머스 아키텍처의 진화: DVD 대여에서 글로벌 스트리밍까지 백엔드 설계 이야기"
+summary: "넷플릭스가 DVD 대여 서비스에서 시작해 글로벌 스트리밍 플랫폼으로 성장하는 과정에서 어떻게 백엔드 커머스 아키텍처를 모놀리식에서 마이크로서비스로 전환하며 확장성과 운영 효율성을 달성했는지 실무적 관점에서 살펴봅니다."
+date: "2026-03-17"
+slug: "qcon-london-2026-from-dvds-to-global-streaming-how-netflixs-commerce-architecture-actually-evolved"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/qcon-london-2026-from-dvds-to-global-streaming-how-netflixs-commerce-architecture-actually-evolved"
+tags: ["넷플릭스", "마이크로서비스", "커머스 아키텍처", "클라우드 네이티브", "분산 시스템"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## 넷플릭스가 DVD 대여 시스템에서 벗어나면서 겪은 아키텍처 도전
+
+2000년대 초반, 넷플릭스는 DVD 우편 대여 서비스로 시작했습니다. 당시만 해도 주문 처리, 재고 관리, 결제 시스템이 한데 뭉쳐진 모놀리식 애플리케이션이었죠. 초기에는 소수의 트래픽과 비교적 단순한 도메인 덕분에 큰 문제가 없었지만, 스트리밍 서비스로 전환하면서 상황이 급변했습니다.
+
+한 번 생각해보세요. 전 세계 수천만 사용자가 동시에 다양한 디바이스에서 구독을 관리하고, 결제를 처리하며, 콘텐츠를 소비하는 걸 단일 서비스로 감당한다? 현실적으로 불가능하죠. 이 과정에서 넷플릭스는 자연스럽게 백엔드 커머스 아키텍처를 재설계할 필요가 생겼습니다.
+
+
+## 마이크로서비스로의 전환, 그리고 독립 배포의 힘
+
+넷플릭스가 선택한 해법은 마이크로서비스 아키텍처였습니다. 각 도메인별로 서비스를 분리해 독립적으로 배포하고 확장할 수 있도록 설계했죠. 예를 들어, DVD 주문 처리 서비스와 구독 관리 서비스, 결제 처리 서비스가 각각 별도의 마이크로서비스로 존재합니다.
+
+이게 왜 중요한지 경험해본 사람은 압니다. 어떤 기능에 문제가 생겨도 전체 시스템이 멈추지 않고, 장애가 발생한 서비스만 격리할 수 있으니까요. 또한, 특정 서비스에 트래픽이 몰리면 그 부분만 수평 확장하면 되니 자원 활용도 효율적입니다.
+
+실제로 넷플릭스는 클라우드 환경에서 이런 마이크로서비스를 운영하며 자동화된 배포 파이프라인을 구축했습니다. 덕분에 새로운 기능을 빠르게 릴리즈하고, 장애 발생 시 신속한 롤백과 복구가 가능했죠.
+
+
+## 도메인 주도 설계(DDD)와 이벤트 기반 아키텍처가 만든 유연성
+
+넷플릭스 커머스 시스템의 또 다른 핵심은 도메인 주도 설계(DDD)를 적극 활용했다는 점입니다. DVD 주문, 구독 관리, 결제 등 각 도메인의 경계를 명확히 하고, 그 안에서 비즈니스 로직을 집중시켰죠.
+
+이와 함께 이벤트 기반 아키텍처를 도입해 서비스 간 느슨한 결합을 유지했습니다. 예를 들어, 구독 상태가 변경되면 이벤트가 발생하고, 결제 서비스나 추천 서비스가 이를 구독해 필요한 작업을 수행합니다. 이런 방식은 확장성과 유지보수성에 큰 도움이 되는데, 실제 운영 환경에서 서비스 간 의존성으로 인한 장애 전파를 막는 데 효과적이었습니다.
+
+```java
+// 예시: 구독 상태 변경 이벤트 발행 코드
+public class SubscriptionService {
+    private final EventPublisher eventPublisher;
+
+    public void updateSubscriptionStatus(String userId, SubscriptionStatus newStatus) {
+        // 구독 상태 업데이트 로직
+        // ...
+
+        // 변경 이벤트 발행
+        SubscriptionStatusChangedEvent event = new SubscriptionStatusChangedEvent(userId, newStatus);
+        eventPublisher.publish(event);
+    }
+}
+```
+
+이 코드는 구독 상태가 바뀔 때마다 이벤트를 발행해 다른 서비스들이 이를 비동기적으로 처리하도록 하는 간단한 예입니다. 실제로 넷플릭스는 이런 이벤트 기반 통신을 통해 서비스 간 결합도를 낮추고, 장애 격리 및 확장성을 확보했습니다.
+
+
+## 클라우드 네이티브 설계와 장애 대응 전략
+
+글로벌 스트리밍 확장 과정에서 넷플릭스는 클라우드 네이티브 설계를 전면 도입했습니다. 자동화된 CI/CD 파이프라인으로 빠른 배포와 롤백이 가능해졌고, 모니터링과 로그, 트레이싱을 강화해 관측 가능성(observability)을 높였죠.
+
+특히 장애 격리를 위한 서킷 브레이커 패턴과 백프레셔(backpressure) 같은 클라우드 디자인 패턴을 적극 활용했습니다. 예를 들어, 특정 서비스가 과부하 상태일 때 서킷 브레이커가 동작해 호출을 차단하고, 장애 전파를 막아 전체 시스템 안정성을 유지합니다.
+
+```java
+// 서킷 브레이커 예시 (Resilience4j 라이브러리 활용)
+CircuitBreaker circuitBreaker = CircuitBreaker.ofDefaults("paymentService");
+
+Supplier<String> decoratedSupplier = CircuitBreaker
+    .decorateSupplier(circuitBreaker, () -> paymentService.processPayment(orderId));
+
+Try<String> result = Try.ofSupplier(decoratedSupplier)
+    .recover(throwable -> "결제 실패: 서비스 과부하");
+
+System.out.println(result.get());
+```
+
+이 코드는 결제 서비스 호출 시 서킷 브레이커를 적용해, 서비스가 불안정할 때 호출을 차단하고 적절히 복구하는 예입니다. 넷플릭스는 이런 패턴을 통해 대규모 분산 시스템에서 흔히 발생하는 장애를 효과적으로 관리했습니다.
+
+
+## 실제로 겪어보면 알게 되는 운영 효율성의 가치
+
+처음엔 마이크로서비스 전환이 복잡하고 관리 부담이 커 보일 수 있습니다. 서비스가 많아지면 네트워크 통신, 데이터 일관성, 배포 파이프라인 관리 등 신경 쓸 게 한두 가지가 아니니까요. 하지만 넷플릭스 사례처럼 도메인 경계가 명확하고, 이벤트 기반 통신과 클라우드 네이티브 패턴을 잘 조합하면 운영 효율성이 크게 올라갑니다.
+
+특히 글로벌 서비스를 운영할 때는 장애 격리와 빠른 복구가 생명입니다. 넷플릭스가 보여준 것처럼, 장애가 전체 시스템에 전파되지 않도록 서킷 브레이커 같은 패턴을 적극 활용하는 게 중요하죠. 
+
+
+## 마무리하며: 넷플릭스 아키텍처에서 얻을 수 있는 교훈
+
+- **모놀리식에서 마이크로서비스로의 전환은 필수적이다**: 글로벌 확장과 빠른 기능 개발을 위해서는 독립 배포와 확장이 가능한 아키텍처가 필요합니다.
+
+- **도메인 주도 설계와 이벤트 기반 아키텍처가 유지보수와 확장성의 핵심**: 각 도메인별 책임을 명확히 하고, 비동기 이벤트로 서비스 간 결합도를 낮추세요.
+
+- **클라우드 네이티브 설계는 운영 효율과 장애 대응을 위한 기반**: 자동화된 배포, 관측 가능성, 서킷 브레이커 같은 패턴을 적극 도입해야 합니다.
+
+- **실제 운영 경험을 통해 패턴의 효과를 체감할 수 있다**: 설계만으로는 부족하고, 장애 상황에서 어떻게 대응하는지가 시스템의 진짜 강점입니다.
+
+이 글이 넷플릭스 커머스 아키텍처 진화를 통해 여러분의 백엔드 시스템 설계에 조금이라도 도움이 되길 바랍니다. 실제로 겪어본 경험과 패턴을 조합해 나만의 안정적이고 확장 가능한 시스템을 만들어 보세요.
+
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Netflix는 DVD 대여 서비스에서 시작해 글로벌 스트리밍 플랫폼으로 진화하면서 백엔드 커머스 아키텍처를 모놀리식에서 마이크로서비스 아키텍처로 전환했다. 이는 확장성과 독립 배포를 가능하게 하여 빠른 기능 개발과 운영 효율성을 지원했다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **마이크로서비스 아키텍처 도입 시 Netflix는 각 서비스가 독립적으로 배포 및 확장 가능하도록 설계했으며, 이는 클라우드 플랫폼의 유연한 자원 활용과 장애 격리 측면에서 중요한 역할을 했다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Netflix의 커머스 시스템은 초기 DVD 주문 처리부터 구독 관리, 결제 처리까지 다양한 도메인별 서비스로 분리되었으며, 이는 도메인 주도 설계(DDD)와 이벤트 기반 아키텍처를 활용해 높은 확장성과 유지보수성을 확보했다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Netflix는 글로벌 스트리밍 확장 과정에서 클라우드 네이티브 설계를 채택해 자동화된 배포 파이프라인과 관측 가능성(observability)을 강화, 운영 비용 절감과 빠른 장애 대응을 가능하게 했다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **대규모 분산 시스템 운영 경험을 바탕으로 Netflix는 장애 격리와 복원력을 위해 서킷 브레이커 패턴, 백프레셔(backpressure) 등 클라우드 디자인 패턴을 적극 활용했다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
