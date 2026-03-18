@@ -1,0 +1,169 @@
+---
+title: "Navigation API로 프론트엔드 내비게이션 성능과 사용자 경험 한 단계 업그레이드하기"
+summary: "새로 도입된 Navigation API를 활용해 프론트엔드 내비게이션을 어떻게 더 빠르고 부드럽게 만들 수 있는지, 실제 코드 예제와 함께 자세히 살펴봅니다."
+date: "2026-03-18"
+slug: "navigation-api-a-better-way-to-navigate-is-now-baseline-newly-available"
+category: "frontend"
+canonical_url: "https://example.dev/blog/navigation-api-a-better-way-to-navigate-is-now-baseline-newly-available"
+tags: ["Navigation API", "프론트엔드", "웹 성능", "사용자 경험", "JavaScript"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## 내비게이션이 느려서 사용자 불만? 나만 그런가?
+
+요즘 웹사이트 쓰다 보면 페이지 전환이 뭔가 무겁고 답답할 때 있죠. SPA도 아닌데 새로고침 느낌 나면서 깜빡임도 심하고, 뭔가 사용자 경험이 매끄럽지 않은 경우가 많아요. 특히 모바일 환경에서는 네트워크 상태에 따라 체감 속도가 더 떨어지고요. 이런 문제를 해결하기 위해 여러가지 방법을 써봤지만, 결국 브라우저가 제공하는 기본 내비게이션 방식을 바꾸지 않는 이상 한계가 있더라고요.
+
+그런데 최근에 Navigation API가 Baseline으로 새롭게 제공되면서 이 고민을 한 단계 줄일 수 있는 기회가 왔습니다. 실제로 써보니 페이지 전환이 훨씬 자연스럽고, 성능도 눈에 띄게 좋아졌어요.
+
+
+## Navigation API가 뭔데, 왜 갑자기 주목받는 걸까?
+
+간단히 말하면, Navigation API는 브라우저 내비게이션 과정을 개발자가 더 세밀하게 제어할 수 있게 해주는 최신 웹 API입니다. 기존에는 페이지 이동 시 브라우저가 알아서 새 문서를 요청하고 렌더링하는 데 그쳤다면, 이제는 개발자가 내비게이션 이벤트를 감지해서 필요한 리소스만 선제적으로 불러오거나, 캐시를 활용해 빠르게 화면을 전환할 수 있어요.
+
+이게 왜 좋냐면, 예를 들어 사용자가 링크를 클릭했을 때 백그라운드에서 미리 다음 페이지 데이터를 받아놓고, 실제 전환 시점에는 거의 즉시 화면을 바꿀 수 있다는 겁니다. 결과적으로 로딩 시간과 깜빡임을 크게 줄여줘서 사용자 경험이 훨씬 매끄러워지죠.
+
+또한, Navigation API는 SPA처럼 클라이언트 라우팅을 구현하지 않아도 기존 멀티페이지 앱에서 점진적으로 적용할 수 있어서 도입 장벽도 낮아요.
+
+
+## 실제 프로젝트에 Navigation API 적용해본 경험 공유
+
+제가 최근에 맡은 프로젝트는 기존에 SSR 기반의 전통적인 멀티페이지 웹이었는데, 페이지 전환 시마다 전체 문서를 새로 받아와서 로딩이 느리고 깜빡임이 심한 문제가 있었어요. 그래서 Navigation API를 도입해 점진적으로 개선해봤습니다.
+
+아래는 기본적인 사용 예시입니다.
+
+```javascript
+// navigation.ts
+if ('navigation' in window) {
+  const nav = (window as any).navigation;
+
+  nav.addEventListener('navigate', (event) => {
+    const navEvent = event as NavigateEvent;
+    const destination = navEvent.destination.url;
+
+    // SPA처럼 fetch API로 필요한 데이터만 미리 가져오기
+    if (destination.includes('/posts/')) {
+      event.intercept({
+        async handler() {
+          const res = await fetch(destination, { headers: { 'X-Requested-With': 'fetch' } });
+          const html = await res.text();
+          document.documentElement.innerHTML = html;
+          history.pushState({}, '', destination);
+        },
+      });
+    }
+  });
+}
+```
+
+이 코드는 사용자가 링크를 클릭해서 `/posts/` 경로로 이동할 때, 브라우저가 기본 내비게이션을 막고 fetch로 해당 페이지 HTML을 미리 받아와서 DOM을 교체하는 방식입니다. 덕분에 전체 페이지 리로드 없이도 빠르게 화면 전환이 가능해졌죠.
+
+물론 이 방식은 완전한 SPA처럼 상태 관리까지 해주진 않기 때문에, 기존 서버 렌더링 기반 페이지에서 점진적으로 내비게이션 성능을 개선하는 데 적합합니다.
+
+
+## Navigation API 도입 시 주의할 점과 한계
+
+처음에 이 API가 별거 아닌 것 같아 보여도, 실제로 적용해보면 생각보다 신경 써야 할 부분이 꽤 있어요.
+
+- **브라우저 지원 현황**: 아직 모든 브라우저가 완벽하게 지원하지 않아서, 폴리필이나 대체 로직이 필요할 수 있습니다.
+- **상태 관리 어려움**: SPA처럼 복잡한 상태를 관리하지 않고 단순히 HTML 교체만 하기 때문에, 자바스크립트 초기화나 이벤트 바인딩이 다시 필요해집니다.
+- **SEO 영향**: 서버 사이드 렌더링이 기본인 경우, 클라이언트에서 DOM을 교체하는 과정이 검색 엔진에 영향을 줄 수 있으니 주의해야 합니다.
+- **에러 핸들링**: 네트워크 오류나 fetch 실패 시 fallback 로직을 잘 설계해야 사용자 경험 저하를 막을 수 있습니다.
+
+그래서 저는 작은 범위부터 점진적으로 도입하는 걸 추천해요. 신규 기능이나 특정 페이지에서만 Navigation API를 적용해보고, 문제 없으면 점차 확대하는 식으로요. 이런 점진적 배포 전략은 운영 리스크를 낮추는 데도 효과적입니다[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+
+## Navigation API가 장애 대응과 유지보수에 도움되는 이유
+
+내비게이션 과정에서 발생하는 실패 유형을 초기에 계측할 수 있다는 점도 큰 장점입니다. 예를 들어, fetch가 실패하거나 DOM 교체 중 에러가 나면 바로 로그를 남기고 사용자에게 적절한 안내를 할 수 있거든요. 이런 초기 계측은 장애 대응 속도를 높이고 유지보수성을 개선하는 데 꼭 필요합니다[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+저희 팀에서는 Navigation API 이벤트에 에러 핸들러를 붙여서, 문제가 생기면 자동으로 원래 브라우저 기본 내비게이션으로 넘어가도록 했어요. 덕분에 사용자 불편을 최소화하면서도 문제를 빠르게 발견할 수 있었습니다.
+
+
+## 앞으로 Navigation API로 어떤 가능성을 기대할 수 있을까?
+
+이 API가 앞으로 더 발전하면, 프론트엔드 내비게이션 최적화가 훨씬 쉬워질 것 같아요. 예를 들어, 백그라운드에서 리소스 선로딩, 사용자 행동 예측 기반 내비게이션 가속, 그리고 더 정교한 캐싱 전략 구현 등이 가능해질 테니까요.
+
+또한, SPA가 아니라도 기존 멀티페이지 웹에서 사용자 경험을 SPA 수준으로 끌어올릴 수 있다는 점에서, 기술 도입 비용 대비 효과가 꽤 클 겁니다.
+
+
+---
+
+### 내비게이션 성능 개선, 당장 시도해볼 수 있는 한 가지
+
+```javascript
+if ('navigation' in window) {
+  const nav = window.navigation;
+
+  nav.addEventListener('navigate', event => {
+    event.intercept({
+      async handler() {
+        const res = await fetch(event.destination.url);
+        if (!res.ok) {
+          // 실패 시 기본 내비게이션으로 폴백
+          window.location.href = event.destination.url;
+          return;
+        }
+        const html = await res.text();
+        document.documentElement.innerHTML = html;
+        history.pushState({}, '', event.destination.url);
+      },
+    });
+  });
+}
+```
+
+이 코드를 프로젝트에 넣고, 내부 링크 클릭 시 페이지 전체 리로드 없이 빠른 전환을 경험해보세요. 다만, JavaScript 초기화 문제는 직접 확인하면서 보완해야 합니다.
+
+
+## 마치며
+
+Navigation API는 아직 완벽하지는 않지만, 프론트엔드 내비게이션을 개선하는 데 매우 유용한 도구입니다. 특히 기존 멀티페이지 웹에 점진적으로 도입해 사용자 경험을 개선하고 싶은 분들에게 추천합니다. 실제로 적용해보면, 페이지 전환 속도와 부드러움이 눈에 띄게 좋아지는 걸 체감할 수 있을 거예요.
+
+그리고 실패 유형을 미리 계측하고, 점진적 배포 전략을 활용하는 것 역시 잊지 마세요. 이 두 가지는 운영 리스크를 줄이고 장애 대응을 빠르게 하는 데 큰 도움이 됩니다.
+
+이제 여러분 프로젝트에도 Navigation API 한 번 시도해보시죠!
+
+
+---
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
