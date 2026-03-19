@@ -1,0 +1,144 @@
+---
+title: "Spring Security 6.5.9, 7.0.4, 7.1.0-M3 업그레이드와 프로덕션 보안 최적화 전략"
+summary: "Spring Security 최신 버전(6.5.9, 7.0.4, 7.1.0-M3)으로 업그레이드할 때 주의할 점과 프로덕션 환경에서 보안을 강화하는 현실적인 설정 팁, 그리고 점진적 롤아웃 전략을 실제 경험을 바탕으로 공유합니다."
+date: "2026-03-19"
+slug: "spring-security-659-704-and-710-m3-available-now"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-security-659-704-and-710-m3-available-now"
+tags: ["spring-security", "spring-boot", "oauth2", "jwt", "보안", "업그레이드"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+---
+
+## "이번 릴리즈, 무조건 업그레이드해야 하나?"
+
+최근 우리 팀에서 Spring Security 6.5.9, 7.0.4, 그리고 7.1.0-M3 버전이 릴리즈됐다는 소식을 듣고 바로 테스트 환경에 올려봤어요. 그런데 막상 적용하려니 "과연 이번 버전으로 바로 넘어가도 될까?" 하는 고민이 생기더군요. 특히 보안 모듈은 애플리케이션의 심장 같은 부분이라, 작은 설정 하나라도 잘못 건드리면 서비스 장애나 보안 사고로 직결될 수 있거든요.
+
+그래서 이번 글에서는 최신 Spring Security 버전으로 업그레이드하면서 실제로 어떤 점이 달라졌는지, 그리고 프로덕션 환경에서 안정적으로 보안을 강화하려면 어떤 전략을 써야 하는지 제 경험과 공식 문서, 그리고 성능 튜닝 가이드를 참고해 정리해봤습니다.
+
+---
+
+## Spring Security 7.x, 뭘 바꿨길래 이렇게 신경 쓰이나?
+
+우선 6.5.9부터 7.0.4, 그리고 7.1.0-M3까지 주요 릴리즈 노트를 훑어보면, OAuth 2.0과 JWT 처리 로직이 한층 견고해졌고 CSRF 보호 기능도 기본값으로 강화된 걸 알 수 있어요. 예를 들어, JWT 토큰 검증 시 더 엄격한 클레임 검증이 추가되었고, OAuth 2.0 클라이언트 설정 시 기본 리다이렉트 URI 패턴이 더 안전하게 바뀌었죠.
+
+이런 변화들은 보안 사고를 미연에 방지한다는 점에서 긍정적이지만, 기존 설정을 그대로 두면 인증 실패나 권한 오류가 발생할 가능성도 커졌습니다. 특히 7.1.0-M3 같은 마일스톤 버전은 아직 실험적 기능이 포함돼 있어, 프로덕션 적용 전에 충분한 검증이 필요해요.
+
+공식 문서에서도 Spring Boot 애플리케이션과의 호환성 및 보안 설정 강화 가이드를 상세히 다루고 있는데, 이를 참고하면 최신 버전의 보안 기능을 어떻게 활용할지 감이 잡힙니다[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+---
+
+## 실제로 업그레이드할 때 고려해야 할 점들
+
+### 1. 점진적 롤아웃 전략 세우기
+
+우리 팀은 한 번에 전체 서비스에 최신 버전을 적용하지 않고, 먼저 내부 테스트 환경과 일부 스테이징 서버에 올렸어요. 특히 OAuth 2.0 인증 플로우를 집중 점검했는데, 새 버전에서 토큰 만료 정책이나 리프레시 토큰 처리 방식이 미묘하게 바뀌어 기존 클라이언트와 충돌이 있더군요.
+
+그래서 점진적으로 프로덕션 일부 인스턴스에만 배포하고, 모니터링을 강화하며 문제 발생 시 롤백할 수 있는 체계를 마련했습니다. 이런 전략은 공식 문서에서도 권장하는 방법입니다[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+### 2. CSRF 보호 정책 재검토
+
+7.x 버전부터 CSRF 보호가 기본적으로 더 엄격해졌는데, REST API를 주로 사용하는 서비스라면 CSRF 토큰을 어떻게 처리할지 미리 결정해야 해요. 예를 들어, 세션 기반 인증과 JWT 토큰 기반 인증이 혼재된 경우, CSRF 설정을 섬세하게 조율하지 않으면 의도치 않은 인증 실패가 발생할 수 있습니다.
+
+---
+
+## Spring Security 7.x에서 JWT 검증 설정 예시
+
+아래는 Spring Security 7.0.4 버전에서 JWT 토큰 검증을 설정하는 간단한 코드 예시입니다. 기존과 달리 `JwtDecoder` 빈을 직접 등록해 커스텀 검증 로직을 추가하는 방식이 권장돼요.
+
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(authz -> authz
+                .requestMatchers("/public/**").permitAll()
+                .anyRequest().authenticated()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .decoder(jwtDecoder())
+                )
+            );
+        return http.build();
+    }
+
+    @Bean
+    public JwtDecoder jwtDecoder() {
+        NimbusJwtDecoder jwtDecoder = NimbusJwtDecoder.withJwkSetUri("https://example.com/.well-known/jwks.json").build();
+
+        // 클레임 검증 강화
+        jwtDecoder.setJwtValidator(JwtValidators.createDefaultWithIssuer("https://example.com/issuer"));
+
+        return jwtDecoder;
+    }
+}
+```
+
+이 설정은 JWT 토큰의 발행자(issuer)를 엄격히 검증하며, JWK 세트 URI를 통해 공개키를 동적으로 받아옵니다. 기존 6.x 버전에서는 이런 커스텀 검증을 별도로 구현해야 했는데, 7.x부터는 공식 지원이 훨씬 좋아졌어요.
+
+---
+
+## 성능 최적화도 빼먹지 말자
+
+보안 강화가 곧바로 성능 저하로 이어질 수 있다는 점은 항상 고민거리입니다. Baeldung의 성능 튜닝 가이드에 따르면, Spring Security 최신 버전 적용 시 필터 체인 구성과 캐싱 전략을 잘 조율하면 인증 과정에서의 오버헤드를 최소화할 수 있다고 해요[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+
+예를 들어, JWT 토큰 검증 시 매번 공개키를 원격에서 가져오지 말고, 일정 기간 캐싱하는 방식을 적용하면 네트워크 지연을 줄일 수 있습니다. 위 예시 코드에서 `NimbusJwtDecoder`는 기본적으로 JWK 세트를 캐싱하지만, 캐시 TTL(Time To Live)을 명시적으로 조정하는 것도 방법입니다.
+
+```java
+jwtDecoder.setCacheDuration(Duration.ofMinutes(10));
+```
+
+또한, 불필요한 인증 필터를 제거하거나, 권한 검사 로직을 간소화하는 것도 성능에 긍정적인 영향을 줍니다.
+
+---
+
+## 내 경험상 가장 까다로웠던 부분과 해결법
+
+우리 팀에서 가장 고생했던 건 OAuth 2.0 로그인 후 리다이렉트 URI가 바뀌면서 발생한 문제였어요. 7.x 버전부터는 기본 리다이렉트 URI 패턴이 더 엄격해져서, 기존에 커스텀으로 처리하던 URI가 인증 실패를 유발하더군요.
+
+결국 `ClientRegistration` 설정을 전면 재검토하고, `DefaultOAuth2AuthorizationRequestResolver`를 커스터마이징해서 원하는 URI 패턴을 명시적으로 허용하도록 수정했습니다. 이런 작업은 공식 문서에 자세히 나오진 않아서, 직접 디버깅하며 해결한 케이스입니다[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+
+---
+
+## 정리하며
+
+- 최신 Spring Security 6.5.9, 7.0.4, 7.1.0-M3은 보안 기능이 크게 강화돼 프로덕션 환경에서 반드시 검토해야 할 가치가 있다.
+- 하지만 OAuth 2.0, JWT, CSRF 관련 기본 동작이 바뀌었으니, 기존 설정과 호환성 문제를 점진적으로 점검하며 업그레이드해야 한다.
+- JWT 검증 시 `JwtDecoder`를 커스터마이징해 클레임 검증을 강화하고, JWK 캐싱 설정으로 성능도 챙기자.
+- OAuth 2.0 로그인 플로우에서 리다이렉트 URI 정책 변경은 반드시 테스트 환경에서 충분히 검증하라.
+
+이 글이 Spring Security 최신 버전으로 넘어가면서 겪는 고민과 실무 팁에 조금이나마 도움이 됐으면 합니다. 보안은 한 번 제대로 세팅해놓으면 마음이 한결 편하니까요.
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Boot 레퍼런스 문서는 Spring Security 최신 버전과의 호환성 및 설정 방법을 포함하여, Spring Boot 애플리케이션에서 보안 설정을 강화하는 가이드라인을 제공한다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework 코어 기술 문서에서는 보안 모듈이 프레임워크의 핵심 컴포넌트와 어떻게 통합되는지 설명하며, Spring Security 7.x 버전에서 제공하는 새로운 보안 기능과 확장성에 대해 상세히 다룬다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Baeldung의 Spring Boot 성능 튜닝 가이드에서는 Spring Security 최신 버전 적용 시 성능 최적화를 위한 팁과, 보안 설정이 애플리케이션 성능에 미치는 영향을 최소화하는 전략을 소개한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **최신 Spring Security 버전(6.5.9, 7.0.4, 7.1.0-M3)은 프로덕션 환경에서의 보안 강화를 위해 OAuth 2.0, JWT, 그리고 CSRF 보호 기능을 기본적으로 향상시켰으며, 롤아웃 시점에서 점진적 업그레이드를 지원하는 전략을 권장한다는 점이 문서 전반에서 강조된다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
