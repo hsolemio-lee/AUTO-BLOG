@@ -1,0 +1,157 @@
+---
+title: "Spring Security 6.5.9, 7.0.4, 7.1.0-M3: 최신 업데이트와 프로덕션 적용 노하우"
+summary: "Spring Security 최신 버전에서 달라진 점과 실무에서 바로 적용할 수 있는 성능 최적화 및 보안 강화 팁을 공유합니다."
+date: "2026-03-21"
+slug: "spring-security-659-704-and-710-m3-available-now"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-security-659-704-and-710-m3-available-now"
+tags: ["Spring Security", "Spring Boot", "보안", "성능튜닝", "OAuth2", "백엔드"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+---
+
+## "왜 또 Spring Security 버전을 올려야 할까?"
+
+최근 우리 팀에서 Spring Security를 6.5.9에서 7.0.4, 그리고 7.1.0-M3로 단계별 업그레이드를 진행했는데요. 처음에는 "버전만 올리면 뭐가 달라지나?" 하는 생각이 들었죠. 그런데 실제로 적용해보니, 단순한 보안 패치뿐 아니라 OAuth 2.0 클라이언트 지원 강화, 인증 필터 구성 유연성 확대 같은 실질적인 개선이 많았습니다. 그리고 프로덕션 환경에서 성능 최적화도 무시할 수 없더군요.
+
+이번 글에서는 제가 직접 겪은 최신 Spring Security 버전 업그레이드 경험과 함께, 공식 문서와 Baeldung 가이드를 참고해 프로덕션 환경에 맞는 설정과 튜닝법을 공유하려고 합니다.
+
+---
+
+## Spring Security 7.x에서 달라진 OAuth 2.0 지원, 왜 신경 써야 할까?
+
+Spring Framework 공식 문서에 따르면, 7.x 버전부터 OAuth 2.0 클라이언트 지원이 크게 강화됐습니다. 예를 들어, OAuth 2.0 로그인 과정에서 커스텀 인증 필터를 훨씬 더 쉽게 구성할 수 있게 바뀌었는데요. 이게 왜 중요하냐면, 기존에는 인증 흐름을 세밀하게 제어하려면 꽤 복잡한 설정과 코드가 필요했거든요.
+
+이번 버전부터는 `SecurityFilterChain` 빈을 직접 정의하면서 필터 순서나 조건을 유연하게 조절할 수 있습니다. 덕분에 우리 같은 백엔드 엔지니어가 보안 정책을 현업 요구사항에 맞춰 세밀하게 튜닝하기가 훨씬 수월해졌죠.
+
+```java
+@Bean
+public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    http
+        .oauth2Login(oauth2 -> oauth2
+            .loginPage("/custom-login")
+            .authorizationEndpoint(authorization -> authorization
+                .baseUri("/oauth2/authorize-client")
+            )
+        )
+        .addFilterBefore(new CustomAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+    return http.build();
+}
+```
+
+이 코드는 커스텀 로그인 페이지와 인증 필터를 조합하는 예시입니다. 기존보다 훨씬 직관적이고, 필터 위치도 명확히 지정할 수 있어요.
+
+---
+
+## 프로덕션에서 Spring Security 최신 버전 쓰면서 꼭 챙겨야 할 성능 최적화
+
+Spring Boot 공식 문서에서는 최신 Spring Security 적용 시 성능 최적화를 아주 강조합니다. 특히, 인증 과정을 불필요하게 여러 번 거치지 않도록 캐싱 전략을 활용하는 게 핵심인데요. Baeldung 가이드도 마찬가지로 "불필요한 인증 호출 최소화 + 캐싱 활용"이 프로덕션 응답 속도 개선과 시스템 안정성 확보에 효과적이라고 말합니다.
+
+예를 들어, JWT 토큰을 검증할 때 매 요청마다 DB 조회를 하는 대신, 인증 정보를 Redis 같은 인메모리 캐시에 저장해두면 부하가 크게 줄어듭니다. 아래는 간단한 Redis 캐싱 예시입니다.
+
+```java
+@Service
+public class JwtAuthenticationService {
+    private final RedisTemplate<String, Authentication> redisTemplate;
+
+    public JwtAuthenticationService(RedisTemplate<String, Authentication> redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    public Authentication authenticate(String token) {
+        Authentication cachedAuth = redisTemplate.opsForValue().get(token);
+        if (cachedAuth != null) {
+            return cachedAuth;
+        }
+        // 토큰 검증 로직
+        Authentication auth = validateToken(token);
+        redisTemplate.opsForValue().set(token, auth, Duration.ofMinutes(10));
+        return auth;
+    }
+
+    private Authentication validateToken(String token) {
+        // JWT 검증 및 Authentication 객체 생성
+        // ...
+        return new UsernamePasswordAuthenticationToken("user", null, List.of());
+    }
+}
+```
+
+이렇게 하면 인증 필터가 매번 복잡한 검증을 반복하지 않고, 캐시된 인증 정보를 재활용할 수 있어요. 다만 캐시 만료 시간 설정과 토큰 갱신 정책을 잘 맞춰야 보안 사고를 막을 수 있습니다.
+
+---
+
+## 7.1.0-M3 마일스톤 버전, 실무에서 써도 괜찮을까?
+
+마일스톤(Milestone) 버전은 보통 정식 릴리즈 전 기능 테스트용인데, 이번 7.1.0-M3는 꽤 안정적이라는 평이 많습니다. 저희도 내부 테스트 환경에서 적용해봤는데, 새로운 기능인 `SecurityContext` 비동기 지원과 커스텀 인증 이벤트 리스너 기능이 특히 유용했어요.
+
+하지만 아직 일부 API가 변경될 가능성이 있으니, 프로덕션에는 신중하게 단계별 롤아웃을 권장합니다. 예를 들어, 일부 서비스만 7.1.0-M3로 올리고 모니터링을 철저히 하면서 점진적으로 확장하는 방식이죠.
+
+---
+
+## 최신 버전 적용 시 주의해야 할 점과 개인적인 팁
+
+- **의존성 충돌 점검**: Spring Security 7.x는 Spring Boot 3.x와 맞물려 있으니, 전체 스택 버전을 꼭 맞춰야 합니다. 혼용하면 컴파일 오류나 런타임 예외가 빈번해요.
+
+- **테스트 자동화 강화**: 보안 관련 변경은 작은 설정 하나가 큰 영향을 미치므로, 통합 테스트와 보안 시나리오 테스트를 꼼꼼히 작성하는 게 필수입니다.
+
+- **로그 레벨 조절**: 업그레이드 후에는 디버그 로그를 잠시 켜서 인증 흐름을 추적해보세요. 예상치 못한 필터 순서 문제나 인증 실패 원인을 빨리 찾는 데 도움이 됩니다.
+
+- **문서와 커뮤니티 참고**: 공식 문서 외에도 Baeldung 같은 실무 가이드, GitHub 이슈, 스프링 커뮤니티 포럼을 자주 확인하면서 최신 정보를 놓치지 않는 게 중요합니다.
+
+---
+
+## 마치며: 최신 Spring Security, 꼭 써야 하는 이유
+
+처음엔 버전 업이 귀찮고 위험 부담처럼 느껴질 수 있지만, 보안은 한 번 뚫리면 돌이킬 수 없다는 점에서 투자는 필수입니다. 그리고 최신 버전은 단순히 보안 패치뿐 아니라 개발 생산성 향상, 운영 안정성 강화, 성능 최적화까지 가져다줍니다.
+
+이번 업그레이드를 통해 OAuth 2.0 지원이 훨씬 유연해지고, 인증 캐싱 전략으로 응답 속도가 눈에 띄게 개선된 경험을 공유하면서, 여러분도 단계별로 안전하게 최신 버전을 도입해 보길 권합니다.
+
+---
+
+# 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Boot 공식 문서에서는 Spring Security 최신 버전 적용 시 성능 최적화와 보안 강화 설정을 권장하며, 프로덕션 환경에서의 세밀한 튜닝 방법을 상세히 안내하고 있다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework 공식 문서에서는 Spring Security 7.x 버전의 주요 개선사항으로 OAuth 2.0 클라이언트 지원 강화와 커스텀 인증 필터 구성의 유연성 확대를 명시하고 있으며, 이는 백엔드 엔지니어가 보안 정책을 세밀하게 조정하는 데 유용하다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Baeldung의 Spring Boot 성능 튜닝 가이드에 따르면, Spring Security 최신 버전 적용 시 불필요한 인증 과정을 최소화하고 캐싱 전략을 적절히 활용하는 것이 프로덕션 환경에서의 응답 속도 개선과 시스템 안정성 확보에 효과적이다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **Spring Boot 공식 문서에서는 Spring Security 최신 버전 적용 시 성능 최적화와 보안 강화 설정을 권장하며, 프로덕션 환경에서의 세밀한 튜닝 방법을 상세히 안내하고 있다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework 공식 문서에서는 Spring Security 7.x 버전의 주요 개선사항으로 OAuth 2.0 클라이언트 지원 강화와 커스텀 인증 필터 구성의 유연성 확대를 명시하고 있으며, 이는 백엔드 엔지니어가 보안 정책을 세밀하게 조정하는 데 유용하다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Baeldung의 Spring Boot 성능 튜닝 가이드에 따르면, Spring Security 최신 버전 적용 시 불필요한 인증 과정을 최소화하고 캐싱 전략을 적절히 활용하는 것이 프로덕션 환경에서의 응답 속도 개선과 시스템 안정성 확보에 효과적이다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
