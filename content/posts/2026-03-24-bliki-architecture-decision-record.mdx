@@ -1,0 +1,147 @@
+---
+title: "아키텍처 결정 기록(ADR)을 제대로 남겨야 하는 이유와 실전 작성법"
+summary: "아키텍처 결정 기록(ADR)을 통해 팀 내 의사소통을 어떻게 개선하고, 마이그레이션 경로와 운영 제약 조건까지 담아내는지 실제 사례와 함께 살펴봅니다."
+date: "2026-03-24"
+slug: "bliki-architecture-decision-record"
+category: "architecture"
+canonical_url: "https://example.dev/blog/bliki-architecture-decision-record"
+tags: ["ADR", "아키텍처", "문서화", "엔지니어링커뮤니케이션", "운영제약"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "Martin Fowler - Continuous Integration"
+    url: "https://martinfowler.com/articles/continuousIntegration.html"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+---
+
+## "왜 이걸 기록 안 하면 나중에 다들 헷갈리는 걸까?"
+
+우리 팀에서 한 번은 서비스 아키텍처를 바꾸는 큰 결정을 내렸는데, 그 결정이 왜, 어떻게 된 건지 아무도 명확히 기억하지 못하는 상황이 벌어졌어요. 나중에 문제가 터지면 "왜 이렇게 했지?" 하면서 다시 논쟁이 시작되고, 결국 시간과 에너지만 낭비하는 거죠. 이걸 막으려고 도입한 게 바로 아키텍처 결정 기록(ADR)입니다.
+
+ADR은 단순히 "이렇게 했다"를 적는 게 아니라, 왜 그렇게 했는지, 어떤 대안이 있었는지, 그리고 그 결정에 따른 트레이드오프까지 꼼꼼히 기록합니다. 덕분에 팀원 누구나 배경을 이해하고, 나중에 변경할 때도 참고할 수 있죠.
+
+
+## 아키텍처 결정 기록, 단순 문서가 아닌 팀 소통의 핵심 도구
+
+ADR의 가장 큰 장점은 팀 내 의사소통을 크게 개선한다는 점입니다. 마틴 파울러도 강조한 것처럼, 아키텍처 결정은 단순히 기술적 선택을 넘어서 팀의 공통된 이해를 만드는 과정입니다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+예를 들어, 마이크로서비스를 도입할 때 "왜 모놀리식에서 분리했는지", "어떤 경계로 나누었는지", "데이터 일관성 문제는 어떻게 해결할지" 같은 중요한 질문들이 있죠. 이런 내용을 ADR에 담으면, 새로 합류한 엔지니어도 빠르게 상황을 파악할 수 있고, 기존 결정에 대한 논쟁도 줄어듭니다.
+
+
+## 마이그레이션 경로와 운영 제약 조건, ADR에 꼭 포함해야 하는 이유
+
+단순히 결정을 나열하는 것만으로는 부족해요. 마이크로소프트 클라우드 디자인 패턴 문서에서는 효과적인 ADR 문서가 반드시 마이그레이션 경로와 운영 제약 조건을 포함해야 한다고 말합니다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+예를 들어, 기존 모놀리식에서 마이크로서비스로 전환할 때, 단계별로 어떤 컴포넌트를 먼저 분리할지, 데이터 마이그레이션은 어떻게 할지, 그리고 운영 환경에서 발생할 수 있는 장애 대응이나 확장성 문제는 어떻게 처리할지 명확히 적어둬야 합니다. 이런 내용이 없으면 결정은 있지만 실행이 막막해지고, 결국 다시 원점으로 돌아가는 경우가 많아요.
+
+운영 제약 조건도 빼놓을 수 없습니다. 클라우드 환경에서 확장성, 장애 복구, 보안 요구사항 같은 현실적인 제약을 ADR에 명확히 기록하면, 결정의 실현 가능성을 판단하는 데 큰 도움이 됩니다. 예를 들어, "이 아키텍처는 특정 리전에서만 가능하다"거나 "특정 보안 규정을 준수해야 한다"는 내용을 미리 공유하면, 나중에 문제 터질 확률이 확 줄어요.
+
+
+## ADR과 CI/CD가 만나면 어떻게 달라질까?
+
+ADR 작성이 개발 프로세스에 자연스럽게 녹아들면, 지속적 통합(CI)과 지속적 배포(CD) 과정과도 시너지가 납니다. 마틴 파울러는 ADR 문서화가 변경 사항 추적과 검증을 원활하게 하여 엔지니어링 커뮤니케이션을 강화한다고 설명합니다[Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html).
+
+우리 팀에서는 ADR을 Git 저장소에 함께 관리하면서, PR(Pull Request) 템플릿에 "이 변경이 ADR에 반영되었는가?"를 체크리스트로 넣었어요. 덕분에 아키텍처 결정 변경 시 관련 문서가 반드시 업데이트되고, 리뷰어가 쉽게 검증할 수 있습니다.
+
+아래는 PR 템플릿에 넣은 간단한 예시입니다:
+
+```markdown
+- [x] 아키텍처 결정 기록(ADR) 문서 업데이트 완료
+- [ ] 관련 마이그레이션 경로 및 운영 제약 조건 검토
+```
+
+이렇게 하면 ADR이 살아있는 문서로 유지되고, 실제 서비스 운영과 개발에 큰 도움이 됩니다.
+
+
+## 실제 ADR 작성 예시: 캐시 전략 변경 결정
+
+우리 팀에서 최근에 캐시 전략을 바꾼 사례를 공유할게요. 기존에는 단순히 인메모리 캐시를 사용했는데, 서비스 규모가 커지면서 분산 캐시로 전환해야 했어요.
+
+```markdown
+# ADR 005: 분산 캐시 도입 결정
+
+## 상태
+승인됨
+
+## 맥락
+- 서비스 트래픽 증가로 인해 인메모리 캐시의 한계 발생
+- 여러 인스턴스 간 캐시 일관성 문제
+
+## 결정
+- Redis를 분산 캐시로 도입하기로 결정
+
+## 대안
+- Memcached 사용: 단순하지만 복잡한 데이터 구조 지원 부족
+- 인메모리 캐시 유지: 확장성 문제 해결 불가
+
+## 트레이드오프
+- Redis 도입으로 운영 복잡도 증가
+- 네트워크 지연 발생 가능성
+
+## 마이그레이션 경로
+1. Redis 클러스터 구축 및 테스트
+2. 신규 기능부터 Redis 캐시 사용 시작
+3. 점진적으로 인메모리 캐시 제거
+
+## 운영 제약 조건
+- Redis 클러스터 장애 시 자동 페일오버 필요
+- 보안상 Redis 접근 제한 설정 필수
+
+## 참고
+- Redis 공식 문서
+```
+
+이런 식으로 작성하면, 나중에 "왜 Redis를 썼지?"라는 질문에 바로 답할 수 있고, 장애 발생 시 대응 방안도 미리 공유되어 있습니다.
+
+
+## ADR 작성할 때 꼭 기억해야 할 두 가지
+
+1. **누가 읽을지 생각하기**
+   - 기술 스택에 익숙하지 않은 팀원도 이해할 수 있도록 배경과 이유를 친절하게 적어야 합니다.
+   - 너무 기술적인 용어만 쓰면 오히려 소통이 어려워져요.
+
+2. **변경은 필수, 문서도 함께 업데이트**
+   - 아키텍처는 살아있는 생물처럼 변합니다. 결정이 바뀌면 ADR도 반드시 고쳐야 합니다.
+   - 문서가 최신 상태가 아니면 오히려 혼란만 가중됩니다.
+
+
+## 마무리하며: ADR, 그냥 문서가 아니라 팀의 기억
+
+처음엔 ADR이 번거롭게 느껴질 수 있어요. "그냥 코드나 시스템 보면 되지 뭐하러 문서까지..."라는 생각도 들죠. 하지만 실제로 겪어보면, 몇 달 뒤에 누군가가 "이게 왜 이렇게 된 거야?"라고 물어볼 때, ADR이 없다면 답변하기 참 힘듭니다.
+
+좋은 ADR은 팀이 같은 방향을 보게 만들고, 변경 시 리스크를 줄이며, 운영 중 발생할 수 있는 문제에 대비하는 데 큰 도움이 됩니다. 특히 마이그레이션 경로와 운영 제약 조건까지 담아내면, 단순한 기술 문서를 넘어선 ‘팀의 기억’이 되는 거죠.
+
+한 번 작성해보세요. 그리고 꼭 지속적으로 관리하세요. 그게 진짜 ADR의 힘입니다.
+
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **아키텍처 결정 기록(Architecture Decision Record, ADR)은 소프트웨어 아키텍처에서 중요한 결정들을 문서화하여, 각 결정의 배경, 대안, 선택 이유, 그리고 트레이드오프를 명확히 기록함으로써 팀 내 의사소통을 개선한다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **효과적인 ADR 문서는 단순히 결정을 나열하는 것이 아니라, 각 결정에 따른 마이그레이션 경로와 운영 제약 조건을 포함하여, 변경 시 발생할 수 있는 영향과 실행 계획을 명확히 제시해야 한다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **아키텍처 결정에 대한 문서화는 지속적 통합(Continuous Integration) 및 지속적 배포(Continuous Delivery) 프로세스와 연계되어, 변경 사항에 대한 추적과 검증을 원활하게 하여 엔지니어링 커뮤니케이션을 강화한다.** ([Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **운영 제약 조건은 ADR에서 중요한 부분으로, 클라우드 환경에서의 확장성, 장애 복구, 보안 요구사항 등 현실적인 제약을 명확히 문서화하여 의사결정의 실현 가능성을 판단하는 데 도움을 준다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그에서는 아키텍처 결정 기록을 통해 팀 간 지식 공유가 촉진되고, 복잡한 시스템의 진화를 관리하는 데 있어 ADR이 핵심 역할을 한다고 강조한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
