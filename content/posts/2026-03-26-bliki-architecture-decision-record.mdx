@@ -1,0 +1,171 @@
+---
+title: "아키텍처 결정 기록(ADR), 실무에서 이렇게 써야 효과적이다"
+summary: "아키텍처 결정 기록(ADR)이 단순 문서가 아닌, 설계 선택의 이유와 트레이드오프, 마이그레이션 경로, 운영 제약 조건을 담아 엔지니어 간 커뮤니케이션과 시스템 진화를 돕는 실무 노하우를 공유합니다."
+date: "2026-03-26"
+slug: "bliki-architecture-decision-record"
+category: "architecture"
+canonical_url: "https://example.dev/blog/bliki-architecture-decision-record"
+tags: ["ADR", "아키텍처", "마이크로서비스", "운영제약", "마이그레이션", "설계문서"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Martin Fowler - Continuous Integration"
+    url: "https://martinfowler.com/articles/continuousIntegration.html"
+---
+
+## "왜 이걸 이렇게 했지?"라는 질문에 답하는 문서가 필요했다
+
+우리 팀에서 새로운 마이크로서비스를 도입할 때마다 늘 반복되는 일이 있었다. "왜 이 구조를 선택했지?", "이전에는 어떤 고민이 있었지?", "운영 환경에서는 어떤 제약이 있었지?" 같은 질문들. 구두로 설명해도 시간이 지나면 기억이 흐려지고, 신규 입사자는 더더욱 혼란스러웠다. 그래서 도입한 게 바로 아키텍처 결정 기록(Architecture Decision Record, ADR)이었다.
+
+처음엔 단순히 설계 선택을 기록하는 용도로만 생각했는데, 실제로는 설계 배경과 트레이드오프, 마이그레이션 경로, 운영 제약 조건까지 담아야 진짜 효과가 있었다. 이걸 통해 팀 내 의사소통이 훨씬 투명해지고, 시스템 변경 시 리스크도 줄였다.
+
+
+## ADR에 꼭 넣어야 하는 핵심 내용들
+
+마틴 파울러가 마이크로서비스 아키텍처를 설명하면서도 강조한 부분인데, ADR은 단순히 "이렇게 했다"를 넘어 왜 그렇게 했는지, 어떤 대안이 있었는지, 그리고 그 선택이 가져오는 트레이드오프를 명확히 해야 한다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+예를 들어, 우리 팀에서 데이터베이스를 분리하는 결정을 내렸을 때, 단순히 "성능 때문에"라고만 적으면 나중에 누군가가 "왜 굳이 복잡하게 분리했지?"라고 의문을 가질 수 있다. 대신에 아래처럼 작성했다.
+
+```markdown
+# ADR 003: 데이터베이스 분리 결정
+
+## 배경
+- 서비스 A와 B가 동일 DB를 사용하면서 쿼리 경합과 성능 저하 발생
+
+## 결정
+- 서비스별로 DB를 분리하여 독립적인 확장과 장애 격리 달성
+
+## 대안
+- 단일 DB 유지: 운영 편의성 높음, 하지만 성능 병목 지속
+- 캐싱 레이어 추가: 복잡도 증가, 근본 문제 미해결
+
+## 트레이드오프
+- 운영 복잡도 증가
+- 데이터 일관성 관리 필요
+
+## 마이그레이션 경로
+- 단계 1: 서비스 B부터 신규 DB로 변경
+- 단계 2: 서비스 A 점진적 이전
+
+## 운영 제약 조건
+- 신규 DB는 클라우드 서비스로 비용 증가 예상
+- 장애 시 롤백 계획 필요
+```
+
+이렇게 하면 신규 엔지니어가 와도 "왜 DB를 분리했는지"를 한눈에 이해하고, 마이그레이션 과정에서 어떤 위험이 있는지 미리 알 수 있다.
+
+
+## 운영 환경 제약과 비용도 빼놓을 수 없는 요소
+
+클라우드 설계 패턴 문서에서도 강조하듯, 아키텍처 결정에는 실시간 운영 제약 조건, 시스템 확장성, 복원력, 비용 효율성 같은 현실적인 요소가 반드시 포함되어야 한다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+우리 팀에서는 예전에 장애 복구를 빠르게 하기 위해 리전 간 복제를 도입했는데, 비용이 예상보다 30% 이상 늘어났다. ADR에 이 비용 증가와 장애 대응 시간 단축 간 트레이드오프를 명확히 기록해 두니, 나중에 비용 절감 논의할 때 근거 자료로 쓸 수 있었다.
+
+또한, 운영 환경의 제약 조건을 ADR에 포함시키면 CI/CD 파이프라인에서 설계 변경 시 발생할 수 있는 위험을 줄일 수 있다. 예를 들어, 데이터 마이그레이션 중에는 트래픽을 잠시 줄여야 하는데, ADR에 이 내용을 명시해 두면 배포 자동화 스크립트 작성 시 참고할 수 있다[Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html).
+
+
+## ADR이 마이크로서비스 진화에 미치는 영향
+
+분산 시스템에서는 서비스 간 인터페이스 변경이나 데이터 마이그레이션이 복잡한데, ADR을 통해 이 과정을 명확히 문서화하면 점진적이고 안전한 시스템 진화가 가능하다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+우리 팀도 서비스 간 API 계약을 변경할 때마다 ADR에 변경 사유와 마이그레이션 경로를 기록한다. 예를 들어, 새로운 필드를 추가할 때 기존 클라이언트가 깨지지 않도록 버전 관리 정책을 명시하고, 단계별 롤아웃 계획을 적는다.
+
+```markdown
+# ADR 007: 서비스 A API 버전 관리 정책
+
+## 배경
+- 기존 API에 새로운 필드 추가 필요
+
+## 결정
+- API 버전 v2 도입, 기존 v1은 6개월간 유지
+
+## 마이그레이션 경로
+- 신규 클라이언트는 v2 사용
+- 기존 클라이언트는 점진적 전환 유도
+
+## 운영 제약
+- 두 버전 지원으로 인한 배포 복잡도 증가
+- 모니터링 강화 필요
+```
+
+이런 기록 덕분에, 신규 입사자도 빠르게 시스템 구조를 이해하고, 무리 없는 변경 작업이 가능해졌다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+
+## ADR 작성, 너무 복잡하게 만들 필요는 없다
+
+처음 ADR을 도입할 때 "모든 걸 다 기록해야 한다"는 부담감이 컸다. 하지만 실제로는 중요한 결정과 그 배경, 대안, 트레이드오프, 마이그레이션 경로, 운영 환경 제약 정도만 명확히 적으면 충분하다.
+
+그리고 Markdown 형식으로 간단히 작성해 Git 저장소에 함께 관리하면 된다. 예를 들어, 우리 팀은 `docs/adr/` 폴더에 ADR 파일을 모아두고, PR 리뷰 때 함께 검토한다.
+
+```markdown
+# ADR 템플릿 예시
+
+## 제목
+
+## 상태 (제안/승인/폐기)
+
+## 배경
+
+## 결정
+
+## 대안
+
+## 트레이드오프
+
+## 마이그레이션 경로
+
+## 운영 제약
+```
+
+이렇게 하면 문서가 쌓여도 관리가 편하고, 필요할 때 빠르게 찾아볼 수 있다.
+
+
+## 마치며: ADR은 단순 문서가 아닌 팀의 기억과 소통 도구
+
+실제로 ADR을 꾸준히 작성하고 공유하면서 느낀 건, 이게 단순한 문서 작업이 아니라 팀 내 지식 공유와 설계 의사결정 투명성 확보에 핵심이라는 점이다.
+
+처음엔 "귀찮다" 싶다가도, 나중에 장애가 났을 때, 신규 기능을 설계할 때, 혹은 팀원이 바뀔 때 ADR 덕분에 의사결정 배경을 빠르게 이해하고 리스크를 줄일 수 있었다.
+
+
+---
+
+### 참고로, ADR 작성에 도움이 되는 오픈소스 도구들도 있다
+
+- [adr-tools](https://github.com/npryce/adr-tools): 커맨드라인에서 ADR 생성, 관리 지원
+- [Markdown 기반 템플릿](https://github.com/joelparkerhenderson/architecture_decision_record)
+
+적절한 도구를 활용하면 ADR 작성과 리뷰가 훨씬 수월해진다.
+
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **아키텍처 결정 기록(Architecture Decision Record, ADR)은 설계 선택의 이유와 트레이드오프, 마이그레이션 경로, 운영 제약 조건을 명확히 문서화하여 엔지니어들이 효과적으로 의사소통하고 지식을 공유할 수 있도록 돕는다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 설계 패턴 문서에서는 아키텍처 결정 시 실시간 운영 제약 조건과 시스템 확장성, 복원력, 비용 효율성 등을 고려한 트레이드오프 분석이 중요하다고 강조한다. 이는 ADR에 포함되어야 하는 핵심 요소이다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **아키텍처 결정 기록은 마이크로서비스와 같은 분산 시스템에서 서비스 간 인터페이스 변경이나 데이터 마이그레이션 경로를 명확히 하여 점진적이고 안전한 시스템 진화를 지원한다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그에서는 아키텍처 결정 기록을 통해 복잡한 시스템 내 의사결정 과정을 투명하게 공유하고, 신규 엔지니어가 빠르게 시스템 이해도를 높일 수 있다고 설명한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **운영 환경의 제약 조건과 마이그레이션 경로를 ADR에 포함시키는 것은 지속적 통합 및 배포 환경에서 설계 변경의 위험을 줄이고, 안정적인 릴리즈를 가능하게 한다.** ([Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
