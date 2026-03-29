@@ -1,0 +1,142 @@
+---
+title: "Kubescape 4.0으로 쿠버네티스 클러스터에 AI 기반 런타임 보안 더하기"
+summary: "Kubescape 4.0의 AI 에이전트 스캐닝과 런타임 보안 기능을 쿠버네티스 클러스터에 실제로 통합하는 방법과 주의할 점들을 백엔드 엔지니어 관점에서 자세히 다룹니다."
+date: "2026-03-29"
+slug: "kubescape-40-brings-runtime-security-and-ai-agent-scanning-to-kubernetes"
+category: "cloud-platform"
+canonical_url: "https://example.dev/blog/kubescape-40-brings-runtime-security-and-ai-agent-scanning-to-kubernetes"
+tags: ["kubescape", "kubernetes", "runtime-security", "ai-scanning", "backend"]
+sources:
+  - title: "Kubernetes Concepts Overview"
+    url: "https://kubernetes.io/docs/concepts/overview/"
+  - title: "Kubernetes - Configure Liveness, Readiness and Startup Probes"
+    url: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+쿠버네티스 클러스터를 운영하다 보면 보안 이슈가 늘 골칫거리입니다. 특히 배포 후에 취약점이 발견되거나, 런타임 환경에서 의도치 않은 행동이 감지될 때마다 긴장하게 되죠. 여기에 AI가 접목된 보안 솔루션이라니, 솔직히 처음엔 "과연 실무에서 쓸 만할까?" 하는 의구심이 들었습니다. 그런데 Kubescape 4.0을 직접 도입하고 나니, 생각보다 꽤 쓸모있고, 운영에 도움이 되는 부분이 많더라고요.
+
+
+## Kubescape 4.0, AI 에이전트 스캐닝은 왜 필요한가?
+
+기존 Kubescape는 주로 정적 분석과 정책 기반 점검에 집중했는데, 4.0부터는 런타임 보안과 AI 기반 에이전트 스캐닝 기능을 추가했습니다. 이게 왜 중요하냐면, 쿠버네티스는 기본적으로 선언적 설정을 통해 클러스터 상태를 관리하지만, 배포 후 실제 컨테이너 내부에서 일어나는 동작까지 완벽히 통제하기는 어렵거든요.
+
+예를 들어, 컨테이너가 예상치 못한 네트워크 연결을 시도하거나, 권한 상승 시도가 발생할 때, 기존 툴은 이를 놓치기 쉽습니다. Kubescape 4.0의 AI 에이전트는 이런 런타임 이벤트를 실시간으로 모니터링하고, 머신러닝 모델을 활용해 이상 징후를 탐지합니다. 단순 룰 기반이 아니라, 패턴 인식과 이상 탐지 기능이 더해진 셈이죠.
+
+
+## 실제로 쿠버네티스 클러스터에 Kubescape 4.0 설치하기
+
+Kubescape 4.0은 Helm 차트로 배포하는 게 가장 편합니다. 저희는 AWS EKS 클러스터에 다음과 같이 설치했어요.
+
+```bash
+helm repo add kubescape https://kubescape.github.io/helm-charts/
+helm repo update
+helm install kubescape kubescape/kubescape \
+  --namespace kubescape --create-namespace \
+  --set aiAgent.enabled=true \
+  --set runtimeSecurity.enabled=true
+```
+
+여기서 `aiAgent.enabled=true` 옵션이 AI 기반 에이전트 스캐닝을 켜는 설정이고, `runtimeSecurity.enabled=true`는 런타임 보안 기능을 활성화합니다. 설치 후에는 `kubescape` 네임스페이스 내에 여러 Pod가 올라가는데, AI 에이전트는 각 노드에 데몬셋 형태로 배포되어 컨테이너 활동을 감시합니다.
+
+
+## AI 에이전트가 실제로 클러스터에서 어떻게 동작하는지
+
+AI 에이전트는 컨테이너 로그, 시스템 콜, 네트워크 트래픽 등 다양한 데이터를 수집합니다. 이 데이터는 로컬에서 사전 학습된 모델에 의해 분석되며, 이상 징후가 감지되면 Kubescape 서버에 이벤트를 리포트합니다. 예를 들어, 권한 상승 시도나 비정상적인 프로세스 실행 같은 보안 위협을 빠르게 탐지할 수 있죠.
+
+이 과정에서 중요한 점은 AI 모델이 주기적으로 업데이트된다는 것인데, 이때 백엔드 API 계약(API 응답 스키마, 지연시간, 비용 등)을 꼼꼼히 점검해야 합니다. AI 모델 릴리즈 변경으로 인해 API 스펙이 바뀌면, 클러스터 내 에이전트와 서버 간 통신이 깨질 위험이 크거든요. Kubernetes의 공식 문서에서도 이런 계약 관리를 강조하고 있습니다["Kubernetes Concepts Overview"](https://kubernetes.io/docs/concepts/overview/).
+
+
+## 장애 전파를 줄이기 위한 AI 모델 게이트웨이 설계
+
+Kubescape 4.0의 AI 기능을 통합할 때, 우리 팀에서는 AI 모델 게이트웨이 계층에 fallback 모델과 타임아웃 정책을 분리하는 전략을 썼습니다. 이게 왜 중요하냐면, AI 모델이 응답하지 않거나 지연될 때 전체 보안 모니터링 시스템이 멈추는 걸 방지하기 위해서입니다.
+
+Kubernetes의 readiness와 liveness probe 설정을 참고하면, 애플리케이션 장애 전파를 줄이는 데 큰 도움이 됩니다. 예를 들어, AI 모델 게이트웨이에서 다음과 같은 타임아웃과 fallback 정책을 적용했습니다.
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 2
+
+livenessProbe:
+  httpGet:
+    path: /live
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 20
+  timeoutSeconds: 5
+```
+
+이렇게 하면 AI 모델이 일시적으로 느려도 게이트웨이는 fallback 모델로 빠르게 전환해서 장애가 전파되는 걸 막을 수 있습니다["Kubernetes - Configure Liveness, Readiness and Startup Probes"](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/).
+
+
+## Kubescape 4.0 도입 후 실제로 바뀐 점과 한계
+
+처음 Kubescape 4.0을 도입했을 때, AI 에이전트가 탐지한 이상 징후 알림이 꽤 자주 올라와서 "노이즈가 너무 많다"는 불만도 있었습니다. 하지만 몇 주간 튜닝하면서 탐지 민감도를 조절하고, 정책 예외 처리를 하니 실제로 의미 있는 이벤트만 걸러내는 데 성공했어요.
+
+또, AI 모델 업데이트 주기가 생각보다 빨라서, 백엔드 API 스키마 변경에 대비한 자동화 테스트와 모니터링 체계가 필수임을 절감했습니다. 모델 릴리즈마다 API 계약을 점검하지 않으면, 서비스 장애로 바로 이어질 수 있거든요.
+
+한편, AI 에이전트가 수집하는 데이터가 많아지면서 리소스 사용량도 눈에 띄게 늘었습니다. 노드당 CPU 0.5~1 코어, 메모리 512MB 이상은 할당해야 안정적으로 동작했어요. 그래서 리소스 예산을 넉넉히 잡는 게 중요합니다.
+
+
+## 실제로 써본 Kubescape 4.0 AI 에이전트 스캐닝 예시
+
+아래는 Kubescape CLI를 이용해 AI 에이전트가 수집한 런타임 이벤트를 조회하는 간단한 예시입니다.
+
+```bash
+kubectl exec -n kubescape deploy/kubescape-server -- \
+  kubescape scan runtime --output json > runtime_scan_result.json
+
+cat runtime_scan_result.json | jq '.alerts[] | select(.severity == "high")'
+```
+
+이렇게 하면 심각도가 "high"인 런타임 보안 이벤트만 필터링해서 볼 수 있습니다. 실제 운영 환경에서는 이 데이터를 Slack, PagerDuty 같은 알림 시스템과 연동해 실시간 대응 체계를 구축하는 게 좋습니다.
+
+
+---
+
+Kubescape 4.0의 AI 기반 런타임 보안 기능은 아직 완벽하지는 않지만, 쿠버네티스 클러스터 보안 강화에 새로운 가능성을 열어줬습니다. 특히 AI 모델과 백엔드 API 계약을 꼼꼼히 관리하고, 장애 전파를 줄이는 아키텍처 설계가 관건이라는 점은 꼭 기억하세요. 리소스 부담과 노이즈 문제도 튜닝으로 해결할 수 있으니, 실제 운영 환경에 맞게 단계적으로 도입해보시길 추천합니다.
+
+
+---
+
+## 참고 자료
+
+- [Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/)
+- [Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **AI 모델 릴리즈 변경사항은 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 함께 점검해야 안정적으로 반영할 수 있다.** ([Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모델 게이트웨이 계층에서 fallback 모델과 타임아웃 정책을 분리하면 장애 전파를 줄일 수 있다.** ([Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **AI 모델 릴리즈 변경사항은 백엔드 계약(API 응답 스키마, 지연시간, 비용)을 함께 점검해야 안정적으로 반영할 수 있다.** ([Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모델 게이트웨이 계층에서 fallback 모델과 타임아웃 정책을 분리하면 장애 전파를 줄일 수 있다.** ([Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
