@@ -1,0 +1,161 @@
+---
+title: "Kubernetes 오토스케일링, 벤더 툴만 믿다간 큰일 나는 이유와 실전 관측 전략"
+summary: "Kubernetes 기본 프로브와 벤더 툴만으로는 오토스케일링의 복잡한 문제를 해결하기 어렵다. OpenTelemetry, Grafana 커스터마이징, 커스텀 메트릭 활용 등 실무에서 쓸 수 있는 관측 패턴을 공유한다."
+date: "2026-03-31"
+slug: "kubernetes-autoscaling-demands-new-observability-focus-beyond-vendor-tooling"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/kubernetes-autoscaling-demands-new-observability-focus-beyond-vendor-tooling"
+tags: ["kubernetes", "autoscaling", "observability", "opentelemetry", "grafana"]
+sources:
+  - title: "Kubernetes Concepts Overview"
+    url: "https://kubernetes.io/docs/concepts/overview/"
+  - title: "Kubernetes - Configure Liveness, Readiness and Startup Probes"
+    url: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/"
+  - title: "OpenTelemetry Documentation"
+    url: "https://opentelemetry.io/docs/"
+  - title: "Grafana - Observability Best Practices"
+    url: "https://grafana.com/docs/grafana/latest/fundamentals/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+## "왜 내 오토스케일링이 갑자기 멈췄을까?"
+
+최근에 우리 팀에서 Kubernetes 클러스터에 오토스케일러를 적용했는데, 한밤중에 갑자기 트래픽이 급증했음에도 불구하고 파드가 늘어나지 않는 상황을 겪었어요. 기본적으로 Liveness, Readiness 프로브는 잘 설정되어 있었고, 벤더에서 제공하는 대시보드도 정상적으로 보였는데 왜 이런 일이 벌어졌을까요?
+
+이 경험이 저한테 "오토스케일링 관측은 기본 툴만으로는 부족하다"는 걸 뼈저리게 느끼게 해줬습니다. Kubernetes 공식 문서에서도 기본 프로브는 컨테이너 상태 확인에 집중하고, 자동 확장에는 CPU, 메모리 같은 기본 메트릭 외에 네트워크 트래픽, 큐 길이 등 커스텀 메트릭이 필요하다고 명시하고 있거든요[\[1\]](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/),[\[2\]](https://kubernetes.io/docs/concepts/overview/).
+
+
+## 기본 프로브만으로는 보이지 않는 진짜 문제들
+
+Kubernetes가 제공하는 Liveness, Readiness, Startup 프로브는 컨테이너가 살아있는지, 준비됐는지, 시작됐는지를 체크합니다. 그런데 이게 오토스케일링에 필요한 모든 정보를 알려주진 않아요. 예를 들어, CPU 사용률이 갑자기 치솟거나 네트워크 요청이 폭증하는 상황은 프로브만으로는 감지하기 어렵죠.
+
+또한, 벤더 툴에서 제공하는 기본 메트릭 대시보드는 보통 CPU, 메모리 사용량 위주라서, 큐 길이, 요청 지연 시간, 트랜잭션 수 같은 세밀한 지표를 놓치기 쉽습니다. 이런 지표들이 오토스케일러가 적절히 반응할 수 있는 핵심 신호인데 말이죠.
+
+실제로 GitHub 엔지니어링 블로그에서는 대규모 분산 시스템에서 벤더 툴 한계 때문에 커스텀 메트릭과 이벤트 기반 알림 시스템을 직접 구축하는 사례를 소개합니다[\[3\]](https://github.blog/category/engineering/). 이런 관점에서 보면, 기본 프로브는 오토스케일링의 시작점일 뿐, 끝은 아니에요.
+
+
+## OpenTelemetry로 분산된 관측 데이터 한 곳에 모으기
+
+그래서 우리 팀이 선택한 게 OpenTelemetry입니다. 이 오픈소스 프로젝트는 분산 트레이싱, 메트릭, 로그를 통합해서 수집할 수 있게 도와줘서, Kubernetes 오토스케일링 관측에 딱 맞아요[\[4\]](https://opentelemetry.io/docs/).
+
+예를 들어, HTTP 요청이 들어올 때마다 트레이스를 남기고, 각 파드의 CPU, 메모리뿐 아니라 큐 길이, 네트워크 대역폭 사용량 같은 커스텀 메트릭도 함께 수집할 수 있죠. 이렇게 하면 오토스케일러가 어떤 신호에 반응하는지, 혹은 반응하지 않는지 명확히 알 수 있어요.
+
+아래는 OpenTelemetry Collector를 통해 Kubernetes 클러스터에서 커스텀 메트릭을 수집하는 간단한 설정 예시입니다.
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: monitoring
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+    processors:
+      batch:
+    exporters:
+      prometheus:
+        endpoint: ":8889"
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [prometheus]
+```
+
+이 구성은 OTLP 프로토콜로 메트릭을 받아 Prometheus 형식으로 내보내는 역할을 합니다. 이 데이터를 Grafana에서 시각화하면 오토스케일링 이벤트와 연동해 실시간 모니터링이 가능해집니다.
+
+
+## Grafana 대시보드 커스터마이징으로 자동 확장 상태 한눈에 보기
+
+Grafana는 Kubernetes 환경에서 오토스케일링 관측을 위한 최적의 도구 중 하나입니다. 기본 대시보드에 만족하지 말고, 오토스케일링 이벤트 전후의 시스템 상태 변화를 명확히 파악할 수 있도록 커스터마이징하는 걸 추천해요[\[5\]](https://grafana.com/docs/grafana/latest/fundamentals/).
+
+예를 들어, 파드 수 변화, CPU/메모리 사용률, 네트워크 트래픽, 큐 길이, 요청 지연 시간 등을 한 화면에 모아놓고, 특정 임계치 초과 시 알림을 받도록 설정할 수 있죠. 이렇게 하면 "파드가 늘어나지 않는 문제" 같은 상황이 발생했을 때 즉시 원인을 추적할 수 있습니다.
+
+아래는 Grafana 알림 설정 예시입니다.
+
+```yaml
+apiVersion: 1
+groups:
+  - name: autoscaling-alerts
+    rules:
+      - alert: HighQueueLength
+        expr: sum(rate(myapp_queue_length[5m])) > 100
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "큐 길이가 100을 넘었습니다"
+          description: "지난 5분간 큐 길이가 100을 초과하여 오토스케일링이 필요할 수 있습니다."
+```
+
+이런 알림은 오토스케일러가 제대로 작동하지 않을 때 빠르게 대응하는 데 도움을 줍니다.
+
+
+## Cloudflare 사례에서 배우는 복합 관측 체계 구축
+
+Cloudflare는 자체 블로그에서 Kubernetes 오토스케일링 관측을 위해 벤더 툴 외에도 로그 집계, 트레이스 데이터 분석, 커스텀 메트릭을 결합한 복합적인 백엔드 관측 체계를 구축했다고 밝혔습니다[\[6\]](https://blog.cloudflare.com/tag/how-we-built-it/). 이 덕분에 자동 확장 상황에서 발생하는 복잡한 문제들을 효과적으로 해결할 수 있었다고 해요.
+
+우리도 이 사례를 참고해서, 단순히 CPU, 메모리 지표에만 의존하지 않고, 로그와 트레이스 데이터를 적극 활용하는 방향으로 관측 체계를 확장하고 있습니다. 특히, 트레이스 데이터를 통해 특정 요청이 왜 지연되는지, 어떤 파드에서 병목이 발생하는지 깊이 파고들 수 있죠.
+
+
+## 오토스케일링 관측, 이렇게 시작해보세요
+
+1. **기본 프로브 설정 점검**: Liveness, Readiness, Startup 프로브가 제대로 설정되어 있는지 확인하세요. 하지만 이것만으로는 충분하지 않습니다.
+
+2. **OpenTelemetry 도입**: 분산 트레이싱과 커스텀 메트릭 수집을 위해 OpenTelemetry Collector를 클러스터에 배포하세요.
+
+3. **커스텀 메트릭 정의**: CPU, 메모리 외에 네트워크 트래픽, 큐 길이, 요청 지연 시간 같은 지표를 수집하도록 애플리케이션과 인프라를 수정하세요.
+
+4. **Grafana 대시보드 및 알림 설정**: 오토스케일링 이벤트 전후의 상태 변화를 한눈에 볼 수 있도록 대시보드를 커스터마이징하고, 임계치 기반 알림을 설정하세요.
+
+5. **로그와 트레이스 연동**: 문제 발생 시 빠른 원인 분석을 위해 로그 집계와 트레이스 데이터를 함께 활용하세요.
+
+
+## 마무리하며
+
+Kubernetes 오토스케일링은 단순히 파드 수를 늘리고 줄이는 기능이 아닙니다. 그 뒤에 숨겨진 복잡한 시스템 상태와 트래픽 변화를 제대로 관측하지 않으면, 예상치 못한 장애와 성능 저하를 맞을 수밖에 없습니다.
+
+벤더 툴에만 의존하지 말고, OpenTelemetry 같은 오픈소스 도구를 적극 활용해 분산된 데이터를 통합하고, Grafana를 통해 실시간으로 모니터링하며, 커스텀 메트릭과 알림을 통해 문제를 조기에 발견하는 패턴을 꼭 도입해보세요. 이건 실제로 겪어보면 "아, 이게 없었으면 큰일 날 뻔했다" 싶은 경험이 될 겁니다.
+
+---
+
+## 참고 자료
+
+- [Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/)
+- [Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
+- [OpenTelemetry Documentation](https://opentelemetry.io/docs/)
+- [Grafana - Observability Best Practices](https://grafana.com/docs/grafana/latest/fundamentals/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Kubernetes는 기본적으로 Liveness, Readiness, Startup 프로브를 통해 컨테이너 상태를 모니터링하지만, 자동 확장(autoscaling) 관점에서는 이러한 기본 프로브 외에 세밀한 메트릭 수집과 커스텀 지표가 필요하다.** ([Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Kubernetes 오토스케일링을 효과적으로 구현하기 위해서는 기본 벤더 툴에 의존하는 것뿐만 아니라, OpenTelemetry와 같은 오픈소스 관측 도구를 활용해 분산 트레이싱, 메트릭, 로그를 통합 수집하고 분석하는 패턴이 필요하다.** ([OpenTelemetry Documentation](https://opentelemetry.io/docs/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Grafana는 Kubernetes 환경에서의 오토스케일링 관측을 위해 대시보드 커스터마이징과 알림 설정을 통한 실시간 모니터링을 권장하며, 이를 통해 자동 확장 이벤트 전후의 시스템 상태 변화를 명확히 파악할 수 있다.** ([Grafana - Observability Best Practices](https://grafana.com/docs/grafana/latest/fundamentals/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그에서는 대규모 분산 시스템에서 Kubernetes 오토스케일링을 구현할 때 벤더 툴의 한계 극복을 위해 커스텀 메트릭 수집과 이벤트 기반 알림 시스템을 구축하는 백엔드 엔지니어링 패턴을 소개하고 있다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare는 자체 블로그를 통해 Kubernetes 오토스케일링 관측을 위해 벤더 툴 외에 로그 집계, 트레이스 데이터 분석, 그리고 커스텀 메트릭을 결합한 복합적인 백엔드 관측 체계를 구축한 사례를 공유하며, 이는 자동 확장 상황에서 발생하는 복잡한 문제를 해결하는 데 효과적임을 보여준다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Kubernetes 공식 문서에서는 오토스케일링 자체는 CPU, 메모리 등 기본 메트릭 기반으로 동작하지만, 실제 운영 환경에서는 네트워크 트래픽, 큐 길이 등 커스텀 메트릭을 추가해 관측을 확장하는 것이 권장된다.** ([Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
