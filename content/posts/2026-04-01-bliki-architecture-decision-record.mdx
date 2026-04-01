@@ -1,0 +1,125 @@
+---
+title: "Architecture Decision Record(ADR)로 팀 합의와 시스템 진화를 관리하는 법"
+summary: "ADR 작성과 유지보수 경험을 바탕으로, 현실적인 트레이드오프 기록과 마이그레이션 전략 포함 방법을 공유하며 팀 내 의사소통과 시스템 확장성을 높이는 실무 팁을 전달합니다."
+date: "2026-04-01"
+slug: "bliki-architecture-decision-record"
+category: "architecture"
+canonical_url: "https://example.dev/blog/bliki-architecture-decision-record"
+tags: ["architecture", "ADR", "system-design", "team-collaboration", "migration-strategy"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+---
+
+### "왜 우리 팀은 매번 아키텍처 결정만 하면 나중에 후회할까?"
+
+이 질문은 내가 몇 년 전 우리 팀과 함께 일할 때 자주 들었던 말이다. 새로운 서비스나 기능을 도입할 때마다 "왜 그걸 선택했는지", "다른 방법은 왜 안 됐는지"가 명확하지 않아 나중에 혼란과 재작업이 잦았다. 그때 알게 된 게 바로 Architecture Decision Record, 줄여서 ADR이다. ADR은 단순한 문서가 아니라 팀 내 합의를 기록하고, 시스템 진화를 돕는 살아있는 도구다.
+
+---
+
+## ADR, 그냥 문서가 아니라 팀의 기억
+
+ADR은 시스템 아키텍처의 주요 결정 사항을 문서화하는 방법이다. 단순히 "이렇게 했다"를 적는 게 아니라, 왜 그 결정을 내렸는지 배경, 고려한 대안, 선택 이유, 그리고 그 결정에 따른 트레이드오프까지 상세히 기록한다. 
+
+Martin Fowler의 설명처럼, ADR은 팀원들이 서로 다른 의견을 이해하고, 나중에 왜 그런 선택을 했는지 되돌아볼 수 있게 돕는다. 예를 들어, 마이크로서비스를 도입할 때 단일 모놀리식 아키텍처 대신 분산 시스템을 선택한 이유를 기록하면, 이후에 발생하는 복잡성이나 운영 비용 증가를 미리 이해할 수 있다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+내 경험상, ADR을 작성하지 않으면 팀 내에서 "누가 왜 그걸 결정했지?"라는 질문이 반복되고, 결국 같은 논쟁이 재발하는 경우가 많다. 반면 ADR을 잘 관리하면 새로운 팀원이 들어와도 빠르게 배경을 파악하고, 기존 결정에 대한 존중과 비판적 사고가 공존하는 문화를 만들 수 있다.
+
+## 현실적인 트레이드오프를 명확히 기록해야 하는 이유
+
+처음 ADR을 작성할 때 흔히 빠지는 함정이 있다. 너무 이상적인 선택지나, 기술 문서처럼 완벽한 해결책만 기록하는 것이다. 하지만 실제 현장에서는 모든 선택이 장단점과 비용을 동반한다. 
+
+예를 들어, 캐시 계층을 도입할지 말지 결정할 때, 캐시 적중률과 데이터 일관성 문제, 운영 복잡도를 모두 고려해야 한다. 단순히 "캐시를 쓴다"고만 적으면 나중에 문제가 생길 때 원인을 찾기 어렵다. 대신 "캐시 도입으로 읽기 성능 30% 향상, 하지만 데이터 동기화 문제 가능성 존재" 같은 구체적인 수치와 우려를 적어두면, 팀원들이 현실적인 기대치를 갖게 된다.
+
+이런 트레이드오프 기록은 팀 내 합의를 이끌어내고, 나중에 문제가 생겼을 때 빠른 원인 분석과 대응에도 큰 도움이 된다. Martin Fowler도 ADR 작성 시 이런 현실적인 장단점 기록을 강조한다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+## ADR을 시스템 진화와 마이그레이션 전략에 어떻게 활용할까?
+
+시스템은 시간이 지날수록 바뀌고, 기술 부채도 쌓인다. ADR은 이런 변화를 관리하는 데도 큰 역할을 한다. 예를 들어, 기존 모놀리식 시스템을 마이크로서비스로 분리하는 마이그레이션 전략을 ADR에 기록하면, 각 단계별 목표와 위험 요소를 명확히 공유할 수 있다.
+
+Microsoft의 클라우드 설계 패턴 문서에서는 ADR을 통해 마이그레이션 전략을 문서화하고, 이를 팀 전체가 참고함으로써 일관된 방향성을 유지할 수 있다고 설명한다. 특히 클라우드 환경에서는 확장성, 장애 대응, 비용 최적화 등 다양한 고려사항이 복합적으로 작용하기 때문에 ADR이 더욱 중요하다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+우리 팀도 한 번은 대규모 데이터베이스를 분리하는 작업을 진행하면서, 각 마이그레이션 단계마다 ADR을 작성했다. 덕분에 작업 중간에 생긴 예상치 못한 문제도 빠르게 공유하고, 우선순위 조정과 리소스 배분을 효율적으로 할 수 있었다. 이 경험은 ADR이 단순 문서가 아니라 살아있는 의사결정 도구임을 몸소 느끼게 해줬다.
+
+## 실제로 ADR을 어떻게 작성하고 관리할까? 간단한 템플릿과 코드 예시
+
+ADR 작성은 어렵지 않다. 핵심은 다음 항목을 포함하는 것이다:
+
+- **제목**: 결정의 핵심 주제
+- **상황(Background)**: 왜 이 결정을 해야 하는지
+- **결정(Decision)**: 구체적으로 어떤 선택을 했는지
+- **대안(Alternatives)**: 고려한 다른 옵션들
+- **결과(Consequences)**: 결정의 영향과 트레이드오프
+
+예를 들어, GitHub 저장소에 ADR을 관리할 때는 `docs/adr/` 폴더를 만들어 Markdown 파일로 기록한다. 아래는 간단한 예시다:
+
+```markdown
+# 001 - Redis 캐시 도입 결정
+
+## 상황
+서비스 응답 속도를 개선하기 위해 캐시 도입이 필요해졌다.
+
+## 결정
+Redis를 캐시로 도입하기로 결정했다.
+
+## 대안
+- Memcached: 단순하지만 확장성 제한
+- In-memory cache: 빠르지만 데이터 유실 위험
+
+## 결과
+- 읽기 성능 30% 향상 예상
+- 데이터 일관성 문제 발생 가능성 있음
+- 운영 복잡도 증가
+```
+
+이렇게 하면 PR 리뷰 과정에서 자연스럽게 토론이 이뤄지고, 결정에 대한 합의가 문서화된다. 이후 시스템이 진화하면서 필요하면 해당 ADR을 업데이트하거나 새로운 ADR을 추가해 변경 이력을 관리할 수 있다.
+
+---
+
+## ADR을 도입하면서 겪은 현실적인 어려움과 극복법
+
+처음 ADR을 도입하면 "문서 작성이 번거롭다", "실제 개발 속도를 늦춘다"는 반응이 나온다. 맞다, 처음엔 귀찮다. 하지만 몇 달 지나면 팀원들이 "왜 이걸 선택했지?"라는 질문에 바로 답할 수 있고, 신규 입사자 온 날에도 빠르게 맥락 공유가 가능해져서 결국 개발 속도가 더 빨라진다.
+
+또 하나 어려운 점은 ADR을 꾸준히 업데이트하는 문화다. 결정이 바뀌면 ADR을 수정해야 하는데, 이걸 잊거나 미루면 문서가 금세 쓸모없어진다. 우리 팀은 매 스프린트 회고 때 ADR 리뷰 시간을 10분씩 할애해 이 문제를 해결했다. 작은 습관이지만 효과가 컸다.
+
+---
+
+### 마치며: ADR을 통해 얻는 건 단순 문서가 아니라 팀의 합의와 시스템의 건강한 진화다
+
+ADR은 단순히 "어떤 기술을 썼다"를 기록하는 게 아니다. 팀이 왜 그런 결정을 내렸는지, 어떤 고민과 트레이드오프가 있었는지를 투명하게 공유하는 문화다. 그리고 이 문화가 쌓일 때, 시스템은 더 예측 가능하고 유지보수하기 쉬워진다.
+
+실제로 GitHub 같은 엔지니어링 조직도 ADR을 통해 복잡한 시스템 변경을 명확히 기록하고, 팀원 간 합의를 도출해 개발 효율과 안정성을 높인다고 한다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+이 글을 읽는 여러분도 오늘부터 작은 ADR 하나를 작성해보길 권한다. 처음엔 어색해도, 분명 팀과 시스템 모두에게 큰 도움이 될 것이다.
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Architecture Decision Records(ADRs)는 시스템 아키텍처의 주요 결정 사항을 문서화하여 팀 내 의사소통과 시스템 진화를 촉진하는 도구이다. ADR은 결정의 배경, 대안, 선택 이유, 그리고 이후 변경 사항 추적을 포함해야 한다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **ADRs를 작성할 때는 현실적인 트레이드오프를 명확히 기록하는 것이 중요하며, 이는 팀이 다양한 아키텍처 선택의 장단점을 이해하고 합리적인 결정을 내리도록 돕는다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **ADRs는 시스템 진화 과정에서 지속적으로 업데이트되어야 하며, 마이그레이션 전략과 관련된 결정도 ADR에 포함시켜 변화 관리와 기술 부채 감소에 기여한다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloud 플랫폼 환경에서는 ADR을 통해 클라우드 설계 패턴과 마이그레이션 전략을 문서화하여 팀 간 일관된 이해를 확보하고, 시스템 확장성과 유지보수성을 향상시킬 수 있다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실제 엔지니어링 조직에서는 ADR을 통해 복잡한 시스템 변경 사항을 명확하게 기록하고, 이를 기반으로 팀원 간의 합의를 도출하여 시스템 안정성과 개발 효율성을 높인다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
