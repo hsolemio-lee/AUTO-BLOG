@@ -1,0 +1,171 @@
+---
+title: "Spring AI 에이전트에서 AutoMemoryTools로 세션 간 지속 메모리 구현하기"
+summary: "Spring 백엔드에서 AI 에이전트가 이전 세션의 기억을 유지하도록 AutoMemoryTools를 구현하는 방법과, 이를 통해 사용자 경험을 어떻게 개선할 수 있는지 실무 예제와 함께 살펴봅니다."
+date: "2026-04-07"
+slug: "spring-ai-agentic-patterns-part-6-automemorytools-persistent-agent-memory-across-sessions"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-ai-agentic-patterns-part-6-automemorytools-persistent-agent-memory-across-sessions"
+tags: ["spring-boot", "ai-agent", "persistent-memory", "openai", "backend"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+---
+
+### "어제 얘기했던 거 기억해?" — AI 에이전트가 기억을 잃으면 생기는 일
+
+"지난번에 내가 말한 내용이 반영되지 않았어." 이런 피드백, AI 챗봇을 운영하다 보면 한두 번쯤 꼭 듣게 됩니다. 사용자가 이전 대화 맥락을 기억하는 AI를 기대하는데, 세션이 끊기면 그 기억이 사라지니 대화가 부자연스러워지죠. 특히 고객 지원이나 개인화된 서비스에서는 이 문제가 치명적입니다. 그래서 오늘은 Spring AI 에이전트에서 세션을 넘나드는 '지속적인 메모리'를 어떻게 구현할 수 있을지 이야기해보려 합니다.
+
+
+## Spring Boot가 제공하는 세션 간 지속 메모리의 토대
+
+Spring Boot는 기본적으로 세션 관리 기능을 제공합니다. 하지만 AI 에이전트의 기억을 단순 세션 저장소에 맡기기엔 부족하죠. 다행히 Spring Boot는 Redis, JDBC, MongoDB 같은 다양한 데이터 저장소와 쉽게 통합할 수 있어서, 에이전트 메모리를 영속적으로 관리하기에 딱 좋습니다. 
+
+예를 들어 Redis를 활용하면 빠른 읽기/쓰기 속도로 세션 데이터를 저장하고, 필요할 때마다 꺼내 쓸 수 있죠. 실제로 많은 서비스가 Redis를 캐시뿐 아니라 세션 저장소로도 활용합니다. 
+
+```java
+// Redis를 이용한 세션 저장소 설정 예시
+@Configuration
+@EnableRedisHttpSession(maxInactiveIntervalInSeconds = 1800) // 30분 세션 유지
+public class SessionConfig {
+    @Bean
+    public LettuceConnectionFactory connectionFactory() {
+        return new LettuceConnectionFactory();
+    }
+}
+```
+
+이런 설정 덕분에 AI 에이전트가 세션 사이에 기억을 유지할 수 있는 기반이 마련됩니다.[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+
+
+## Spring의 의존성 주입과 AOP로 메모리 관리 로직 깔끔하게 분리하기
+
+에이전트 메모리 관리는 단순히 데이터를 저장하는 것만으로 끝나지 않습니다. 메모리의 생성, 갱신, 삭제, 그리고 주기적 클린업까지 신경 써야 하죠. Spring Framework의 핵심 기술인 의존성 주입(DI)과 AOP(Aspect-Oriented Programming)를 활용하면, 이런 복잡한 상태 관리 로직을 모듈화해서 깔끔하게 유지할 수 있습니다.
+
+예를 들어, 메모리 저장소 인터페이스를 정의하고, Redis나 DB 구현체를 주입받아 사용할 수 있죠. AOP를 활용해 메서드 실행 전후에 메모리 상태를 자동으로 로드하거나 저장하는 작업을 넣으면, 비즈니스 로직과 메모리 관리가 자연스럽게 분리됩니다.
+
+```java
+public interface AgentMemoryRepository {
+    void saveMemory(String sessionId, String memoryData);
+    Optional<String> loadMemory(String sessionId);
+    void clearMemory(String sessionId);
+}
+
+@Service
+public class RedisAgentMemoryRepository implements AgentMemoryRepository {
+    private final StringRedisTemplate redisTemplate;
+
+    public RedisAgentMemoryRepository(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    @Override
+    public void saveMemory(String sessionId, String memoryData) {
+        redisTemplate.opsForValue().set(sessionId, memoryData, Duration.ofHours(1));
+    }
+
+    @Override
+    public Optional<String> loadMemory(String sessionId) {
+        return Optional.ofNullable(redisTemplate.opsForValue().get(sessionId));
+    }
+
+    @Override
+    public void clearMemory(String sessionId) {
+        redisTemplate.delete(sessionId);
+    }
+}
+```
+
+이런 구조는 유지보수성과 확장성 모두 잡아주니, AI 에이전트 메모리 관리에 특히 추천합니다.[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+
+
+## OpenAI API와 연동해 세션별 컨텍스트 유지하기
+
+OpenAI API는 기본적으로 세션별 컨텍스트를 유지하는 기능을 제공합니다. 하지만 이 컨텍스트는 API 호출 시마다 전달해줘야 하죠. Spring 백엔드에서 AutoMemoryTools를 구현하면, 사용자의 이전 대화 기록을 저장해 두었다가 OpenAI API 호출 시 prompt에 자연스럽게 포함시킬 수 있습니다.
+
+간단한 예를 들어볼게요. 사용자가 보낸 메시지를 받고, 저장된 메모리를 불러와서 함께 OpenAI에 넘깁니다.
+
+```java
+public String chatWithMemory(String sessionId, String userInput) {
+    String previousMemory = memoryRepository.loadMemory(sessionId).orElse("");
+    String prompt = previousMemory + "\nUser: " + userInput + "\nAI:";
+
+    String aiResponse = openAiClient.chatCompletion(prompt);
+
+    // 새로운 대화 내용 메모리에 추가
+    String updatedMemory = previousMemory + "\nUser: " + userInput + "\nAI: " + aiResponse;
+    memoryRepository.saveMemory(sessionId, updatedMemory);
+
+    return aiResponse;
+}
+```
+
+이렇게 하면 AI 에이전트가 이전 세션의 정보를 참조해서 훨씬 자연스럽고 일관된 대화를 이어갈 수 있습니다. 물론 메모리가 너무 커지면 prompt 길이 제한에 걸릴 수 있으니, 적절히 요약하거나 삭제하는 전략도 필요합니다.[OpenAI API Documentation](https://platform.openai.com/docs/overview)
+
+
+## 성능 튜닝과 리소스 관리가 지속 메모리의 생명선
+
+지속적인 에이전트 메모리는 좋은 사용자 경험을 주지만, 무턱대고 모든 대화를 저장하면 메모리 과부하와 응답 지연이 발생합니다. Spring Boot에서 성능 튜닝은 메모리 관리와 캐싱 전략 최적화가 핵심인데, 이 부분이 에이전트 메모리에도 그대로 적용됩니다.
+
+예를 들어, Redis TTL(Time To Live)을 적절히 설정해 오래된 메모리는 자동으로 삭제하게 하거나, LRU(Least Recently Used) 정책으로 캐시를 관리하는 방법이 있습니다. 또한, Spring의 스케줄링(@Scheduled)과 비동기(@Async) 기능을 활용하면, 주기적으로 메모리를 정리하거나 백그라운드에서 요약 작업을 수행할 수 있죠.
+
+```java
+@Scheduled(cron = "0 0 * * * *") // 매시 정각마다 실행
+public void cleanupOldMemories() {
+    // 오래된 세션 메모리 삭제 로직 구현
+}
+
+@Async
+public CompletableFuture<Void> summarizeMemoryAsync(String sessionId) {
+    // 메모리 요약 처리
+    return CompletableFuture.completedFuture(null);
+}
+```
+
+이런 기법들을 적절히 조합하면, 세션 간 데이터 일관성을 유지하면서도 응답 속도를 끌어올릴 수 있습니다.[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+
+
+---
+
+### 마무리하며: 기억하는 AI 에이전트, 현실에서 이렇게 만드세요
+
+- **영속 저장소를 꼭 활용하세요.** 메모리를 단순 인메모리로만 관리하면 세션이 끊길 때 기억도 사라집니다. Redis나 DB 연동은 필수입니다.
+- **Spring의 DI와 AOP를 적극 활용해 메모리 관리 코드를 깔끔하게 분리하세요.** 유지보수가 훨씬 쉬워집니다.
+- **OpenAI API 호출 시 이전 대화 기록을 prompt에 포함시키는 구조를 만드세요.** 그래야 자연스러운 대화가 가능합니다.
+- **메모리 크기 관리와 주기적 정리 정책을 반드시 도입하세요.** 무한정 쌓이면 성능 저하가 옵니다.
+
+이걸 실제 서비스에 적용해보니, 사용자들이 "어제 얘기했던 거 기억하네?" 하면서 놀라는 경우가 많았습니다. 처음엔 별거 아닌 것 같아도, 이런 지속 메모리가 AI 에이전트의 신뢰도를 확 끌어올린다는 걸 꼭 체감하게 될 거예요.
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Boot는 세션 간 지속적인 에이전트 메모리를 구현하기 위한 다양한 데이터 저장소 통합을 지원하며, 이를 통해 AI 에이전트가 이전 대화 내용을 유지하고 사용자 경험을 향상시킬 수 있다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework의 핵심 기술은 의존성 주입과 AOP를 활용해 상태 관리 및 메모리 유지 로직을 모듈화할 수 있어, AI 에이전트의 지속적 메모리 구현에 적합한 구조를 제공한다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **OpenAI API는 세션별 컨텍스트를 유지하는 기능을 제공하며, 이를 Spring 백엔드와 연동해 AutoMemoryTools를 구현하면 AI 에이전트가 이전 세션의 정보를 참조하여 더 자연스러운 대화를 이어갈 수 있다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot에서 성능 튜닝은 메모리 관리와 캐싱 전략 최적화가 핵심이며, 이는 지속적인 에이전트 메모리 관리에 중요한 요소로 작용해 세션 간 데이터 일관성과 응답 속도를 개선한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **AutoMemoryTools 구현 시, Spring의 스케줄링과 비동기 처리 기능을 활용하면 세션 메모리의 주기적 저장 및 정리가 가능해, 장기적인 메모리 지속성과 리소스 관리를 효율적으로 수행할 수 있다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
