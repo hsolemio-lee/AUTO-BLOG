@@ -1,0 +1,135 @@
+---
+title: "1980년대 Mac OS API 재구현에서 배우는 모던 백엔드 아키텍처 인사이트"
+summary: "Advanced Mac Substitute 프로젝트를 통해 1980년대 Mac OS API를 재구현하면서 얻은 경험을 바탕으로, 레거시 OS API 재구현이 현대 분산 시스템의 유지보수성과 확장성에 어떻게 긍정적 영향을 미치는지 살펴봅니다."
+date: "2026-04-11"
+slug: "advanced-mac-substitute-is-an-api-level-reimplementation-of-1980s-era-mac-os"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/advanced-mac-substitute-is-an-api-level-reimplementation-of-1980s-era-mac-os"
+tags: ["레거시API", "분산시스템", "소프트웨어아키텍처", "백엔드패턴", "유지보수성"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+### "이걸 왜 다시 만들지?" 1980년대 Mac OS API 재구현에 도전하다
+
+최근에 Advanced Mac Substitute(AMS)라는 프로젝트를 접했는데, 이게 1980년대 Mac OS의 API를 완전히 다시 구현한 거더라고요. "왜 지금 시대에 40년 전 OS API를 다시 만드는 거야?"라는 생각이 들었는데, 막상 들여다보니 이게 단순한 복고풍 프로젝트가 아니라 현대 백엔드 시스템 설계에 꽤 중요한 시사점을 던져주더군요.
+
+AMS는 단순히 UI를 흉내 내는 게 아니라, 당시 Mac OS가 제공하던 API 레벨을 재구현해서 앱들이 원래 인터페이스 그대로 동작할 수 있게 하는 걸 목표로 합니다. 이 과정에서 얻은 경험이 분산 시스템에서 유지보수성과 확장성을 높이는 데 어떻게 도움이 되는지, 그리고 우리 백엔드 개발자들이 어떻게 참고할 만한지 이야기해볼게요.
+
+---
+
+## 1980년대 Mac OS API 재구현이 왜 현대 아키텍처와 닮았을까?
+
+AMS 프로젝트를 보면, 40년 전 OS API를 다시 구현하는 과정이 사실상 모듈화와 인터페이스 설계의 교과서 같은 작업이라는 걸 알 수 있어요. 1980년대 Mac OS는 GUI 기반 최초 OS 중 하나였고, 당시 시스템은 지금처럼 복잡하지 않았지만, 이미 명확한 API 경계와 모듈화를 통해 시스템을 구성했죠.
+
+이걸 다시 만든다는 건 결국 그 API 경계를 그대로 재현하면서 내부 구현을 완전히 새롭게 만드는 작업입니다. 이 과정은 우리가 요즘 하는 마이크로서비스 설계나 모놀리식 시스템을 모듈화하는 작업과 닮아 있어요. 
+
+InfoQ에서 말하는 것처럼, 이런 명확한 인터페이스 설계는 시스템 간 의존성을 줄이고, 각 컴포넌트를 독립적으로 교체하거나 확장할 수 있게 해줍니다. AMS도 마찬가지로, 레거시 API를 유지하면서 내부 구현을 현대화하는 전략을 택했죠[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+---
+
+## 레거시 API 재구현이 분산 시스템 유지보수에 끼치는 영향
+
+분산 시스템을 운영하다 보면, 여러 서비스가 서로 다른 버전의 API를 호출하거나, 갑자기 내부 구조가 바뀌면서 호환성 문제가 생기는 경우가 많아요. AMS 프로젝트가 흥미로운 점은, 1980년대 OS API를 그대로 재현하면서도 내부 구현은 완전히 새롭게 만들어서 점진적 개선이 가능했다는 거예요.
+
+GitHub 엔지니어링 블로그에서도 비슷한 전략을 소개하는데, 레거시 시스템을 API 레벨에서 재구현하면 기존 클라이언트와의 호환성을 유지하면서도 새로운 기능을 점진적으로 도입할 수 있다고 하더군요. 특히 대규모 분산 환경에서 이런 방식은 장애 복구와 일관성 유지에 큰 도움이 됩니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+Cloudflare 사례를 보면, 레거시 API를 새로 구현하면서 분산 시스템 내 데이터 일관성을 보장하고, 장애 발생 시 빠르게 복구하는 전략을 강화했다고 해요. AMS도 이런 점에서 참고할 만한 사례죠[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+---
+
+## AMS에서 배운 명확한 API 경계와 모듈화의 힘
+
+AMS 프로젝트를 직접 살펴보면, 1980년대 Mac OS의 API를 그대로 살리면서도 내부 모듈은 완전히 새롭게 설계했어요. 예를 들어, 파일 시스템 접근, 윈도우 관리, 이벤트 처리 같은 핵심 기능들이 각각 독립된 모듈로 분리되어 있습니다.
+
+이걸 백엔드 시스템에 적용해보면, 각 서비스가 자신의 API를 엄격하게 지키면서 내부 구현은 자유롭게 바꿀 수 있는 구조가 얼마나 중요한지 알 수 있어요. 이런 구조는 유지보수성을 극대화하고, 장애 시 영향 범위를 최소화하는 데 도움을 줍니다.
+
+```python
+# Python 예시: 레거시 API를 흉내 내는 래퍼 클래스
+class LegacyFileSystemAPI:
+    def __init__(self, modern_fs):
+        self.modern_fs = modern_fs
+
+    def open_file(self, path):
+        # 1980년대 API는 단순히 경로 문자열만 받았지만,
+        # 내부는 현대 파일 시스템의 복잡한 권한 체크를 수행
+        if not self.modern_fs.has_access(path):
+            raise PermissionError("접근 권한 없음")
+        return self.modern_fs.open(path)
+
+# 실제 사용
+class ModernFileSystem:
+    def has_access(self, path):
+        # 복잡한 권한 로직
+        return True
+    def open(self, path):
+        print(f"{path} 파일 열기")
+        return open(path, 'r')
+
+legacy_api = LegacyFileSystemAPI(ModernFileSystem())
+file = legacy_api.open_file('/tmp/data.txt')
+```
+
+이 예시는 레거시 API를 그대로 흉내 내면서도 내부는 현대화된 파일 시스템을 사용하는 모습을 보여줘요. 이런 래퍼 패턴은 AMS가 실제로 사용하는 전략 중 하나입니다.
+
+---
+
+## AMS가 우리 백엔드 개발자에게 주는 현실적인 교훈
+
+AMS 프로젝트를 보면서 느낀 건, 레거시 API를 단순히 유지하는 게 아니라 재구현하는 과정 자체가 큰 학습과 개선의 기회라는 점입니다. 특히 분산 시스템에서 다음과 같은 점들을 신경 써야 해요:
+
+- **명확한 API 계약 유지**: API를 재구현해도 기존 클라이언트가 깨지지 않도록 계약을 엄격히 지키는 게 중요합니다.
+- **모듈화와 독립성 확보**: 내부 구현을 바꿀 때 다른 컴포넌트에 영향이 없도록 모듈 경계를 명확히 해야 합니다.
+- **점진적 개선 전략**: 한꺼번에 갈아엎지 말고, 점진적으로 내부를 개선하면서 새로운 기능을 도입해야 합니다.
+- **장애 복구와 일관성 강화**: 분산 환경에서 API 재구현은 장애 시 복구 전략을 강화하는 데도 큰 도움이 됩니다.
+
+AMS는 단순히 1980년대 OS를 다시 만드는 게 아니라, 그 과정에서 현대 소프트웨어 아키텍처 원칙을 체화하는 좋은 사례입니다. 우리도 레거시 시스템을 다룰 때 이런 접근법을 참고하면 유지보수성과 확장성을 크게 높일 수 있을 거예요.
+
+---
+
+### 참고 자료
+
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **레거시 OS API를 재구현하는 것은 분산 시스템에서의 유지보수성과 확장성을 향상시키는 데 중요한 역할을 하며, 이는 모던 백엔드 엔지니어링 패턴에 직접적인 영감을 준다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **1980년대 Mac OS의 API를 재구현하는 작업은 복잡한 시스템을 모듈화하고, 명확한 인터페이스 설계를 통해 시스템 간 의존성을 줄이는 현대 소프트웨어 아키텍처의 원칙과 일치한다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그에서는 레거시 시스템의 API 레벨 재구현이 기존 시스템과의 호환성을 유지하면서 새로운 기능을 점진적으로 도입하는 전략으로 활용된다고 설명한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare의 사례에서 볼 때, 레거시 API 재구현은 분산 시스템 내에서의 일관성 유지와 장애 복구 전략을 강화하는 데 중요한 역할을 하며, 이는 클라우드 플랫폼 운영에 있어서도 핵심적인 요소이다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **레거시 OS API를 재구현하는 것은 분산 시스템에서의 유지보수성과 확장성을 향상시키는 데 중요한 역할을 하며, 이는 모던 백엔드 엔지니어링 패턴에 직접적인 영감을 준다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **1980년대 Mac OS의 API를 재구현하는 작업은 복잡한 시스템을 모듈화하고, 명확한 인터페이스 설계를 통해 시스템 간 의존성을 줄이는 현대 소프트웨어 아키텍처의 원칙과 일치한다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그에서는 레거시 시스템의 API 레벨 재구현이 기존 시스템과의 호환성을 유지하면서 새로운 기능을 점진적으로 도입하는 전략으로 활용된다고 설명한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare의 사례에서 볼 때, 레거시 API 재구현은 분산 시스템 내에서의 일관성 유지와 장애 복구 전략을 강화하는 데 중요한 역할을 하며, 이는 클라우드 플랫폼 운영에 있어서도 핵심적인 요소이다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.

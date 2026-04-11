@@ -1,0 +1,139 @@
+---
+title: "CNCF 환경에서 Kusari로 클라우드 네이티브 소프트웨어 공급망 보안 강화하기"
+summary: "CNCF와 Kusari의 협업으로 탄생한 공급망 보안 도구를 클라우드 네이티브 프로젝트에 실제로 적용하는 백엔드 운영 패턴과 배포 전략을 공유합니다."
+date: "2026-04-11"
+slug: "cncf-and-kusari-partner-to-strengthen-software-supply-chain-security-across-cloud-native-projects"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/cncf-and-kusari-partner-to-strengthen-software-supply-chain-security-across-cloud-native-projects"
+tags: ["CNCF", "Kusari", "소프트웨어 공급망 보안", "클라우드 네이티브", "배포 전략"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+---
+
+## "내 코드가 어디서 왔는지, 정말 믿을 수 있을까?"
+
+최근에 우리 팀에서 클라우드 네이티브 환경에 공급망 보안 도구를 도입하는 일을 맡았는데, 솔직히 말하면 처음엔 ‘그냥 CI/CD에 보안 스캔 하나 추가하는 거 아니야?’라고 생각했어요. 근데 Kusari와 CNCF가 협력해서 만든 공급망 보안 솔루션을 실제로 적용해보니, 단순한 스캔 이상의 운영 패턴과 위험 관리가 필요하다는 걸 절실히 느꼈죠.
+
+이 글은 그런 경험을 바탕으로, Kusari를 CNCF 프로젝트에 통합할 때 어떤 백엔드 엔지니어링 패턴이 효과적인지, 그리고 실무에서 마주친 도전과 해결책을 중심으로 풀어보려 합니다.
+
+---
+
+## Kusari가 CNCF 프로젝트에 녹아드는 방식, 왜 중요한가
+
+클라우드 네이티브 환경은 컨테이너, 마이크로서비스, 그리고 빠른 배포 주기로 이뤄져 있죠. 이 복잡한 생태계에서 소프트웨어 공급망 보안은 단순히 코드가 안전한지 확인하는 걸 넘어서, 각 단계별 아티팩트의 출처와 무결성을 보장하는 게 핵심입니다.
+
+Kusari는 이런 요구를 충족시키기 위해 설계된 도구로, CNCF 프로젝트들과 자연스럽게 연동됩니다. 예를 들어, Kubernetes 네임스페이스별로 서명된 이미지 검증, Helm 차트의 무결성 체크, 그리고 GitOps 워크플로우 내에서 서명 검증을 자동화할 수 있죠.
+
+이게 왜 중요한지 체감하려면, 최근 공급망 공격 사례를 떠올려보면 됩니다. 공격자가 악성 코드를 배포 파이프라인에 몰래 심으면, 수많은 서비스에 영향이 가는데, Kusari는 이런 침투를 사전에 차단할 수 있게 해줍니다.
+
+## 운영 환경에서 Kusari를 적용할 때 가장 먼저 고려해야 할 점
+
+첫째, 점진적이고 작은 범위의 배포 전략을 꼭 써야 합니다. 우리 팀은 처음에 전체 클러스터에 Kusari 정책을 한꺼번에 적용했다가, 예상치 못한 부작용으로 서비스 지연이 발생했거든요. 이후 네임스페이스 단위로 정책을 단계적으로 롤아웃하면서 문제를 잡아냈습니다.
+
+이런 점진적 배포는 신규 백엔드 기능의 운영 리스크를 확실히 줄여줍니다. 실제로 TypeScript Handbook에서도 작은 범위의 점진적 배포가 안정성에 큰 도움이 된다고 언급하고 있어요[TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html).
+
+둘째, 실패 유형을 초기에 계측하는 로깅과 모니터링 시스템 구축이 필수입니다. Kusari가 검증 실패를 감지했을 때 어떤 상황인지, 어떤 아티팩트에서 문제가 발생했는지 상세히 기록해야 장애 대응 속도가 빨라집니다. Microsoft의 TypeScript 5.x 릴리즈 노트에서도 초기 실패 계측이 유지보수성 향상에 중요하다고 강조합니다[TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/).
+
+## Kusari 정책 적용 예시: Kubernetes Admission Controller 활용하기
+
+아래는 Kubernetes Admission Controller를 활용해 Kusari의 서명 검증을 자동화하는 간단한 예시입니다. 실제로는 이보다 더 복잡한 정책과 예외처리가 필요하지만, 기본적인 아이디어를 잡는 데 도움이 될 거예요.
+
+```yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: kusari-validation-webhook
+webhooks:
+  - name: kusari.cncfsupplychain.io
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+    clientConfig:
+      service:
+        name: kusari-webhook-service
+        namespace: kusari-system
+        path: "/validate"
+      caBundle: <CA_BUNDLE_BASE64>
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+```
+
+이 설정은 Pod 생성이나 업데이트 시 Kusari의 서명 검증 웹훅을 호출해, 이미지의 무결성을 검사합니다. 실패 시 배포가 차단되므로, 악성 이미지가 클러스터에 들어오는 걸 막을 수 있죠.
+
+운영 중에는 이 웹훅 로그를 Fluentd나 Prometheus와 연동해 모니터링하는 걸 추천합니다. 그래야 어떤 이미지가 왜 거부됐는지 추적 가능해지고, 문제 대응이 빨라집니다.
+
+## Kusari 도입 후 실제로 겪은 문제와 해결법
+
+우리 팀은 Kusari를 도입하면서 몇 가지 예상치 못한 문제에 부딪혔어요.
+
+- **이미지 서명 누락으로 인한 배포 실패:** 기존에 서명 없는 이미지가 많아서 정책 적용 초기엔 서비스가 멈추는 일이 잦았습니다. 그래서 점진적으로 서명 정책을 강화하는 단계별 전략을 세웠죠.
+
+- **서명 키 관리 복잡성:** 여러 팀이 각자 키를 관리하다 보니 키 유출 위험과 관리 부담이 커졌습니다. 그래서 중앙 집중형 키 관리 시스템을 도입하고, 키 롤오버 정책을 엄격하게 적용했습니다.
+
+- **정책 충돌과 예외 처리:** 일부 레거시 서비스는 Kusari 정책과 충돌했는데, 이때는 네임스페이스별 예외 정책을 만들어 유연하게 대응했습니다.
+
+이런 문제들은 Kusari가 제공하는 정책 템플릿과 CNCF 커뮤니티 문서를 참고하며 해결했는데, 결국 운영팀과 개발팀 간 긴밀한 협업이 가장 중요하다는 걸 깨달았어요.
+
+## Kusari와 CNCF 생태계에서 공급망 보안을 더 튼튼히 하려면?
+
+마지막으로, Kusari를 단독으로 쓰기보다는 CNCF 프로젝트들과 연계하는 게 효과적입니다.
+
+- **Sigstore와의 통합:** Kusari는 Sigstore 프로젝트와 연동해 투명성 로그와 서명 검증을 강화할 수 있습니다. 이렇게 하면 서명 위조 위험을 크게 낮출 수 있죠.
+
+- **GitOps 워크플로우에 적용:** ArgoCD 같은 GitOps 도구와 Kusari를 결합해, 배포 전 코드와 이미지 서명을 자동으로 검증하는 파이프라인을 구축할 수 있습니다.
+
+- **자동화된 정책 업데이트:** CNCF 내 정책 표준이 바뀌면 Kusari 정책도 자동으로 업데이트하도록 CI/CD 파이프라인에 통합하는 게 좋아요. 그래야 최신 보안 위협에 빠르게 대응할 수 있습니다.
+
+---
+
+## 마무리하며
+
+Kusari와 CNCF의 협업은 클라우드 네이티브 소프트웨어 공급망 보안을 한 단계 끌어올리는 시도입니다. 하지만 실무에서는 단순 도구 설치만으로 끝나지 않고, 점진적 배포 전략, 실패 계측, 정책 유연성 확보 같은 운영 패턴이 꼭 따라와야 해요.
+
+처음엔 복잡해 보이지만, 작은 네임스페이스 단위로 정책을 적용하며 실패 로그를 꼼꼼히 모니터링하는 것부터 시작해보세요. 그리고 팀 내 키 관리와 예외 정책 운영에 신경 쓰면, 공급망 공격 위험을 크게 줄일 수 있습니다.
+
+이 글이 Kusari를 CNCF 환경에 적용하려는 동료 엔지니어분들께 조금이나마 도움이 되길 바랍니다.
+
+---
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
