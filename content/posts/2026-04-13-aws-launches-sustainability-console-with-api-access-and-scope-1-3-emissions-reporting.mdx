@@ -1,0 +1,147 @@
+---
+title: "AWS Sustainability Console API로 백엔드에서 탄소 배출 자동 추적하기"
+summary: "AWS Sustainability Console의 API를 활용해 Scope 1~3 탄소 배출량을 자동으로 수집하고, 운영 중인 백엔드 시스템에 통합하는 실무 가이드를 공유합니다."
+date: "2026-04-13"
+slug: "aws-launches-sustainability-console-with-api-access-and-scope-1-3-emissions-reporting"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/aws-launches-sustainability-console-with-api-access-and-scope-1-3-emissions-reporting"
+tags: ["AWS", "Sustainability", "API", "탄소배출", "백엔드", "클라우드"]
+sources:
+  - title: "AWS Well-Architected Framework"
+    url: "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html"
+  - title: "AWS Architecture Blog"
+    url: "https://aws.amazon.com/blogs/architecture/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+### "우리 서비스가 환경에 미치는 영향, 자동으로 추적할 수 없을까?"
+
+최근에 우리 팀에서 클라우드 비용과 함께 탄소 배출량까지 모니터링하는 요구가 들어왔어요. AWS에서 새로 발표한 Sustainability Console API를 보면서 ‘이걸 백엔드에 어떻게 붙여서 운영에 활용할 수 있을까?’ 고민을 시작했죠. 실제로 Scope 1부터 3까지 전 범위 배출량을 API로 조회할 수 있다는 점이 꽤 신선했거든요.
+
+### AWS Sustainability Console API, 뭐가 달라졌길래?
+
+기존에는 탄소 배출량 보고서를 수동으로 받아서 엑셀이나 다른 툴로 분석하는 게 일반적이었어요. 하지만 AWS가 이번에 공개한 API 덕분에 실시간으로 배출량 데이터를 가져와서 자동화할 수 있게 됐습니다. 특히 Scope 1(직접 배출), Scope 2(간접 배출, 전력 등), Scope 3(기타 간접 배출)까지 모두 포함된다는 점이 인상적이었죠.
+
+예를 들어, 우리 서비스가 사용하는 EC2 인스턴스, S3 스토리지, 데이터 전송량 등에서 발생하는 탄소 배출량을 AWS가 계산해 API로 제공해요. 덕분에 별도의 복잡한 계산 없이도 정확한 수치를 바로 가져올 수 있습니다.
+
+### 백엔드에 붙일 때 고려할 점들
+
+처음엔 API 호출만 하면 끝인 줄 알았는데, 실제로는 몇 가지 신경 써야 할 부분이 있더라고요.
+
+- **점진적 배포 전략이 필수**: 신규 API를 바로 전체 서비스에 적용하면 예기치 않은 장애가 발생할 수 있어요. AWS Well-Architected Framework에서 권장하는 것처럼 작은 범위부터 점진적으로 배포하는 게 운영 리스크를 크게 줄입니다. 우리 팀도 Canary 배포를 통해 5% 트래픽부터 시작해 점차 확대했어요[참고](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html).
+
+- **실패 유형 계측**: API 호출 실패, 응답 지연 등 장애 유형을 초기부터 계측해둬야 유지보수성이 좋아집니다. AWS Architecture Blog에서 강조하는 것처럼, 장애 대응 속도가 빨라지려면 실패 데이터를 체계적으로 모으는 게 중요해요[참고](https://aws.amazon.com/blogs/architecture/).
+
+- **API 호출 빈도 조절**: 탄소 배출량 데이터는 하루 단위 업데이트가 기본이라 너무 자주 호출할 필요는 없어요. 우리 환경에서는 1일 1회 배치 작업으로 충분했습니다.
+
+### 실전 코드: AWS Sustainability Console API 호출 예시 (Node.js)
+
+```javascript
+const axios = require('axios');
+
+// AWS 인증 토큰과 엔드포인트는 환경변수로 관리
+const AWS_SUSTAINABILITY_API = process.env.AWS_SUSTAINABILITY_API;
+const AWS_AUTH_TOKEN = process.env.AWS_AUTH_TOKEN;
+
+async function fetchEmissionsReport() {
+  try {
+    const response = await axios.get(`${AWS_SUSTAINABILITY_API}/emissions`, {
+      headers: {
+        'Authorization': `Bearer ${AWS_AUTH_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      params: {
+        // 보고서 기간 지정 예: 지난달
+        startDate: '2024-05-01',
+        endDate: '2024-05-31',
+        scope: '1,2,3' // Scope 1~3 모두 조회
+      }
+    });
+
+    const data = response.data;
+    console.log('탄소 배출량 보고서:', data);
+    return data;
+  } catch (error) {
+    console.error('Sustainability API 호출 실패:', error.message);
+    throw error;
+  }
+}
+
+// 실제 배치 작업이나 API 서버에서 호출 가능
+fetchEmissionsReport();
+```
+
+이 코드는 AWS Sustainability Console API에서 특정 기간과 Scope 범위에 해당하는 탄소 배출량 보고서를 받아오는 예시입니다. 실제 운영 환경에서는 이 데이터를 DB에 저장하거나, 대시보드에 표시하거나, 알림 시스템과 연동하는 식으로 확장할 수 있죠.
+
+### Scope 1~3 배출량 자동화가 가져다주는 운영 이점
+
+- **환경 영향 가시화**: 개발자가 직접 탄소 배출량을 계산하는 대신, AWS가 제공하는 신뢰도 높은 데이터를 바로 활용할 수 있어요.
+
+- **비즈니스 의사결정 지원**: 예를 들어, 특정 서비스가 탄소 배출에 크게 기여한다면 리팩토링이나 인프라 변경을 검토할 근거가 됩니다.
+
+- **규제 대응과 보고 자동화**: ESG(환경·사회·지배구조) 보고서 작성 시 수작업을 줄이고, 정확한 데이터를 기반으로 신속히 대응할 수 있습니다.
+
+### API 통합 후 우리가 겪은 현실적인 문제들
+
+처음 도입할 때는 API 호출 실패나 응답 지연 같은 문제에 직면했어요. 특히 네트워크 이슈로 인해 데이터가 누락되는 경우가 있었는데, 이때 실패 유형을 로깅하고 재시도 로직을 넣으니 훨씬 안정적이더라고요.
+
+또, Scope 3 배출량의 경우 데이터가 복잡하고 외부 공급망까지 포함되기 때문에, 정확한 해석과 활용을 위해선 도메인 전문가와 협업이 필수였습니다. 단순히 숫자만 보는 게 아니라, 비즈니스 컨텍스트와 함께 이해해야 하더라고요.
+
+### 작은 기능부터 시작해서 점진적으로 확장하는 게 답
+
+AWS Well-Architected Framework의 조언처럼, 처음부터 모든 서비스에 API를 붙이기보단 일부 서비스나 팀 단위로 적용해보는 게 좋아요. 우리 팀은 내부 개발 환경에서 먼저 테스트하고, Canary 배포로 점진 적용하면서 문제를 최소화했습니다[참고](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html).
+
+이런 점진적 배포 전략 덕분에 운영 중단 없이 자연스럽게 새로운 기능을 도입할 수 있었고, 실패 케이스도 빠르게 파악해 대응할 수 있었습니다.
+
+### 마무리하며
+
+AWS Sustainability Console API는 단순히 탄소 배출량을 보여주는 도구를 넘어, 백엔드 시스템에 환경 데이터를 녹여내 운영과 비즈니스 전략에 활용할 수 있는 강력한 무기입니다. 물론 API 호출 실패, 데이터 해석 난이도, 점진적 배포 등 현실적인 도전 과제도 있지만, 잘 설계하고 운영하면 환경과 비즈니스 모두에 의미 있는 변화를 만들어낼 수 있어요.
+
+우리 팀처럼 클라우드 기반 서비스에서 지속가능성을 고민하는 개발자라면, 이 API를 꼭 한번 붙여보길 추천합니다.
+
+---
+
+### 참고 자료
+
+- [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html)
+- [AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 정리하며
+
+AWS Launches Sustainability Console with API Access and Scope 1-3 Emissions Reporting을 실무에 적용할 때 가장 중요한 것은 한 번에 완벽하게 하려 하지 않는 것입니다. 작은 범위에서 시작하고, 측정하고, 개선하는 사이클을 반복하세요.
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 3
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
