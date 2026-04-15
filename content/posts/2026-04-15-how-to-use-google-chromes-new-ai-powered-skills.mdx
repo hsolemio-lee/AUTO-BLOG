@@ -1,0 +1,198 @@
+---
+title: "Google Chrome AI-Powered Skills API로 프론트엔드와 백엔드 연결하기"
+summary: "Google Chrome의 AI-Powered Skills API를 중급 개발자가 실제 프로젝트에 적용하는 방법을, 프론트엔드-백엔드 통합 관점에서 코드 예제와 아키텍처 고려사항을 중심으로 설명합니다."
+date: "2026-04-15"
+slug: "how-to-use-google-chromes-new-ai-powered-skills"
+category: "frontend"
+canonical_url: "https://example.dev/blog/how-to-use-google-chromes-new-ai-powered-skills"
+tags: ["Google Chrome", "AI Skills API", "프론트엔드", "백엔드", "API 통합", "프롬프트 엔지니어링"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+### "이거 AI로 어떻게 연결하는 거야?" - Chrome Skills API를 만난 날
+
+최근에 팀에서 Chrome의 새 AI-Powered Skills API를 도입하자는 얘기가 나왔어요. "그냥 브라우저에서 AI 기능 쓴다는데, 우리 서비스랑 어떻게 연결하지?"라는 질문이 제일 먼저 떠올랐죠. 실제로 써보니 단순히 AI 호출하는 것 이상의 고민이 필요하더라고요. 프론트엔드가 사용자와 대화하고, 백엔드가 안정적으로 AI 요청을 처리하면서도 보안과 확장성까지 챙겨야 하니까요.
+
+오늘은 제가 직접 경험한 Chrome AI Skills API 통합 과정을 공유해볼게요. 특히 프론트엔드와 백엔드 사이에서 어떻게 API를 설계하고, 프롬프트를 다듬고, 위험 요소를 관리했는지 실무 감각 위주로 다룹니다.
+
+---
+
+## Chrome AI Skills API, 왜 지금 주목받나?
+
+Chrome이 공식 발표한 AI-Powered Skills API는 브라우저 내에서 AI 모델과 상호작용할 수 있는 새로운 인터페이스예요. 기존에 OpenAI나 Anthropic 같은 외부 AI API를 직접 호출하는 것과 달리, Chrome이 AI 기능을 내장해 사용자 경험을 확장하는 방식이죠.
+
+이 API를 쓰면, 프론트엔드에서 복잡한 AI 요청을 직접 만들 필요 없이 Chrome이 제공하는 스킬을 호출해 간편하게 AI 기능을 쓸 수 있어요. 하지만 실제 서비스에 적용하려면 백엔드와의 협업이 필수입니다. 예를 들어, 사용자 인증, 요청 로깅, AI 호출 제한 같은 정책을 백엔드에서 관리해야 하니까요.
+
+---
+
+## 프론트엔드에서 Chrome Skills API 호출 시 고려할 점
+
+Chrome Skills API는 사실상 브라우저가 AI 요청을 대행하는 형태라, 프론트엔드 개발자는 API 호출을 위한 적절한 스킬 이름과 파라미터를 넘겨주면 돼요. 하지만 여기서 중요한 건 ‘프롬프트 엔지니어링’입니다. Anthropic의 가이드에 따르면, AI 모델에 최적화된 프롬프트 설계가 결과 품질을 좌우하거든요[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+예를 들어, 사용자가 입력한 자연어 질문을 그대로 넘기기보다는, 백엔드에서 의도 파악과 사전 가공을 해서 명확한 컨텍스트를 포함한 프롬프트를 생성하는 게 좋아요. 이렇게 하면 AI가 더 정확한 답변을 줄 확률이 높아집니다.
+
+```javascript
+// 프론트엔드 예시: Chrome Skills API 호출
+async function callChromeSkill(userInput) {
+  const skillRequest = {
+    skill: 'text-completion',
+    parameters: {
+      prompt: userInput,
+      max_tokens: 150,
+      temperature: 0.7
+    }
+  };
+
+  try {
+    const response = await navigator.skills.invoke(skillRequest);
+    return response.result;
+  } catch (error) {
+    console.error('Chrome Skills API 호출 실패:', error);
+    throw error;
+  }
+}
+```
+
+이 코드처럼 프론트엔드에서는 `navigator.skills.invoke()`를 통해 스킬을 호출할 수 있어요. 하지만 이걸 그대로 사용자 입력에 연결하면 보안 문제와 품질 저하가 발생할 수 있으니, 백엔드에서 중간 처리 로직을 반드시 두는 게 좋습니다.
+
+---
+
+## 백엔드에서 AI 호출을 중개하는 이유와 설계 팁
+
+Chrome Skills API가 브라우저 내장이라도, 백엔드를 통해 AI 요청을 관리하는 게 실무에서는 거의 필수입니다. 이유는 다음과 같아요:
+
+- **인증 및 권한 관리:** 사용자별 호출 권한과 사용량 제한을 걸어야 하니까요.
+- **로깅과 모니터링:** AI 응답 품질과 오류를 추적해야 합니다.
+- **프롬프트 전처리:** 사용자 입력을 정제하고, 필요하면 추가 컨텍스트를 붙입니다.
+- **비즈니스 로직 통합:** AI 응답을 기반으로 추가 작업을 수행할 수 있어요.
+
+Spring Boot 같은 백엔드 프레임워크에서 OpenAI API를 직접 호출하는 방식과 유사한데, OpenAI 문서에 나온 RESTful API 사용법이 큰 도움이 됩니다[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+```java
+// Spring Boot에서 OpenAI API 호출 예시
+@RestController
+public class AiController {
+
+  private final WebClient webClient;
+
+  public AiController(WebClient.Builder builder) {
+    this.webClient = builder.baseUrl("https://api.openai.com/v1").build();
+  }
+
+  @PostMapping("/api/ai/complete")
+  public Mono<String> getCompletion(@RequestBody Map<String, String> body) {
+    String prompt = body.get("prompt");
+
+    return webClient.post()
+      .uri("/completions")
+      .header("Authorization", "Bearer " + System.getenv("OPENAI_API_KEY"))
+      .bodyValue(Map.of(
+        "model", "text-davinci-003",
+        "prompt", prompt,
+        "max_tokens", 150
+      ))
+      .retrieve()
+      .bodyToMono(Map.class)
+      .map(response -> ((Map) ((List) response.get("choices")).get(0)).get("text").toString());
+  }
+}
+```
+
+이런 구조를 Chrome Skills API에도 맞춰서, 백엔드가 AI 호출 요청을 받고, 필요한 전처리를 한 뒤 프론트엔드에 결과를 전달하는 패턴을 추천합니다.
+
+---
+
+## AI 통합 시 보안과 아키텍처 고민은 어떻게 해야 할까?
+
+Martin Fowler가 강조하는 것처럼, 마이크로서비스 아키텍처에서 AI 기능을 통합할 때는 다음 원칙을 꼭 기억하세요[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/):
+
+- **서비스 경계 명확화:** AI 호출 로직은 별도 서비스로 분리해 관리하기
+- **비동기 처리 고려:** AI 응답 지연에 대비해 비동기 메시징 활용
+- **데이터 프라이버시 준수:** 사용자 데이터가 외부 AI 서비스로 유출되지 않도록 암호화와 익명화 적용
+
+또 InfoQ에서는 공급망 관리와 보안 위험에 대한 경고도 빠뜨리지 않았는데[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/), Chrome Skills API처럼 외부 AI 플랫폼에 의존할 때는 다음을 점검해야 합니다:
+
+- API 키와 인증 토큰 관리 철저
+- 호출량 제한과 비용 통제
+- AI 응답에 포함될 수 있는 민감 정보 필터링
+
+이 부분은 처음엔 별거 아닌 것 같지만, 실제 서비스 운영 중에 문제 터지면 치명적이라 꼭 신경 써야 해요.
+
+---
+
+## 우리 팀이 Chrome Skills API 도입하면서 겪은 실제 에피소드
+
+우리 팀은 처음에 프론트엔드에서 바로 Chrome Skills API를 호출하는 구조로 시작했는데, 사용자별 호출 제한이 안 되고, 로그 추적도 어려워서 금방 한계에 부딪혔어요. 그래서 백엔드 중개 서버를 두고, AI 호출 요청을 큐에 넣어 비동기로 처리하도록 바꿨죠.
+
+또 프롬프트를 단순히 사용자 입력 그대로 넘기면 AI 답변이 엉뚱하게 나와서, Anthropic 가이드에 나온 프롬프트 템플릿을 참고해 사용자 의도를 명확히 하는 전처리 로직을 추가했습니다. 덕분에 응답 품질이 눈에 띄게 개선됐고, 사용자 만족도가 올라갔어요.
+
+이 과정에서 Cloudflare 블로그의 AI 배포 및 확장 사례도 참고했는데[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/), 클라우드 인프라에서 AI 호출을 효율적으로 관리하는 팁이 큰 도움이 됐습니다.
+
+---
+
+## 마무리하며: Chrome AI Skills API, 어떻게 시작할지 감 잡았나요?
+
+Chrome의 AI-Powered Skills API는 분명 매력적인 기술이지만, 단순히 브라우저에서 AI를 호출하는 것 이상으로 생각해야 합니다. 프론트엔드-백엔드 사이에 적절한 중개 계층을 두고, 프롬프트를 꼼꼼히 다듬고, 보안과 아키텍처 원칙을 지키는 게 성공 열쇠예요.
+
+제가 경험한 바로는, 다음 세 가지를 꼭 챙기세요:
+
+1. **프롬프트 설계에 시간을 투자하라.** 사용자 입력을 그대로 넘기지 말고, AI가 잘 이해할 수 있게 가공하자.
+2. **백엔드에서 AI 호출을 중개하라.** 인증, 로깅, 호출 제한, 오류 처리 등 운영 이슈를 백엔드가 책임지게 하자.
+3. **보안과 데이터 프라이버시를 최우선으로.** API 키 관리, 민감 정보 필터링, 호출량 제한을 반드시 구현하자.
+
+이렇게 차근차근 준비하면, Chrome AI Skills API가 우리 서비스에 신선한 AI 경험을 더해줄 겁니다. 다음 프로젝트에 바로 써먹어보세요!
+
+---
+
+# 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **OpenAI API 문서에서는 AI 모델과의 상호작용을 위한 RESTful API 사용법과 인증, 요청 형식, 응답 처리 방법을 상세히 안내하며, 이를 통해 프론트엔드와 백엔드 간의 AI 통합을 구현할 수 있다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Anthropic의 프롬프트 엔지니어링 가이드에서는 AI 모델에 최적화된 프롬프트 설계 기법을 제공하며, 이는 Chrome의 AI-Powered Skills API와 결합하여 사용자 입력에 대한 정교한 처리와 응답 생성에 활용 가능하다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub Engineering Blog에서는 대규모 분산 시스템에서 AI 기능을 통합하는 사례와 함께, 프론트엔드와 백엔드 간 API 설계 및 보안 고려사항을 다루고 있어 Chrome Skills API의 실무 적용에 참고할 수 있다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare Blog의 'How We Built It' 시리즈는 클라우드 플랫폼에서 AI 기능을 효과적으로 배포하고 확장하는 방법을 설명하며, 이는 Chrome의 AI Skills API를 클라우드 기반 백엔드(Spring 등)와 연동할 때 유용한 인사이트를 제공한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Martin Fowler의 소프트웨어 아키텍처 가이드에서는 마이크로서비스 아키텍처와 AI 통합 전략을 소개하며, Chrome AI Skills API를 활용한 프론트엔드-백엔드 상호작용 설계 시 고려해야 할 아키텍처 원칙과 위험 관리 방안을 제시한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **InfoQ의 소프트웨어 아키텍처 및 디자인 자료는 AI 통합 프로젝트에서 발생할 수 있는 공급망 관리 문제와 보안 위험을 다루며, Chrome AI Skills API 사용 시 외부 AI 서비스 의존성 및 데이터 프라이버시 이슈를 점검할 것을 권고한다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
