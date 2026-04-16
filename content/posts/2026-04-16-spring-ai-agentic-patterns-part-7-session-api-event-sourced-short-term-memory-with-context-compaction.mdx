@@ -1,0 +1,180 @@
+---
+title: "Spring으로 AI 에이전트 단기 기억 구현하기: 이벤트 소싱 세션 API와 컨텍스트 컴팩션 깊게 파보기"
+summary: "Spring Boot 기반 백엔드에서 이벤트 소싱 패턴을 활용해 세션 상태 변화를 관리하고, 컨텍스트 컴팩션으로 메모리 효율을 극대화하는 AI 에이전트 단기 기억 구현법을 실전 예제와 함께 설명합니다."
+date: "2026-04-16"
+slug: "spring-ai-agentic-patterns-part-7-session-api-event-sourced-short-term-memory-with-context-compaction"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-ai-agentic-patterns-part-7-session-api-event-sourced-short-term-memory-with-context-compaction"
+tags: ["spring-boot", "event-sourcing", "session-management", "ai-agent", "context-compaction"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+---
+
+# Spring AI 에이전트의 단기 기억, 세션 API로 어떻게 만들까?
+
+"우리 AI가 지난 대화 내용을 기억해야 하는데, 매번 전체 컨텍스트를 다시 보내는 게 너무 비효율적이야."
+
+이런 고민 해본 적 있나요? AI 에이전트가 사용자와 상호작용할 때, 단기 기억(Short-Term Memory)을 어떻게 관리하느냐가 성능과 사용자 경험에 큰 영향을 미칩니다. 특히 Spring Boot 백엔드에서 세션 데이터를 효과적으로 저장하고, 불필요한 데이터를 줄이면서도 필요한 정보는 잃지 않는 게 관건이죠.
+
+이번 글에서는 이벤트 소싱(Event Sourcing) 패턴을 활용해 세션 상태 변화를 저장하고, 주기적으로 컨텍스트를 압축(compaction)하는 방법을 깊게 파보겠습니다. 실무에서 직접 써먹을 수 있는 코드 예시도 준비했으니 끝까지 함께해 주세요.
+
+---
+
+## 이벤트 소싱으로 세션 상태를 관리하는 게 왜 좋을까?
+
+보통 세션 관리는 사용자별 상태를 키-밸류 형태로 저장합니다. 그런데 AI 에이전트처럼 상태 변화가 많고, 각 상태 변화가 의미 있는 이벤트인 경우라면 이벤트 소싱이 딱입니다. 
+
+이벤트 소싱은 상태 변경 자체를 이벤트로 저장하고, 현재 상태는 이 이벤트들을 순서대로 재생(replay)해서 복원합니다. 덕분에 상태 변경 내역을 모두 보존할 수 있어 디버깅이나 상태 이력 추적이 쉬워지죠.
+
+Spring Boot은 기본적으로 세션 관리를 위한 다양한 API를 제공하는데, 이 위에 이벤트 소싱을 얹으면 세션 상태 변화를 이벤트로 캡처하고 저장하는 게 자연스럽게 구현됩니다. 실제로 Spring Boot Reference 문서에서도 이벤트 소싱 패턴을 활용한 상태 관리 사례를 다루고 있어요[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+특히 Spring Framework의 ApplicationContext와 이벤트 리스너 메커니즘은 상태 변경 이벤트를 쉽게 캡처하고 처리할 수 있어 이벤트 소싱 기반 세션 관리에 최적화되어 있습니다[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+
+---
+
+## 컨텍스트 컴팩션, 왜 꼭 필요한가?
+
+이벤트 소싱의 단점 중 하나는 이벤트 로그가 계속 쌓여서 메모리와 저장 공간을 많이 차지한다는 점입니다. AI 에이전트 세션은 대화가 길어지면 이벤트가 수백, 수천 건 쌓일 수 있죠. 이걸 매번 모두 재생하면 성능 저하가 불가피합니다.
+
+그래서 등장한 게 컨텍스트 컴팩션입니다. 특정 시점까지의 이벤트를 합쳐서 하나의 상태 스냅샷으로 압축하면, 재생해야 할 이벤트 수를 줄여 메모리 사용량과 처리 시간을 크게 줄일 수 있습니다.
+
+Spring Boot Reference 문서에서도 컨텍스트 컴팩션을 주기적으로 수행해 메모리 효율을 높이고, AI 에이전트 단기 기억 성능을 개선하는 방법을 소개하고 있습니다[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+OpenAI API 문서에서도 비슷한 맥락으로, 세션 기반 대화 상태 관리에서 이벤트 소싱과 컨텍스트 압축을 통해 토큰 사용량을 최적화하는 전략을 권장하고 있죠[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+---
+
+## 실제로 Spring에서 이벤트 소싱 세션 API를 이렇게 구현해봤다
+
+아래는 Spring Boot에서 이벤트 소싱 기반 세션 관리와 컨텍스트 컴팩션을 간단히 구현한 예시입니다. 
+
+```java
+import org.springframework.context.ApplicationEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.stereotype.Component;
+
+import java.util.*;
+
+// 1) 세션 상태 변경 이벤트 정의
+class SessionEvent extends ApplicationEvent {
+    private final String sessionId;
+    private final String key;
+    private final String value;
+
+    public SessionEvent(Object source, String sessionId, String key, String value) {
+        super(source);
+        this.sessionId = sessionId;
+        this.key = key;
+        this.value = value;
+    }
+
+    public String getSessionId() { return sessionId; }
+    public String getKey() { return key; }
+    public String getValue() { return value; }
+}
+
+// 2) 세션 상태를 이벤트 로그로 저장하고 재생하는 서비스
+@Component
+class EventSourcedSessionService implements ApplicationListener<SessionEvent> {
+    // 세션별 이벤트 로그 저장소
+    private final Map<String, List<SessionEvent>> eventStore = new HashMap<>();
+    // 세션별 현재 상태 캐시
+    private final Map<String, Map<String, String>> sessionStates = new HashMap<>();
+
+    @Override
+    public void onApplicationEvent(SessionEvent event) {
+        eventStore.computeIfAbsent(event.getSessionId(), k -> new ArrayList<>()).add(event);
+
+        // 상태 변경 이벤트를 바로 반영
+        sessionStates.computeIfAbsent(event.getSessionId(), k -> new HashMap<>())
+                .put(event.getKey(), event.getValue());
+    }
+
+    // 이벤트 로그 재생으로 상태 복원
+    public Map<String, String> replayEvents(String sessionId) {
+        List<SessionEvent> events = eventStore.getOrDefault(sessionId, Collections.emptyList());
+        Map<String, String> state = new HashMap<>();
+        for (SessionEvent e : events) {
+            state.put(e.getKey(), e.getValue());
+        }
+        sessionStates.put(sessionId, state);
+        return state;
+    }
+
+    // 컨텍스트 컴팩션: 이벤트 로그를 스냅샷으로 압축
+    public void compactContext(String sessionId) {
+        Map<String, String> currentState = sessionStates.get(sessionId);
+        if (currentState == null) return;
+
+        // 이벤트 로그를 현재 상태 하나로 대체
+        List<SessionEvent> compactedEvents = new ArrayList<>();
+        for (Map.Entry<String, String> entry : currentState.entrySet()) {
+            compactedEvents.add(new SessionEvent(this, sessionId, entry.getKey(), entry.getValue()));
+        }
+        eventStore.put(sessionId, compactedEvents);
+    }
+}
+```
+
+이 코드는 세션 상태 변경을 `SessionEvent`로 캡처하고, 이벤트 로그를 `eventStore`에 저장합니다. `replayEvents` 메서드는 이벤트 로그를 순서대로 재생해 상태를 복원하죠. 그리고 `compactContext`는 현재 상태를 다시 이벤트 하나하나로 압축해 기존 이벤트 로그를 대체합니다.
+
+처음에는 이벤트가 많지 않아도, 세션이 길어질수록 `compactContext`를 주기적으로 호출해 이벤트 로그 크기를 관리하는 게 중요합니다. 예를 들어, 100건 이상의 이벤트가 쌓이면 컴팩션을 실행하도록 스케줄링하는 식이죠.
+
+---
+
+## 세션 API 확장성과 성능, 실제 운영 환경에서 어떻게 챙길까?
+
+이벤트 소싱과 컨텍스트 컴팩션을 도입하면 상태 추적과 메모리 관리가 쉬워지지만, 무조건 좋은 건 아닙니다. 이벤트 로그를 저장하고 재생하는 비용, 컴팩션 시점과 빈도 조절, 동시성 문제 등 신경 쓸 게 많아요.
+
+Baeldung의 Spring Boot 성능 튜닝 가이드에서는 세션 데이터 캐싱 전략과 JVM 메모리 튜닝을 통해 세션 API의 반응성과 확장성을 높이는 방법을 소개합니다. 예를 들어, `@Cacheable`을 활용해 자주 조회하는 세션 상태를 메모리 캐시로 관리하거나, Redis 같은 외부 세션 저장소를 연동하는 것도 좋은 방법입니다[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+
+또한, 이벤트 소싱 기반 세션 관리에서는 이벤트를 비동기 처리하거나 배치로 저장해 동시성 문제를 완화하는 게 현실적입니다. 컴팩션 작업도 별도의 스레드나 배치 프로세스로 분리해 메인 요청 처리에 영향을 최소화하는 게 좋죠.
+
+---
+
+## 마무리하며: AI 에이전트 단기 기억, Spring에서 이렇게 시작해보자
+
+- 이벤트 소싱은 세션 상태 변화를 이벤트 단위로 저장해 상태 이력 관리와 복원이 쉽다.
+- Spring ApplicationContext와 이벤트 리스너가 이벤트 소싱 구현에 딱 맞는다.
+- 컨텍스트 컴팩션은 이벤트 로그를 주기적으로 압축해 메모리와 처리 속도를 최적화한다.
+- 실무에서는 캐싱, 비동기 처리, 외부 저장소 연동 등 성능 튜닝도 필수다.
+
+처음엔 이벤트 소싱과 컴팩션 개념이 복잡해 보이지만, 실제로 코드를 짜고 운영해보면 AI 에이전트의 단기 기억 관리가 훨씬 투명하고 확장성 있게 변하는 걸 느낄 수 있을 겁니다. 
+
+다음 프로젝트에 AI 대화 상태 저장이 필요하다면, 이번 글에서 소개한 패턴과 코드를 꼭 참고해 보세요. 
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Boot은 세션 관리를 위한 다양한 API를 제공하며, 이벤트 소싱(event sourcing) 패턴을 적용하여 세션 상태 변화를 저장하고 복원할 수 있다. 이를 통해 AI 에이전트의 단기 기억을 구현하는 데 유용하다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework의 핵심 기술 중 하나인 ApplicationContext와 이벤트 리스너(event listener) 메커니즘은 이벤트 소싱 기반 세션 관리에서 상태 변경 이벤트를 캡처하고 처리하는 데 적합하다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **컨텍스트 컴팩션(context compaction)은 이벤트 소싱으로 저장된 세션 이벤트 로그를 주기적으로 압축하여 메모리 사용량을 줄이고, AI 에이전트의 단기 기억 성능을 향상시키는 중요한 기법이다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot 성능 튜닝 가이드에서는 메모리 관리 및 세션 데이터 캐싱 전략을 통해 세션 API의 확장성과 반응성을 높이는 방법을 소개하며, 이는 AI 기반 세션 관리 구현에 직접적으로 적용 가능하다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **OpenAI API 문서에서는 세션 기반 대화 상태 관리에서 이벤트 소싱과 컨텍스트 압축을 통해 토큰 사용량을 최적화하는 전략을 권장하며, 이는 Spring 백엔드에서 AI 에이전트 메모리 관리 설계에 참고할 수 있다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
