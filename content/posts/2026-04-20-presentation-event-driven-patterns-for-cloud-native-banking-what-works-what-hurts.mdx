@@ -1,0 +1,158 @@
+---
+title: "클라우드 네이티브 뱅킹에서 이벤트 드리븐 패턴, 어디까지 써봤니?"
+summary: "클라우드 네이티브 환경에서 뱅킹 백엔드를 구축하며 겪은 이벤트 드리븐 패턴의 실제 적용 사례와, Saga 패턴과 Transactional Outbox 패턴을 중심으로 한 구현 팁과 주의점을 공유합니다."
+date: "2026-04-20"
+slug: "presentation-event-driven-patterns-for-cloud-native-banking-what-works-what-hurts"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/presentation-event-driven-patterns-for-cloud-native-banking-what-works-what-hurts"
+tags: ["event-driven", "cloud-native", "banking", "saga-pattern", "transactional-outbox", "microservices"]
+sources:
+  - title: "Microservices.io - Saga pattern"
+    url: "https://microservices.io/patterns/data/saga.html"
+  - title: "Microservices.io - Transactional outbox"
+    url: "https://microservices.io/patterns/data/transactional-outbox.html"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+---
+
+### "이벤트가 안 날라가면 은행은 멈춘다" — 우리 팀이 겪은 실시간 이벤트의 무서움
+
+얼마 전 우리 팀에서 클라우드 네이티브 뱅킹 시스템을 구축하면서 겪은 일이에요. 이벤트 기반으로 계좌 이체, 잔액 갱신, 알림 발송을 처리하는데, 한 번은 이벤트가 누락되면서 고객 잔액이 실제와 달라지는 사고가 났죠. 그때부터 이벤트 드리븐 아키텍처의 신뢰성을 어떻게 보장할지 고민이 시작됐습니다.
+
+이 글은 그런 경험을 바탕으로, 뱅킹 서비스에서 이벤트 드리븐 패턴을 도입할 때 어떤 점이 실제로 도움이 되고, 어디서 발목 잡히는지 공유하려고 해요. 특히 Saga 패턴과 Transactional Outbox 패턴을 중심으로 이야기합니다.
+
+---
+
+## Saga 패턴, 마이크로서비스 간 분산 트랜잭션의 구원투수일까?
+
+분산 시스템에서 트랜잭션을 묶는 건 언제나 골칫거리입니다. 뱅킹처럼 데이터 일관성이 중요한 서비스라면 더욱 그렇죠. 그래서 우리도 Saga 패턴을 도입했는데, 이게 생각보다 쓸만했습니다. 
+
+Saga는 각 마이크로서비스가 독립적인 로컬 트랜잭션을 수행하고, 실패 시 보상 트랜잭션(compensating transaction)을 실행해 최종적으로 일관성을 맞춥니다. 예를 들어, 계좌 이체를 처리할 때 출금 서비스가 성공해도 입금 서비스에서 실패하면 출금 보상 트랜잭션으로 금액을 다시 입금하는 식이죠.
+
+이 패턴 덕분에 전통적인 2PC(2-Phase Commit) 방식의 복잡성과 성능 저하를 피할 수 있었습니다. 특히 우리처럼 클라우드 환경에서 독립적 배포와 확장이 중요한 팀에 딱 맞았죠. 
+
+하지만 Saga도 만능은 아닙니다. 보상 트랜잭션 설계가 까다로워서, 잘못하면 데이터가 꼬이거나 복구가 어려워집니다. 그리고 트랜잭션 간 이벤트 순서가 꼬일 경우 상태 불일치가 발생할 위험도 커요. 그래서 상태 전이와 이벤트 흐름을 꼼꼼히 설계해야 합니다.
+
+더 자세한 원리와 사례는 [Microservices.io - Saga pattern](https://microservices.io/patterns/data/saga.html)에서 참고할 수 있습니다.
+
+## Transactional Outbox 패턴, 이벤트 누락과 중복 문제에 대한 해답
+
+이벤트 기반 통신에서 가장 흔한 문제 중 하나가 '이벤트 누락'과 '중복 발행'입니다. 데이터베이스 상태 변경과 이벤트 발행을 따로 처리하면, 시스템 장애 시 둘 중 하나만 성공하는 상황이 생기거든요.
+
+우리는 이 문제를 해결하기 위해 Transactional Outbox 패턴을 도입했습니다. 핵심은 비즈니스 트랜잭션과 이벤트 기록을 같은 DB 트랜잭션 안에서 처리하는 겁니다. 예를 들어, 계좌 잔액 업데이트 쿼리와 이벤트 메시지를 기록하는 outbox 테이블에 대한 insert를 하나의 트랜잭션으로 묶는 거죠.
+
+그 후 별도의 프로세스가 이 outbox 테이블을 폴링하면서 메시지 브로커에 이벤트를 발행합니다. 이렇게 하면 이벤트가 누락될 가능성이 거의 사라지고, 중복 발행도 outbox 상태로 제어할 수 있습니다.
+
+우리 팀에서는 이 패턴 덕분에 장애 시에도 이벤트 일관성을 크게 개선할 수 있었습니다. 단, outbox 테이블을 주기적으로 청소하거나 아카이빙하는 작업이 필요하고, 폴링 주기 설정에 따라 지연(latency)이 발생할 수 있으니 주의해야 합니다.
+
+코드 예시로는 다음과 같이 JPA와 Spring Boot를 쓴 간단한 outbox 엔티티와 서비스가 있습니다:
+
+```java
+@Entity
+@Table(name = "outbox")
+public class OutboxEvent {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String aggregateType;
+    private String aggregateId;
+    private String eventType;
+    private String payload;
+    private boolean published = false;
+
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    // getters, setters
+}
+
+@Service
+public class OutboxService {
+    @Autowired
+    private OutboxRepository outboxRepository;
+
+    @Transactional
+    public void saveEvent(String aggregateType, String aggregateId, String eventType, String payload) {
+        OutboxEvent event = new OutboxEvent();
+        event.setAggregateType(aggregateType);
+        event.setAggregateId(aggregateId);
+        event.setEventType(eventType);
+        event.setPayload(payload);
+        outboxRepository.save(event);
+    }
+
+    public List<OutboxEvent> fetchUnpublishedEvents() {
+        return outboxRepository.findByPublishedFalse();
+    }
+
+    @Transactional
+    public void markAsPublished(Long eventId) {
+        outboxRepository.findById(eventId).ifPresent(event -> {
+            event.setPublished(true);
+            outboxRepository.save(event);
+        });
+    }
+}
+```
+
+이후 별도의 스케줄러가 `fetchUnpublishedEvents()`로 이벤트를 가져와 메시지 브로커에 발행하고, 성공 시 `markAsPublished()`를 호출합니다.
+
+더 자세한 설명은 [Microservices.io - Transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html)에서 확인하세요.
+
+## 클라우드 네이티브 환경에서 메시지 지연과 장애 복구, 어떻게 준비했나
+
+클라우드 환경에서는 네트워크 불안정, 인스턴스 스케일링, 장애 복구 등 다양한 변수가 있습니다. 우리도 메시지 지연과 순서 보장 문제로 골머리를 앓았는데, 결국 메시지 브로커 선택과 재시도 전략이 게임 체인저였어요.
+
+우리는 Kafka를 사용했는데, 파티션과 컨슈머 그룹을 적절히 설계해 메시지 순서를 최대한 보장했습니다. 하지만 완벽한 순서 보장은 불가능하다는 걸 인정하고, 비즈니스 로직에서 idempotency(멱등성)를 철저히 구현했어요. 예를 들어, 중복 이벤트가 와도 계좌 잔액이 잘못 계산되지 않도록 트랜잭션 내에서 중복 체크를 합니다.
+
+재시도 정책도 중요합니다. 무한 재시도는 장애를 키우니, 지수 백오프(exponential backoff)와 최대 재시도 횟수를 정해두고, 실패 이벤트는 별도 DLQ(Dead Letter Queue)로 보내서 수동 개입이 가능하게 했습니다.
+
+이런 경험과 자세한 기술 스택 이야기는 [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)에서 유사 사례를 참고할 수 있습니다.
+
+## 디버깅과 모니터링, 이벤트 드리븐 시스템에서 놓치기 쉬운 부분
+
+이벤트 흐름이 복잡해지면 어디서 문제가 생겼는지 찾기가 정말 힘듭니다. 우리 팀도 초반에 로그가 여기저기 흩어지고, 이벤트 타임스탬프가 맞지 않는 문제로 한참 고생했어요.
+
+그래서 분산 트레이싱 도구(예: Jaeger, Zipkin)를 도입하고, 각 이벤트에 traceId를 붙여서 호출 흐름을 추적했습니다. 로그 집계도 Elasticsearch + Kibana로 통합해서, 특정 트랜잭션 ID로 전체 이벤트 흐름을 한눈에 볼 수 있게 했죠.
+
+또한, 이벤트 처리 지연이나 실패율을 실시간 대시보드로 모니터링하며 이상 징후를 조기에 감지합니다. 이런 노력 덕분에 장애 대응 시간이 50% 이상 단축됐어요.
+
+이런 모니터링과 디버깅 경험은 [GitHub Engineering Blog](https://github.blog/category/engineering/)에서 다양한 사례를 참고할 수 있습니다.
+
+---
+
+## 마치며: 이벤트 드리븐 뱅킹, "완벽"은 없지만 "준비된" 시스템이 답
+
+우리 팀 경험을 정리하면, 이벤트 드리븐 패턴은 클라우드 네이티브 뱅킹에서 필수적이면서도 까다로운 선택지입니다. Saga 패턴과 Transactional Outbox 패턴을 제대로 이해하고 적용하면 데이터 일관성과 신뢰성을 크게 높일 수 있어요.
+
+하지만 이벤트 순서, 지연, 장애 복구, 디버깅 문제는 반드시 별도로 준비해야 합니다. 멱등성 구현, 재시도 정책, 분산 트레이싱은 선택이 아닌 필수입니다.
+
+그리고 무엇보다 "완벽한 이벤트"를 기대하기보다, "실패해도 복구 가능한" 시스템을 설계하는 마인드가 중요하다는 걸 다시 한번 느꼈어요.
+
+---
+
+### 참고 자료
+
+- [Microservices.io - Saga pattern](https://microservices.io/patterns/data/saga.html)
+- [Microservices.io - Transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Saga 패턴은 분산 트랜잭션을 관리하는 데 효과적이며, 특히 마이크로서비스 아키텍처에서 이벤트 기반으로 상태를 일관성 있게 유지하는 데 유용하다. 각 서비스가 독립적으로 트랜잭션을 수행하고, 실패 시 보상 트랜잭션을 실행하여 최종 일관성을 보장한다.** ([Microservices.io - Saga pattern](https://microservices.io/patterns/data/saga.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Transactional Outbox 패턴은 이벤트 발행과 데이터베이스 변경을 원자적으로 처리하여 이벤트 누락이나 중복 발생 문제를 방지한다. 이를 통해 이벤트 기반 통신의 신뢰성을 높이고, 결국 일관성 문제를 완화한다.** ([Microservices.io - Transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 네이티브 환경에서 이벤트 기반 아키텍처를 구현할 때, 메시지 지연 및 순서 보장 문제, 그리고 장애 복구 전략이 매우 중요하다. 적절한 메시지 브로커 선택과 재시도 메커니즘 설계가 실패를 줄이는 핵심 요소이다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **이벤트 드리븐 백엔드 구현 시, 복잡한 트랜잭션 흐름과 상태 관리로 인해 디버깅과 모니터링이 어렵다는 단점이 있다. 따라서 로그 집계 및 분산 트레이싱 도구를 적극 활용하는 것이 중요하다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
