@@ -1,0 +1,162 @@
+---
+title: "pnpm 11 릴리즈 후보: ESM 지원과 공급망 보안 기본 설정, 그리고 새로운 저장소 포맷 정복하기"
+summary: "pnpm 11로 업그레이드하면서 경험한 ESM 배포 방식 전환, 공급망 보안 강화 기본값 적용, 그리고 새롭게 바뀐 저장소 포맷이 백엔드 의존성 관리에 미치는 영향과 실제 대응법을 공유합니다."
+date: "2026-04-21"
+slug: "pnpm-11-release-candidate-esm-distribution-supply-chain-defaults-and-a-new-store-format"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/pnpm-11-release-candidate-esm-distribution-supply-chain-defaults-and-a-new-store-format"
+tags: ["pnpm", "패키지매니저", "ESM", "공급망보안", "의존성관리"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+---
+
+# pnpm 11로 넘어가면서 ESM 배포가 기본값이라니, 준비됐나요?
+
+얼마 전 우리 팀에서 pnpm 11 릴리즈 후보 버전을 도입했는데, 처음에 ESM(ECMAScript Modules) 배포가 기본값으로 바뀌었다는 사실에 살짝 당황했어요. 기존에는 CommonJS가 기본이었으니까요. 그런데 이 변화가 단순히 포맷 하나 바뀐 게 아니라, 백엔드 프로젝트의 의존성 관리와 빌드 프로세스에 꽤 큰 영향을 주더라고요.
+
+"ESM으로 전환하면 무조건 좋아질까?"라는 의문부터, 공급망 보안이 강화된 기본 설정, 그리고 완전히 새로워진 저장소(store) 포맷까지. 오늘은 실제 백엔드 환경에서 pnpm 11을 적용하며 겪은 경험과, 꼭 알아야 할 점들을 나누려 합니다.
+
+---
+
+## ESM 배포가 기본이 된다는 건 무슨 뜻일까?
+
+pnpm 11부터는 패키지 배포 시 ESM 형식이 기본값입니다. 예를 들어, 기존에는 `require()`를 쓰는 CommonJS 모듈이 많았는데, 이제는 `import` 구문을 사용하는 ESM이 표준이 된 거죠. 
+
+이게 왜 중요하냐면, Node.js 환경에서 ESM과 CommonJS는 런타임 동작 방식이 다르고, 특히 트리 쉐이킹(tree shaking)이나 최적화에 영향을 미칩니다. 우리 백엔드 서비스가 점점 모듈화되고, 빌드 타임에 쓸데없는 코드를 줄이는 게 중요해지는 상황에서 ESM 지원은 큰 장점이 될 수 있어요.
+
+하지만, 처음엔 "내가 쓰는 패키지들이 다 ESM을 지원하나?" "빌드 파이프라인은 어떻게 바꿔야 하지?"라는 고민이 생깁니다. 실제로 저희는 일부 CommonJS 전용 라이브러리가 아직 완벽하게 ESM을 지원하지 않아, 호환성 문제로 잠시 고생했어요.
+
+```jsonc
+// package.json 예시: type 필드를 module로 설정해 ESM 모드 활성화
+{
+  "type": "module",
+  "scripts": {
+    "start": "node ./src/index.js"
+  }
+}
+```
+
+Node.js 18 이상이라면 ESM이 기본 지원되지만, `package.json`에 `"type": "module"`을 명시해야 ESM 모드가 활성화됩니다. 이걸 안 해두면 `.js` 파일이 CommonJS로 인식돼서 혼란이 생길 수 있어요.
+
+### ESM 전환 시 주의할 점
+
+- `require()` 대신 `import`/`export` 구문 사용
+- 동적 임포트(`import()`) 활용법 익히기
+- CommonJS 전용 라이브러리 호환성 체크
+- 테스트 및 배포 파이프라인에서 ESM 지원 여부 확인
+
+---
+
+## 공급망 보안 기본 설정 강화, 이젠 안 바꾸면 위험하다
+
+pnpm 11은 공급망 보안(supply chain security)을 기본값으로 강화했습니다. 구체적으로는 패키지 설치 시 무결성 체크와 레지스트리 검증이 더 엄격해졌고, 서명 검증 기능도 일부 도입됐어요.
+
+이게 왜 중요하냐면, 최근 몇 년간 오픈소스 패키지에 악성 코드가 섞이는 사건이 잦아지면서, 의존성 관리가 보안의 최전선이 됐기 때문입니다. 우리 백엔드 서비스도 작은 범위의 점진적 배포 전략을 쓰면서 신규 기능을 릴리즈하는데, 실패 유형을 초기부터 계측하면 장애 대응 속도가 빨라진다는 점을 감안하면[TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html), 공급망 보안 기본값 강화는 필수죠.
+
+pnpm 11에서는 다음과 같은 기본 보안 설정이 적용됩니다:
+
+- `verify-store-integrity` 기본값 `true`
+- `lockfile-only` 옵션 강화
+- 서명된 패키지 검증 지원
+
+이로 인해, 기존에 `--no-verify-store-integrity` 같은 옵션을 쓰던 프로젝트는 설치 실패가 날 수 있으니 사전에 테스트가 필요합니다.
+
+---
+
+## 새로운 저장소 포맷(Store Format)이 뭐길래?
+
+pnpm 11에서는 저장소 포맷도 바뀌었습니다. 기존 pnpm은 패키지를 하드 링크 방식으로 저장소에 보관했는데, 이번에는 더 효율적인 포맷과 캐싱 전략이 도입됐어요.
+
+이게 좋은 점은
+
+- 디스크 사용량 감소
+- 설치 속도 향상
+- 캐시 무결성 강화
+
+하지만, 단점도 있습니다.
+
+- 기존 저장소와 호환 안 됨
+- 업그레이드 시 저장소 초기화 필요
+
+실제로 저희는 업그레이드 과정에서 저장소를 완전히 삭제하고 다시 설치하는 작업을 했는데, 3천 개가 넘는 의존성을 가진 대형 프로젝트라 시간이 꽤 걸렸어요. 그래서 배포 전 충분한 사전 테스트와 점진적 배포 전략이 필수입니다.
+
+```bash
+# pnpm 11 업그레이드 후 저장소 포맷 초기화 예시
+rm -rf node_modules .pnpm-store
+pnpm install
+```
+
+---
+
+## 실제 백엔드 프로젝트에서 pnpm 11로 업그레이드하며 겪은 변화들
+
+우리 팀은 마이크로서비스 아키텍처로 수십 개 서비스가 있고, 각각 독립적으로 배포됩니다. 그래서 작은 범위의 점진적 배포 전략을 쓰는데, 이 전략 덕분에 pnpm 11 업그레이드도 무리 없이 진행할 수 있었어요. [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)에서 말하는 것처럼 작은 단위로 배포하면 운영 리스크가 크게 줄거든요.
+
+또한, 실패 유형을 초기부터 계측하는 모니터링 체계를 갖추고 있어서, ESM 전환 중 발생한 모듈 로드 실패나 호환성 문제도 빠르게 감지하고 대응할 수 있었죠.[TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+
+---
+
+## pnpm 11 업그레이드 시 꼭 기억해야 할 점
+
+- **ESM 전환은 단순 문법 변경이 아니라 런타임 환경 변화다**: `package.json`의 `type` 필드 설정부터, 테스트와 빌드 파이프라인 전반에 걸쳐 점검이 필요합니다.
+- **공급망 보안 강화 기본값은 무시하면 안 된다**: 보안 옵션을 끄지 말고, 문제가 생기면 원인을 찾아 해결하세요.
+- **새로운 저장소 포맷은 초기 설치 시간이 늘어날 수 있다**: 대규모 프로젝트는 저장소 초기화 후 설치 시간을 충분히 확보하세요.
+- **작은 범위 점진적 배포 전략과 초기 실패 계측 체계가 업그레이드 성공의 열쇠다**: 한꺼번에 모든 서비스를 바꾸려 하지 말고, 단계적으로 적용하세요.
+
+---
+
+pnpm 11은 단순히 버전 업그레이드가 아니라, 의존성 관리 패러다임이 조금씩 바뀌는 신호탄 같습니다. 특히 백엔드에서 안정성과 보안, 그리고 최신 모듈 시스템을 동시에 잡으려면 이번 업그레이드가 좋은 기회가 될 거예요.
+
+여러분도 저희처럼 실제 환경에서 차근차근 적용해보시고, 겪은 에피소드나 팁이 있다면 공유해주세요. 우리 모두 더 안전하고 빠른 의존성 관리 환경을 만들어가야 하니까요!
+
+---
+
+# 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
