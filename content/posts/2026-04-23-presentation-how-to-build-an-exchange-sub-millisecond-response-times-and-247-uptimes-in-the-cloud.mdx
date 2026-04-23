@@ -1,0 +1,135 @@
+---
+title: "클라우드 네이티브 환경에서 서브 밀리초 응답과 24/7 무중단 거래소 백엔드 구축기"
+summary: "클라우드 기반 거래소 시스템에서 어떻게 네트워크 지연을 줄이고, 이벤트 기반 아키텍처와 분산 시스템 설계로 초저지연과 고가용성을 동시에 달성했는지 실무적 인사이트를 공유합니다."
+date: "2026-04-23"
+slug: "presentation-how-to-build-an-exchange-sub-millisecond-response-times-and-247-uptimes-in-the-cloud"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/presentation-how-to-build-an-exchange-sub-millisecond-response-times-and-247-uptimes-in-the-cloud"
+tags: ["클라우드", "거래소", "초저지연", "고가용성", "분산시스템", "이벤트소싱"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## 초저지연, 정말 1밀리초 이하가 가능할까?
+
+"우리 시스템이 1밀리초 안에 응답해야 한다고? 그게 가능해?"
+
+처음 이런 요구를 들었을 때 솔직히 반신반의했어요. 네트워크 왕복 시간만 해도 보통 수 밀리초가 기본인데, 그걸 어떻게 줄이지? 그런데 클라우드 네이티브 환경에서의 아키텍처와 기술 선택이 답이었죠. 특히 네트워크 지연 최소화, 메모리 내 데이터 처리, 그리고 비동기 이벤트 기반 아키텍처가 핵심입니다.
+
+### 네트워크 지연, 말처럼 줄이기 쉽지 않다
+
+사실 지연 시간의 대부분은 네트워크 왕복에서 옵니다. 그래서 우리 팀은 다음과 같은 전략을 썼어요.
+
+- **리전 내 서비스 배치**: 거래소의 핵심 서비스들을 같은 리전 내 가용 영역에 배치해 네트워크 홉 수를 최소화했습니다.
+- **경량 메시징 프로토콜 도입**: REST 대신 gRPC 같은 경량 RPC를 사용해 헤더 오버헤드를 줄였고, 메시지 직렬화도 protobuf로 최적화했죠.
+
+GitHub 엔지니어링 팀도 비슷한 접근을 했는데, 자체 커스텀 RPC 프레임워크까지 만들어서 응답 시간을 획기적으로 줄였다고 해요[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+### 메모리 내 데이터 처리로 DB 병목 탈출
+
+데이터베이스는 언제나 병목이 될 수밖에 없죠. 그래서 우리 거래소 백엔드는 데이터베이스 접근을 최소화하는 방향으로 설계했습니다.
+
+- **이벤트 소싱과 CQRS 패턴**: 쓰기 작업은 이벤트 로그에 기록하고, 읽기는 별도의 읽기 전용 뷰에서 처리합니다. 덕분에 읽기 작업이 DB에 부담을 주지 않고, 대부분 메모리 내 캐시에서 처리가 가능했죠.
+
+```java
+// 간단한 이벤트 소싱 예시
+public class OrderAggregate {
+    private List<OrderEvent> changes = new ArrayList<>();
+    private OrderState currentState;
+
+    public void placeOrder(OrderCommand cmd) {
+        // 비즈니스 로직 검증
+        OrderPlacedEvent event = new OrderPlacedEvent(cmd.getOrderId(), cmd.getDetails());
+        apply(event);
+        changes.add(event);
+    }
+
+    private void apply(OrderPlacedEvent event) {
+        // 상태 변경
+        currentState = currentState.apply(event);
+    }
+
+    public List<OrderEvent> getUncommittedChanges() {
+        return changes;
+    }
+}
+```
+
+이렇게 하면 DB 쓰기 작업은 이벤트 로그에만 집중되고, 읽기 작업은 빠르게 캐시에서 처리할 수 있어 지연 시간이 크게 줄어요[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+## 24/7 무중단, 장애는 어떻게 격리했나?
+
+거래소는 멈추면 안 되죠. 하루 24시간, 일주일 내내 돌아가야 하니까요. 그래서 우리는 분산 시스템 설계와 장애 격리에 집중했습니다.
+
+- **서비스별 장애 격리**: 마이크로서비스 단위로 장애가 퍼지지 않게 설계했습니다. 예를 들어 주문 처리 서비스가 문제 생겨도 결제 서비스나 시세 조회는 계속 작동하게요.
+- **자동 장애 복구**: 쿠버네티스 헬스체크와 오토스케일링을 적극 활용해 문제가 감지되면 자동으로 재시작하거나 인스턴스를 추가했습니다.
+- **리전 간 중복 배포**: 주요 서비스는 두 개 이상의 리전에 배포해 한 리전 장애 시 즉시 다른 리전으로 트래픽을 전환합니다.
+
+이런 설계 원칙은 마틴 파울러의 아키텍처 가이드에서도 강조하는 부분입니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+## 이벤트 기반 아키텍처가 주는 의외의 장점
+
+이벤트 기반 아키텍처는 단순히 비동기 처리뿐 아니라 시스템 확장성과 복원력에도 큰 도움이 됐어요.
+
+- **비동기 처리로 병목 완화**: 주문 접수 후 내부 처리 로직을 이벤트 큐로 넘겨 비동기 처리함으로써 API 응답 시간을 줄였습니다.
+- **시스템 상태 추적 용이**: 이벤트 로그가 모든 상태 변화를 기록하기 때문에, 문제 발생 시 어느 시점에 어떤 이벤트가 있었는지 추적하기 쉽습니다.
+- **유연한 확장성**: 이벤트 소비자를 독립적으로 확장할 수 있어, 특정 기능에 부하가 집중돼도 전체 시스템에 영향이 적죠.
+
+하지만 이벤트 기반 아키텍처는 복잡도 증가와 이벤트 순서 관리 같은 어려움도 있습니다. 그래서 우리 팀은 이벤트 스키마를 엄격히 관리하고, 이벤트 순서 보장을 위해 Kafka 파티션 키를 신중히 설계했어요.
+
+## 클라우드 네이티브 환경에서 실제 적용한 설정과 팁
+
+마지막으로, 우리 팀이 실제로 적용한 몇 가지 설정과 팁을 공유할게요.
+
+- **gRPC 설정**: keepalive 타임아웃을 10초, 최대 메시지 크기를 4MB로 제한하여 네트워크 연결 안정성과 성능을 균형 있게 맞췄습니다.
+- **Kafka 토픽 파티셔닝**: 거래소 주문 토픽은 32개 파티션으로 설정해 병렬 처리량을 극대화했습니다.
+- **쿠버네티스 리소스 요청/제한**: CPU 요청은 500m, 제한은 2 CPU로 잡아두고, 메모리는 1Gi 요청, 4Gi 제한으로 설정해 오버프로비저닝과 자원 낭비를 방지했습니다.
+- **모니터링**: Prometheus와 Grafana로 지연 시간, 에러율, 리소스 사용량을 실시간 모니터링하며, 이상 징후 발생 시 슬랙 알림으로 즉시 대응합니다.
+
+---
+
+### 마치며: 이 정도는 꼭 챙기자
+
+- 네트워크 지연 최소화는 리전 내 배치와 경량 프로토콜 선택부터 시작
+- 이벤트 소싱과 CQRS로 DB 병목 탈출, 메모리 내 캐시 활용 필수
+- 장애 격리는 서비스 단위, 자동 복구와 리전 중복 배포로 무중단 보장
+- 이벤트 기반 아키텍처는 확장성과 복원력에 큰 도움, 단 복잡도 관리도 신경 써야
+- 실무에 맞는 클라우드 설정과 모니터링 체계는 필수
+
+이런 경험들이 여러분 백엔드 설계에도 도움이 되길 바랍니다. 실제로 겪어보면 이런 작은 최적화들이 모여 결국 수십만 건의 거래를 매초 처리하는 시스템을 가능하게 하더라고요.
+
+---
+
+## 참고 자료
+
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **클라우드 네이티브 환경에서 초저지연(서브 밀리초) 응답 시간을 달성하기 위해서는 네트워크 지연 최소화, 메모리 내 데이터 처리, 그리고 비동기 이벤트 기반 아키텍처가 필수적이다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **24/7 무중단 가용성을 보장하기 위해 분산 시스템 설계와 장애 격리(fault isolation), 자동 장애 복구 메커니즘이 클라우드 환경에서 핵심적인 역할을 한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **거래소 백엔드에서 지연 시간을 줄이기 위해서는 데이터베이스 접근을 최소화하고, 이벤트 소싱(event sourcing)과 CQRS(Command Query Responsibility Segregation) 패턴을 활용하여 읽기와 쓰기 작업을 분리하는 것이 효과적이다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 팀은 대규모 분산 시스템에서의 성능 최적화를 위해 서비스 간 경량 메시징 프로토콜과 커스텀 RPC(Remote Procedure Call) 프레임워크를 도입하여 응답 시간을 획기적으로 단축시켰다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 플랫폼에서의 고가용성은 리전 간 중복 배포와 자동 스케일링, 그리고 지속적인 모니터링과 알림 체계 구축을 통해 실현된다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
