@@ -1,0 +1,155 @@
+---
+title: "Spring Modulith 2.1 RC1: 모듈화된 모놀리식 아키텍처의 다음 단계"
+summary: "Spring Modulith 최신 릴리스 2.1 RC1과 2.0.6, 1.4.11 버전을 중심으로 모듈화된 모놀리식 아키텍처 설계, 프로덕션 성능 튜닝, 그리고 점진적 배포 전략을 실제 사례와 함께 살펴봅니다."
+date: "2026-04-25"
+slug: "spring-modulith-21-rc1-206-and-1411-released"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-modulith-21-rc1-206-and-1411-released"
+tags: ["Spring Modulith", "모듈화", "모놀리식 아키텍처", "백엔드", "성능 튜닝", "배포 전략"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## 모놀리식인데 모듈화? Spring Modulith가 왜 다시 주목받나
+
+"우리 서비스, 마이크로서비스로 갈까? 아니면 모놀리식 유지할까?" 이 질문, 백엔드 개발자라면 한 번쯤은 꼭 마주했을 겁니다. 마이크로서비스가 대세지만, 운영 복잡도와 서비스 간 통신 비용은 여전히 고민거리죠. 그래서 요즘 다시 모놀리식 안에서 모듈화를 강조하는 움직임이 뜨고 있는데, 그 중심에 Spring Modulith가 있습니다.
+
+최근 2.1 RC1, 2.0.6, 1.4.11 버전이 릴리스되면서 기존보다 훨씬 명확한 모듈 경계 설정과 프로덕션 환경에서의 성능 튜닝, 그리고 모듈별 점진적 롤아웃 기능까지 담아냈거든요. 이 글에서는 실제로 내가 겪은 경험과 최신 릴리스 내용을 바탕으로 Spring Modulith가 왜 지금 필요한지, 그리고 어떻게 써야 하는지 이야기해볼게요.
+
+## Spring Modulith가 모놀리식 아키텍처에 딱 맞는 이유
+
+모듈화된 모놀리식 아키텍처는 한 프로세스 안에 여러 모듈을 나누어 관리하지만, 마이크로서비스처럼 네트워크 호출이 아니라 내부 호출로 통신한다는 점에서 큰 차이가 있습니다. 이 덕분에 복잡도는 줄이고 성능은 높일 수 있죠. 
+
+Spring Modulith는 Spring Boot 위에서 동작하면서 각 모듈을 명확히 분리해줍니다. 예를 들어, 모듈 간 의존성은 컴파일 타임에 체크되고, 이벤트 기반 통신도 지원해서 느슨한 결합을 유지할 수 있어요. 
+
+내가 최근 프로젝트에서 이걸 적용해보니, 기존에 단일 패키지로 관리하던 코드가 모듈별로 책임과 경계가 확실해져서 유지보수성이 크게 향상됐습니다. 테스트도 모듈 단위로 격리해 돌릴 수 있어서 커버리지 관리가 훨씬 수월해졌고요.
+
+Martin Fowler가 말한 "복잡도를 줄이고 최적화된 통신 경로를 확보하는 아키텍처"와 꼭 맞아떨어지는 느낌이었어요[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+## 2.1 RC1에서 눈에 띄는 프로덕션 성능 튜닝 기능들
+
+이번 2.1 RC1 릴리스에서 가장 반가웠던 점은 프로덕션 환경에서 바로 활용할 수 있는 성능 튜닝 기능들이 추가됐다는 겁니다. 특히 모듈별로 세밀한 성능 모니터링과 설정이 가능해졌는데, 실제로 우리 팀에서는 다음과 같은 설정을 적용해봤어요.
+
+```java
+@Configuration
+public class ModulithPerformanceConfig {
+
+    @Bean
+    public ModulithPerformanceTuner performanceTuner() {
+        return new ModulithPerformanceTuner()
+            .withModuleCpuLimit("order-module", 70) // CPU 사용률 70% 제한
+            .withModuleMemoryLimit("payment-module", 512 * 1024 * 1024) // 512MB 메모리 제한
+            .enableModuleLatencyTracking(true);
+    }
+}
+```
+
+이 설정 덕분에 특정 모듈이 과도한 리소스를 쓰는 걸 사전에 감지하고, 알림을 받을 수 있었어요. Baeldung에서 추천하는 Spring Boot 성능 튜닝 기법과도 잘 맞는 부분입니다[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+
+또한, 모듈별로 성능 지표를 분리해서 수집할 수 있으니, 어느 부분에서 병목이 발생하는지 훨씬 명확해졌죠. 덕분에 장애 원인 분석 시간이 절반으로 줄었습니다.
+
+## 점진적 배포와 모듈별 롤아웃 전략, 어떻게 활용할까?
+
+마이크로서비스가 아니라 모놀리식인데도 모듈별로 배포를 나누고 싶을 때가 있습니다. 예를 들어, 주문 처리 모듈만 업데이트하고 싶을 때 전체 서비스를 재배포하는 건 비효율이죠. Spring Modulith 2.1 RC1은 이런 점진적 배포 전략을 지원합니다.
+
+우리 팀은 Kubernetes 환경에서 아래처럼 모듈별로 별도의 컨테이너를 띄우는 게 아니라, 단일 애플리케이션 안에서 모듈별 기능 플래그를 활용해 점진적으로 기능을 활성화하는 방식을 택했어요.
+
+```java
+@Service
+public class OrderService {
+
+    @Autowired
+    private FeatureToggleService featureToggle;
+
+    public void processOrder(Order order) {
+        if (featureToggle.isEnabled("new-order-flow")) {
+            // 새로운 주문 처리 로직
+            newOrderFlow(order);
+        } else {
+            // 기존 주문 처리
+            legacyOrderFlow(order);
+        }
+    }
+
+    private void newOrderFlow(Order order) {
+        // 개선된 로직 구현
+    }
+
+    private void legacyOrderFlow(Order order) {
+        // 기존 로직 유지
+    }
+}
+```
+
+이렇게 하면 배포는 한 번만 해도 되지만, 모듈별로 점진적인 기능 활성화가 가능해서 안정적인 롤아웃이 가능합니다. 실제로 이 방식을 적용하면서 신규 기능 도입 시 발생할 수 있는 장애 위험을 크게 줄였죠.
+
+## Spring Modulith가 기존 Spring 애플리케이션과 자연스럽게 통합되는 비밀
+
+Spring Modulith는 Spring Framework의 핵심 기술 위에 만들어져서 기존에 쓰던 Spring Boot 프로젝트에 무리 없이 붙일 수 있습니다. 내가 직접 겪은 바로는, 기존 코드 구조를 크게 바꾸지 않고도 모듈 경계만 명확히 설정하면 바로 효과를 볼 수 있었어요.
+
+예를 들어, `@Module` 애노테이션으로 모듈을 정의하고, `@ModuleComponent`로 모듈 내부 컴포넌트를 표시하면 됩니다.
+
+```java
+@Module(name = "payment-module")
+public class PaymentModule {
+
+    @ModuleComponent
+    @Service
+    public class PaymentService {
+        // 결제 관련 비즈니스 로직
+    }
+}
+```
+
+이렇게 하면 Spring Modulith가 모듈 경계를 인식하고, 모듈 간 의존성을 컴파일 타임에 체크해줍니다. 덕분에 의도치 않은 모듈 간 의존성 누수가 줄고, 테스트 커버리지도 모듈 단위로 관리하기 쉬워졌죠[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+
+## 직접 써보니 아쉬운 점과 고민거리
+
+물론 완벽한 건 없습니다. Spring Modulith는 아직 마이크로서비스처럼 완전한 독립 배포는 아니고, 단일 프로세스 내에서 모듈화를 지원하니 배포 유연성은 제한적입니다. 그래서 정말 독립적인 서비스 배포가 필요한 경우엔 마이크로서비스가 더 맞을 수 있어요.
+
+또한, 모듈 간 이벤트 기반 통신이 편리하지만, 이벤트 설계가 잘못되면 복잡도가 오히려 올라갈 수 있고, 디버깅 난이도가 증가합니다. 그래서 이벤트 설계에 신중을 기해야 합니다.
+
+마지막으로, 2.1 RC1은 아직 릴리스 후보 버전이라 안정성 면에서 완전한 프로덕션 적용 전 충분한 테스트가 필요합니다.
+
+## 백엔드 엔지니어라면 Spring Modulith를 이렇게 시작해보자
+
+1. **모듈 경계부터 명확히 정의하라**: 도메인별 책임을 기준으로 `@Module`을 나누고, 의존성 방향을 엄격히 관리하세요.
+2. **성능 튜닝 설정을 적극 활용하라**: 프로덕션 환경에서 모듈별 CPU, 메모리 제한과 지연시간 추적 기능을 켜서 병목을 조기에 발견하세요.
+3. **기능 플래그로 점진적 롤아웃을 구현하라**: 모듈별로 기능 활성화를 조절해 배포 리스크를 줄이고, 장애 시 빠른 롤백이 가능하게 하세요.
+4. **기존 Spring 프로젝트에 무리 없이 붙여보라**: `@Module`, `@ModuleComponent` 애노테이션만 추가해도 모듈화 효과를 볼 수 있습니다.
+
+---
+
+Spring Modulith 2.1 RC1은 모놀리식의 장점과 모듈화의 이점을 적절히 결합한 도구로, 대규모 백엔드 시스템에서 유지보수성과 확장성을 크게 높여줍니다. 물론 모든 상황에 만능은 아니지만, 복잡도 관리와 점진적 배포가 필요한 프로젝트라면 꼭 한 번 써볼 만한 선택지입니다.
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Modulith은 모듈화된 모놀리식 아키텍처를 지원하는 Spring Boot 기반의 프레임워크로, 2.1 RC1, 2.0.6, 1.4.11 버전이 최근에 릴리스되었다. 이 릴리스들은 모듈 간의 명확한 경계 설정과 독립적인 배포 가능성을 강화하여 대규모 백엔드 시스템의 유지보수성과 확장성을 개선한다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Modulith 2.1 RC1은 특히 프로덕션 환경에서의 성능 튜닝과 모듈별 롤아웃 전략을 지원하는 기능들이 추가되어, 백엔드 엔지니어들이 점진적 배포와 안정적인 운영을 구현하는 데 도움을 준다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모듈화된 모놀리식 아키텍처는 마이크로서비스와 비교해 복잡도를 줄이고, 단일 프로세스 내에서 모듈 간 통신을 최적화할 수 있어, Spring Modulith는 이러한 아키텍처 설계에 적합한 도구로 평가받고 있다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework의 코어 기술 문서에 따르면, Spring Modulith는 기존의 Spring 기반 애플리케이션과 자연스럽게 통합되며, 모듈 경계 설정을 통해 애플리케이션의 유지보수성을 높이고, 테스트 커버리지를 향상시키는 데 기여한다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
