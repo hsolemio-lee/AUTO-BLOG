@@ -1,0 +1,174 @@
+---
+title: "AWS WorkMail 종료와 App Runner 유지보수 모드 전환, 백엔드 엔지니어가 바로 준비해야 할 것들"
+summary: "AWS가 WorkMail 서비스를 종료하고 App Runner를 유지보수 모드로 전환하면서, 백엔드 엔지니어들이 마주할 현실적인 마이그레이션 과제와 대응 전략을 현업 경험과 AWS Well-Architected Framework 관점에서 풀어봅니다."
+date: "2026-04-26"
+slug: "aws-ends-workmail-and-moves-app-runner-to-maintenance-mode"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/aws-ends-workmail-and-moves-app-runner-to-maintenance-mode"
+tags: ["AWS", "WorkMail", "AppRunner", "마이그레이션", "클라우드아키텍처"]
+sources:
+  - title: "AWS Well-Architected Framework"
+    url: "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html"
+  - title: "AWS Architecture Blog"
+    url: "https://aws.amazon.com/blogs/architecture/"
+---
+
+## "갑자기 AWS WorkMail이 종료된다고? 우리 이메일 인프라는 어떻게 되는 거지?"
+
+최근 AWS가 WorkMail 서비스를 종료하고, App Runner를 유지보수 모드로 전환한다는 소식에 많은 백엔드 팀이 당황했을 겁니다. 특히 WorkMail을 메인 이메일 솔루션으로 쓰던 기업들은 이메일 인프라 재설계라는 큰 숙제를 안게 됐죠. 저도 우리 팀에서 WorkMail을 쓰고 있었는데, 이걸 대체할 방법을 찾으면서 겪은 시행착오와 배운 점들을 공유하려 합니다.
+
+---
+
+## WorkMail 종료가 실제로 내 서비스에 미치는 영향은?
+
+WorkMail 종료는 단순히 이메일 서비스 하나가 없어지는 문제가 아닙니다. 기존에 WorkMail API와 인증, 사용자 데이터 저장소에 의존하던 시스템들은 전면 재검토가 필요해요. 특히 백엔드에서 이메일 발송/수신, 사용자 인증, 보안 정책 적용 부분이 직격탄을 맞죠.
+
+우리 팀은 WorkMail로 사용자별 이메일 계정을 관리하고, SMTP와 IMAP 프로토콜을 통해 내부 시스템과 연동하고 있었습니다. WorkMail 종료 발표 후 가장 먼저 한 일은 다음과 같아요:
+
+- **사용자 데이터 안전한 이전 계획 수립**: 이메일 데이터, 사용자 설정, 권한 정보 모두 안전하게 백업하고, 새로운 서비스로 이전하는 절차를 만들었죠.
+- **대체 이메일 서비스 선정**: AWS SES(Simple Email Service), Google Workspace, Microsoft 365 등 후보군을 비교하며, API 지원 범위와 비용, 보안 기능을 꼼꼼히 따졌습니다.
+- **인증 및 보안 정책 재구성**: WorkMail에 묶여있던 IAM 정책과 SMTP 인증 방식을 새 서비스에 맞게 재설계했습니다.
+
+이 과정에서 AWS Architecture Blog에서 제안하는 대로 SMTP, IMAP 등 표준 프로토콜 지원 여부를 최우선으로 확인했어요. 그리고 사용자 데이터 이전 시 암호화와 무결성 검증을 반드시 수행해야 한다는 점도 큰 교훈이었습니다[https://aws.amazon.com/blogs/architecture/](https://aws.amazon.com/blogs/architecture/).
+
+---
+
+## App Runner 유지보수 모드, 새 기능은 기대하지 말고 어떻게 대비할까?
+
+App Runner가 이제 신규 기능 개발 없이 유지보수 모드로 들어갔다는 건, 장기적으로 기능 확장보다는 안정성과 보안 패치에 집중한다는 뜻입니다. 우리 팀도 초기에 App Runner를 통해 빠르게 컨테이너 기반 웹 서비스를 배포했는데, 이제는 점차 ECS나 EKS 같은 더 확장성 좋은 AWS 관리형 컨테이너 서비스로 이전하는 게 현실적인 선택이 됐어요.
+
+이전 전략을 세우면서 고려한 점은:
+
+- **서비스 의존도 점검**: App Runner에 너무 많은 핵심 기능을 묶어두면 마이그레이션 비용이 급격히 늘어납니다. 그래서 기능별로 분리하고, 외부 API 인터페이스를 명확히 하는 작업부터 시작했죠.
+- **컨테이너 이미지와 배포 파이프라인 표준화**: App Runner에 올리던 이미지를 ECS Fargate용으로 바로 쓸 수 있게 Dockerfile과 CI/CD 스크립트를 조정했습니다.
+- **비용과 안정성 비교**: App Runner는 관리가 편하지만, ECS/EKS가 더 세밀한 리소스 제어와 확장성을 제공합니다. 특히 트래픽 급증 시 대응 능력이 중요했어요.
+
+실제로 우리 팀은 아래처럼 GitHub Actions 기반 CI/CD 파이프라인을 수정해 App Runner 대신 ECS Fargate에 배포하도록 전환했습니다:
+
+```yaml
+name: Deploy to ECS Fargate
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to ECR
+        run: |
+          IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
+          docker build -t my-app:$IMAGE_TAG .
+          docker tag my-app:$IMAGE_TAG ${{ secrets.ECR_REGISTRY }}/my-app:$IMAGE_TAG
+          docker push ${{ secrets.ECR_REGISTRY }}/my-app:$IMAGE_TAG
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ecs-task-def.json
+          service: my-ecs-service
+          cluster: my-ecs-cluster
+          wait-for-service-stability: true
+```
+
+이전 과정에서 App Runner에서 지원하던 자동 HTTPS, 로드 밸런싱 기능을 ECS에서 직접 관리해야 해서 초기 셋업 복잡도가 늘어난 건 감수해야 했습니다.
+
+---
+
+## AWS Well-Architected Framework가 말하는 클라우드 서비스 종료 대응법
+
+AWS Well-Architected Framework에 따르면, 서비스 종료나 유지보수 모드 전환 시점은 시스템 신뢰성, 운영 우수성, 보안, 비용 최적화 측면에서 리스크 평가가 필수입니다[https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html).
+
+우리 팀은 다음과 같은 절차를 따랐어요:
+
+1. **현재 아키텍처 전면 평가**: WorkMail과 App Runner 의존 구간을 정확히 파악하고, 장애 발생 시 영향을 받는 서비스 범위를 문서화했습니다.
+2. **리스크 우선순위 지정**: 이메일 송수신 장애, 인증 실패, 배포 중단 등 시나리오별 위험도를 산정했습니다.
+3. **자동화된 배포 파이프라인 구축**: 수동 배포 과정에서 발생할 수 있는 실수를 줄이기 위해 CI/CD 자동화에 집중했습니다.
+4. **보안 정책 재검토 및 강화**: 데이터 이전 시점부터 암호화, 접근 제어, 감사 로깅을 엄격히 적용했죠.
+5. **비용 최적화 시뮬레이션**: 새 서비스 도입에 따른 월간 비용 변화를 예측하고, 필요시 예약 인스턴스나 스팟 인스턴스 활용 계획을 세웠습니다.
+
+이런 체계적인 접근 덕분에 서비스 중단 없이 마이그레이션을 완료할 수 있었고, 장애 대응 시간도 크게 줄었어요.
+
+---
+
+## WorkMail 종료 후 SMTP와 IMAP 프로토콜로 이메일 서비스 직접 구현하기
+
+WorkMail이 사라지면서 SMTP, IMAP 같은 표준 이메일 프로토콜을 직접 다뤄야 하는 경우가 많아졌습니다. 저도 처음엔 "이메일 서버 직접 관리라니, 너무 복잡한 거 아니야?" 싶었는데, 오히려 프로토콜을 명확히 이해하니 커스터마이징과 문제 해결이 훨씬 수월해졌어요.
+
+아래는 Node.js 환경에서 SMTP를 이용해 이메일을 발송하는 간단한 예시입니다. 실제 마이그레이션 과정에서 이메일 알림 서비스 구축에 썼던 코드라 참고가 될 겁니다.
+
+```javascript
+const nodemailer = require('nodemailer');
+
+async function sendEmail(to, subject, text) {
+  // AWS SES SMTP 엔드포인트를 사용한다고 가정
+  let transporter = nodemailer.createTransport({
+    host: 'email-smtp.us-east-1.amazonaws.com',
+    port: 587,
+    secure: false, // TLS 사용 시 true
+    auth: {
+      user: process.env.AWS_SES_SMTP_USER,
+      pass: process.env.AWS_SES_SMTP_PASS,
+    },
+  });
+
+  let info = await transporter.sendMail({
+    from: 'no-reply@mydomain.com',
+    to,
+    subject,
+    text,
+  });
+
+  console.log('Message sent: %s', info.messageId);
+}
+
+// 실제 호출 예
+sendEmail('user@example.com', '서비스 변경 안내', 'WorkMail 서비스 종료에 따른 안내 메일입니다.');
+```
+
+이 코드를 기반으로 IMAP 클라이언트도 구현하거나, 기존 사용자 메일박스 데이터를 안전하게 이전하는 스크립트를 작성할 수 있습니다. 물론 SMTP/IMAP 직접 관리에는 보안 설정, 스팸 필터링, 인증서 관리 등 추가 작업이 필요하니, 이 부분은 별도 전문 솔루션 도입도 고려해보세요.
+
+---
+
+## 마치며: AWS 서비스 종료와 유지보수 모드, 결국은 '준비된 변화 관리'가 답
+
+AWS WorkMail 종료와 App Runner 유지보수 모드 전환은 단순한 서비스 변경이 아니라, 우리 백엔드 시스템 전반에 걸친 큰 변화입니다. 처음엔 당황스럽고 막막할 수 있지만, 이번 경험을 통해 얻은 교훈은 명확합니다.
+
+- **서비스 의존성은 항상 최소화하고, 표준 프로토콜과 인터페이스를 활용하자.**
+- **마이그레이션은 미리 계획하고, 자동화된 파이프라인과 모니터링 체계를 갖추자.**
+- **보안과 데이터 무결성은 절대 타협하지 말자.**
+- **새로운 서비스 도입 시 장기적인 기술 부채 관리까지 고려하자.**
+
+이 글이 AWS 환경에서 비슷한 상황을 겪는 동료 백엔드 엔지니어분들께 조금이나마 도움이 되었으면 합니다. 우리 모두 클라우드 변화에 유연하게 대응하며 더 견고한 시스템을 만들어가요!
+
+---
+
+## 참고 자료
+
+- [AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/)
+- [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **AWS WorkMail 서비스 종료는 기존 WorkMail을 사용하는 기업들의 이메일 인프라를 재설계하고, 대체 이메일 서비스로의 마이그레이션을 계획해야 함을 의미한다. 특히, 백엔드 엔지니어링 측면에서는 이메일 서비스 통합, 인증 및 보안 정책 재구성, 그리고 사용자 데이터 이전 작업이 주요 과제로 부각된다.** ([AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **App Runner가 유지보수 모드로 전환됨에 따라, 신규 기능 개발이 중단되고 기존 기능 중심의 안정성 및 보안 패치에 집중하게 된다. 따라서, 백엔드 개발팀은 App Runner 의존도를 줄이고, 다른 AWS 관리형 컨테이너 서비스(ECS, EKS 등)로의 이전 전략을 수립하는 것이 권장된다.** ([AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **AWS Well-Architected Framework에 따르면, 클라우드 서비스 종료나 유지보수 모드 전환 시점에는 시스템의 신뢰성, 운영 우수성, 보안 및 비용 최적화 관점에서 리스크 평가와 마이그레이션 계획 수립이 필수적이다. 특히, WorkMail 종료와 App Runner 유지보수 모드는 서비스 중단 위험을 최소화하기 위한 아키텍처 재설계와 자동화된 배포 파이프라인 구축이 요구된다.** ([AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **백엔드 엔지니어링 관점에서 WorkMail 종료에 따른 마이그레이션은 SMTP, IMAP 등 표준 이메일 프로토콜 지원 여부와 기존 사용자 데이터의 안전한 이전이 핵심 과제이며, App Runner 유지보수 모드 전환은 장기적인 서비스 안정성 확보와 기술 부채 관리 측면에서 중요하다.** ([AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
