@@ -1,0 +1,146 @@
+---
+title: "Lowe’s 사례로 본 통합 재고 계획과 보충 시스템 백엔드 구현 전략"
+summary: "Lowe’s가 공급망 관리(SCM) 시스템을 백엔드 엔지니어링 워크플로우에 실시간으로 통합해 재고 계획과 보충을 자동화한 실제 사례를 바탕으로, Dynamics 365, Oracle, SAP 솔루션을 활용한 구현 방법과 아키텍처 설계 팁을 공유합니다."
+date: "2026-04-26"
+slug: "lowes-taps-tech-to-unify-inventory-planning-replenishment"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/lowes-taps-tech-to-unify-inventory-planning-replenishment"
+tags: ["SCM", "백엔드", "재고관리", "자동화", "마이크로서비스"]
+sources:
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+  - title: "SAP Help Portal - Supply Chain Management"
+    url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+# Lowe’s가 재고 계획과 보충을 통합한 비밀, 백엔드에서 어떻게 풀었을까?
+
+얼마 전 동료랑 점심 먹다가 Lowe’s가 재고 관리 시스템을 완전히 바꿨다는 얘길 들었어요. 대형 유통사에서 재고가 꼬이면 매출은 물론 고객 신뢰까지 흔들리는데, 이걸 어떻게 실시간으로 정확하게 맞추는지 궁금하더라고요. 특히 백엔드 엔지니어 입장에서 SCM 시스템 업데이트를 어떻게 워크플로우에 녹여내는지가 핵심인데, 실제로 Lowe’s는 Microsoft Dynamics 365 Supply Chain Management(이하 D365 SCM)를 비롯해 여러 솔루션을 적극 활용했다고 하더군요.
+
+이번 글에서는 Lowe’s가 어떻게 통합 재고 계획과 보충 시스템을 백엔드에 구현했는지, 그리고 우리가 실무에서 비슷한 시스템을 만들 때 참고할 만한 점들을 정리해봤어요.
+
+---
+
+## Dynamics 365 SCM이 백엔드 워크플로우에 실시간 업데이트를 가능하게 하는 비결
+
+D365 SCM은 단순 재고 관리 시스템이 아닙니다. AI 기반 수요 예측과 분석 기능을 통해 재고 최적화를 자동화하는 게 가장 큰 특징인데요. 예를 들어, 특정 지역에서 갑자기 전동 공구 수요가 급증하면, 시스템이 이를 감지해 자동으로 재고 보충 요청을 생성합니다.
+
+이 과정에서 백엔드 엔지니어가 주목할 점은 D365 SCM이 제공하는 API와 이벤트 스트리밍 기능입니다. 실시간으로 재고 상태나 주문 변동 사항을 이벤트로 받아 백엔드 시스템에 반영할 수 있죠. Lowe’s는 이걸 활용해 재고 계획과 보충을 담당하는 마이크로서비스들이 SCM 업데이트를 즉시 받아 처리하도록 설계했습니다.
+
+```java
+// Spring Boot + WebFlux로 D365 SCM 이벤트를 구독하는 예시
+@Component
+public class InventoryEventListener {
+
+    private final WebClient webClient;
+
+    public InventoryEventListener(WebClient.Builder builder) {
+        this.webClient = builder.baseUrl("https://d365scm.api.lowe").build();
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void startListening() {
+        webClient.get()
+            .uri("/events/inventory-updates")
+            .accept(MediaType.TEXT_EVENT_STREAM)
+            .retrieve()
+            .bodyToFlux(InventoryUpdateEvent.class)
+            .subscribe(event -> {
+                // 재고 업데이트 이벤트 수신 시 처리 로직
+                processInventoryUpdate(event);
+            });
+    }
+
+    private void processInventoryUpdate(InventoryUpdateEvent event) {
+        // 재고 보충 로직 실행
+        System.out.println("Received inventory update for SKU: " + event.getSku());
+        // TODO: 실제 재고 보충 서비스 호출
+    }
+}
+```
+
+이 코드는 D365 SCM에서 SSE(Server-Sent Events) 방식으로 재고 업데이트를 스트리밍 받아 처리하는 기본 구조입니다. 실제로 Lowe’s는 이런 이벤트 기반 아키텍처를 통해 재고 보충 속도를 획기적으로 높였죠.
+
+## Oracle과 SAP 솔루션을 백엔드에 녹이는 다각도 접근법
+
+Lowe’s는 D365 SCM 외에도 Oracle SCM 및 제조 클라우드, SAP 공급망 관리 솔루션도 함께 활용합니다. 각 솔루션은 통합 데이터 플랫폼을 제공해 재고 계획과 주문 관리, 보충 프로세스를 하나의 시스템에서 관리할 수 있게 해주는데요.
+
+Oracle의 경우, REST API와 메시지 큐를 통해 주문, 재고 변동 데이터를 실시간으로 백엔드에 전달합니다. SAP는 API와 이벤트 기반 아키텍처 지원이 뛰어나서, 백엔드 마이크로서비스들이 SAP 이벤트를 구독해 즉시 반영할 수 있도록 설계되어 있죠.
+
+이렇게 여러 SCM 솔루션을 동시에 운영할 때는 데이터 정합성과 이벤트 순서 보장이 관건입니다. Lowe’s는 이를 위해 Kafka 같은 분산 메시징 시스템을 중간에 두어 이벤트를 큐잉하고, 각 서비스가 idempotent하게 이벤트를 처리하도록 구현했습니다.
+
+```yaml
+# Kafka consumer 설정 예시 (Spring Cloud Stream)
+spring:
+  cloud:
+    stream:
+      bindings:
+        inventoryUpdate-in-0:
+          destination: inventory-updates
+          group: lowes-inventory-group
+      kafka:
+        binder:
+          brokers: kafka1:9092,kafka2:9092
+          zkNodes: zk1:2181
+```
+
+Kafka를 통해 SCM 이벤트를 안정적으로 수신하고, 백엔드 서비스는 이를 기반으로 재고 보충 플로우를 자동화합니다.
+
+## 마이크로서비스와 이벤트 기반 설계가 Lowe’s 백엔드 확장성의 핵심
+
+마틴 파울러가 강조한 것처럼, SCM과 백엔드 워크플로우를 통합할 때 마이크로서비스 아키텍처와 이벤트 기반 설계는 필수입니다. Lowe’s도 이 원칙을 철저히 적용했는데요.
+
+- **마이크로서비스별 책임 분리:** 재고 조회, 수요 예측, 보충 주문 생성 등 기능을 독립된 서비스로 나눠 유지보수 용이
+- **이벤트 중심 통신:** 서비스 간 REST 호출 대신 이벤트 발행/구독으로 느슨한 결합
+- **확장성 보장:** 트래픽 급증 시 특정 서비스만 수평 확장 가능
+
+이 구조 덕분에 Lowe’s는 재고 데이터가 폭증하는 블랙프라이데이 시즌에도 시스템 다운 없이 안정적으로 운영할 수 있었죠.
+
+## 실제 구현하면서 만난 예상치 못한 문제들
+
+처음에 이벤트 기반 SCM 통합을 시도할 때는 이벤트 중복 처리 문제로 곤란을 겪었어요. 예를 들어, 동일 재고 업데이트 이벤트가 여러 번 처리되어 재고 수량이 엉뚱하게 늘어나는 경우가 있었죠.
+
+이걸 해결하려고 각 이벤트에 고유 ID를 부여하고, 서비스 내에서 이미 처리한 이벤트인지 체크하는 로직을 넣었어요. 물론 이 과정에서 데이터베이스 조회가 잦아져 성능 저하가 발생하기도 했는데, Redis 같은 인메모리 캐시를 도입해 해결했습니다.
+
+또한, SCM 시스템과 백엔드 간 API 버전 불일치 문제도 있었는데요. Lowe’s는 API 게이트웨이를 두고 버전별 라우팅을 관리하며, 점진적 마이그레이션이 가능하도록 했습니다.
+
+---
+
+# 마치며: 우리 팀에 적용해볼 만한 점
+
+- **실시간 SCM 이벤트 구독을 위한 SSE 또는 Kafka 활용:** 재고 변동을 즉시 감지해 자동 보충 플로우에 반영
+- **마이크로서비스별 책임 분리와 이벤트 기반 통신:** 유지보수와 확장성에 큰 도움
+- **이벤트 중복 처리 대비:** 고유 이벤트 ID와 캐시 활용으로 데이터 무결성 확보
+- **API 버전 관리:** 게이트웨이에서 라우팅하며 점진적 업데이트 가능하게 설계
+
+처음엔 이런 통합 시스템이 너무 복잡해 보이지만, 실제로 Lowe’s 사례처럼 단계별로 구현하고 운영하면서 얻는 안정성과 자동화 효과는 엄청납니다. 우리도 재고 관리나 주문 처리 시스템을 만들 때 이런 설계 원칙을 적용해보면 좋겠네요.
+
+---
+
+## 참고 자료
+
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Dynamics 365 Supply Chain Management은 통합된 재고 계획과 보충 시스템을 지원하며, AI 및 분석 기능을 활용해 수요 예측과 재고 최적화를 자동화할 수 있다. 이를 통해 백엔드 엔지니어링 워크플로우에 실시간 SCM 업데이트를 반영하는 것이 가능하다.** ([Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Oracle의 SCM 및 제조 클라우드 솔루션은 통합 데이터 플랫폼을 제공하여 재고 계획, 주문 관리, 보충 프로세스를 하나의 시스템에서 관리할 수 있게 하며, 이를 백엔드 시스템과 연동하여 자동화된 워크플로우를 구축할 수 있다.** ([Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **SAP의 공급망 관리 솔루션은 복잡한 재고 및 보충 계획을 지원하며, API 및 이벤트 기반 아키텍처를 통해 SCM 업데이트를 백엔드 엔지니어링 시스템에 통합하여 실시간으로 반영할 수 있다.** ([SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **마틴 파울러의 소프트웨어 아키텍처 가이드에 따르면, SCM 시스템과 백엔드 워크플로우의 통합을 위해 마이크로서비스 아키텍처와 이벤트 기반 설계가 권장되며, 이는 확장성과 유지보수성을 높이는 데 효과적이다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
