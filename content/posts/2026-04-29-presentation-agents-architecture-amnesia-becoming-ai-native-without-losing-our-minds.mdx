@@ -1,0 +1,202 @@
+---
+title: "AI-네이티브 에이전트를 백엔드에 안전하게 통합하는 마이크로서비스와 회로 차단기 패턴 이야기"
+summary: "AI-네이티브 에이전트를 기존 백엔드 시스템에 통합할 때 마이크로서비스 아키텍처와 클라우드 디자인 패턴, 특히 회로 차단기 패턴을 활용해 시스템 안정성과 확장성을 유지하는 실제 경험과 팁을 공유합니다."
+date: "2026-04-29"
+slug: "presentation-agents-architecture-amnesia-becoming-ai-native-without-losing-our-minds"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/presentation-agents-architecture-amnesia-becoming-ai-native-without-losing-our-minds"
+tags: ["AI-native", "마이크로서비스", "회로차단기", "OpenAI", "TypeScript", "프롬프트엔지니어링"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+---
+
+## AI 에이전트를 백엔드에 붙일 때 왜 갑자기 마음이 복잡해질까?
+
+최근에 우리 팀에서 AI-네이티브 에이전트를 기존 백엔드 시스템에 붙이는 작업을 했는데, 처음엔 ‘그냥 API 호출만 하면 되지’ 싶었어요. 그런데 실제로 해보니 AI 호출 지연, 장애 발생, 예측 불가능한 응답 때문에 전체 서비스가 휘청거리는 상황이 벌어지더라고요. 이걸 겪고 나서야 ‘아, AI 통합은 그냥 API 붙이는 것 이상의 고민이 필요하구나’ 하는 걸 뼈저리게 느꼈습니다.
+
+그래서 이번 글에서는 AI-네이티브 에이전트를 안정적으로 백엔드에 통합하기 위해 우리가 선택한 아키텍처 패턴과 운영 전략, 그리고 실제 코드 예시까지 공유하려고 해요. 특히 마이크로서비스로 분리하는 방법과 장애를 빠르게 감지하는 회로 차단기(Circuit Breaker) 패턴에 집중합니다.
+
+---
+
+## AI 기능을 마이크로서비스로 분리했더니 생긴 변화
+
+AI 에이전트를 기존 모놀리식 서비스에 직접 붙이면, AI API 호출이 느려지거나 실패할 때 전체 서비스가 영향을 받기 쉽습니다. 그래서 우리 팀은 AI 관련 기능을 별도의 마이크로서비스로 분리했어요. 이러면 AI 호출 문제로 인한 전체 시스템 장애 위험을 크게 줄일 수 있습니다.
+
+Martin Fowler가 말한 마이크로서비스의 핵심은 ‘독립적 배포와 확장’인데, AI 기능처럼 외부 API 호출에 의존하는 부분을 분리하면 확장성도 좋아지고 장애 격리도 쉬워집니다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+우리 구조는 다음과 같아요:
+
+- 메인 서비스: 사용자 인증, 데이터 관리 등 핵심 비즈니스 로직 처리
+- AI 에이전트 서비스: OpenAI API 호출, 프롬프트 관리, 응답 후처리 담당
+
+이렇게 분리하니 AI 호출이 지연되거나 실패해도 메인 서비스는 정상 동작하고, AI 서비스만 독립적으로 재시도하거나 장애 대응을 할 수 있었습니다.
+
+---
+
+## AI API 호출에 회로 차단기 패턴을 꼭 적용해야 하는 이유
+
+AI API 호출은 네트워크 지연, API 제한, 서비스 장애 등 다양한 실패 가능성이 있습니다. 이런 실패가 연쇄적으로 퍼지면 전체 시스템이 다운될 수 있죠. 그래서 Microsoft의 클라우드 디자인 패턴 중 ‘Circuit Breaker’ 패턴을 도입했습니다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+회로 차단기는 말 그대로 전기 회로 차단기처럼, 실패가 일정 횟수 이상 발생하면 더 이상 호출을 하지 않고 즉시 실패를 반환합니다. 이후 일정 시간 후에 다시 시도해서 복구 여부를 판단하죠.
+
+우리 팀은 AI 에이전트 서비스 내부에 다음과 같은 회로 차단기 로직을 넣었어요:
+
+```typescript
+import CircuitBreaker from 'opossum'; // Node.js용 회로 차단기 라이브러리
+
+// OpenAI API 호출 함수
+async function callOpenAI(prompt: string): Promise<string> {
+  // 실제 API 호출 코드
+  // ...
+  return 'AI 응답';
+}
+
+// 회로 차단기 옵션 설정
+const options = {
+  timeout: 5000, // 5초 안에 응답 없으면 실패 처리
+  errorThresholdPercentage: 50, // 50% 실패 시 회로 차단
+  resetTimeout: 30000, // 30초 후 회로 복구 시도
+};
+
+const breaker = new CircuitBreaker(callOpenAI, options);
+
+breaker.fallback(() => 'AI 서비스 일시 중단 상태입니다. 잠시 후 다시 시도해주세요.');
+
+// 사용 예시
+async function getAIResponse(prompt: string) {
+  try {
+    const response = await breaker.fire(prompt);
+    return response;
+  } catch (error) {
+    console.error('AI 호출 실패:', error);
+    return 'AI 호출 중 오류가 발생했습니다.';
+  }
+}
+```
+
+이 코드를 적용하고 나서, AI API가 느려지거나 장애가 발생해도 사용자에게 즉각 피드백을 줄 수 있었고, 전체 시스템 다운타임도 크게 줄었어요. 처음엔 이게 별거 아닌 것 같지만, 실제로 겪어보면 안정성 차이가 엄청납니다.
+
+---
+
+## OpenAI API 비동기 호출과 재시도 전략은 이렇게
+
+OpenAI API 문서에서는 요청 제한(rate limit)과 응답 지연(latency)을 고려해 비동기 호출과 재시도 로직을 권장합니다[OpenAI API Documentation](https://platform.openai.com/docs/overview). 우리도 다음과 같은 방식을 사용했어요:
+
+- 비동기 함수로 API 호출
+- 실패 시 지수 백오프(exponential backoff) 방식으로 최대 3회 재시도
+- 재시도 중에도 회로 차단기 상태를 확인해 무한 재시도 방지
+
+아래는 재시도 로직을 포함한 간단한 예시입니다:
+
+```typescript
+async function callOpenAIWithRetry(prompt: string, retries = 3, delay = 500): Promise<string> {
+  try {
+    // 실제 OpenAI API 호출
+    const response = await callOpenAI(prompt);
+    return response;
+  } catch (error) {
+    if (retries > 0) {
+      await new Promise(res => setTimeout(res, delay));
+      return callOpenAIWithRetry(prompt, retries - 1, delay * 2); // 지수 백오프
+    } else {
+      throw error; // 재시도 모두 실패 시 예외 던짐
+    }
+  }
+}
+```
+
+이렇게 하니 갑작스러운 네트워크 문제나 API 제한 초과 상황에서도 자동으로 복구가 가능해져서 운영 부담이 줄었어요.
+
+---
+
+## AI 에이전트 행동 제어를 위한 프롬프트 설계, 왜 이렇게 중요할까?
+
+AI 에이전트가 예측 불가능한 답변을 내놓으면 시스템 신뢰도가 떨어지고, 사용자 경험도 나빠집니다. Anthropic의 프롬프트 엔지니어링 가이드에서는 명확하고 구조화된 프롬프트 설계가 AI 행동 제어와 시스템 안정성 확보에 필수라고 강조해요[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+우리 팀도 프롬프트를 단순한 질문 형태가 아니라, 역할과 규칙을 명확히 담은 템플릿으로 만들었어요. 예를 들어:
+
+```plaintext
+당신은 친절한 고객 지원 AI입니다. 다음 질문에 대해 간결하고 정확하게 답변하세요.
+질문: {사용자 질문}
+답변:
+```
+
+이런 구조화된 프롬프트 덕분에 AI가 엉뚱한 답변을 줄일 수 있었고, 예외 상황에 대한 대비도 쉬워졌습니다.
+
+---
+
+## TypeScript 5.x로 AI-네이티브 서비스 코드를 더 안전하게
+
+AI 에이전트 통합 코드는 비동기 호출, 복잡한 데이터 타입, 외부 API 스키마 변화 등으로 오류가 발생하기 쉽습니다. TypeScript 5.x의 최신 기능들은 타입 안정성과 코드 가독성을 높여 이런 문제를 줄이는 데 도움을 줍니다[TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/).
+
+예를 들어, `satisfies` 연산자를 이용해 API 응답 타입을 엄격하게 검증할 수 있고, `const` 타입 추론 개선으로 상수값 관리가 편해졌어요.
+
+```typescript
+interface OpenAIResponse {
+  text: string;
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
+const exampleResponse = {
+  text: 'Hello, world!',
+  usage: {
+    prompt_tokens: 5,
+    completion_tokens: 3,
+    total_tokens: 8,
+  },
+} satisfies OpenAIResponse;
+```
+
+이런 타입 체크 덕분에 API 스키마 변경 시점에 바로 오류를 잡아낼 수 있어, 운영 중단 위험이 줄어들었습니다.
+
+---
+
+## 마치며: AI-네이티브 백엔드, 마음 놓고 도전하려면
+
+AI 에이전트를 백엔드에 통합할 때 가장 큰 적은 ‘불확실성’입니다. 하지만 마이크로서비스로 기능을 분리하고, 회로 차단기 같은 안정성 패턴을 적용하며, 프롬프트를 명확히 설계하고, 최신 타입스크립트 기능을 활용하면 그 불확실성을 많이 줄일 수 있어요.
+
+우리 팀 경험상, 이런 조합을 통해 AI 기능을 안정적으로 운영하면서도 빠르게 개선할 수 있었습니다. 물론 회로 차단기 설정값이나 재시도 정책은 서비스 특성에 맞게 조정해야 하고, 프롬프트도 계속 다듬어야 하죠.
+
+이 글이 AI-네이티브 백엔드 통합에 고민하는 동료들에게 작은 길잡이가 되길 바랍니다. 궁금한 점이나 경험 공유는 언제든 환영입니다!
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **AI-네이티브 에이전트를 백엔드 시스템에 통합할 때, 마이크로서비스 아키텍처를 활용하면 독립적인 서비스 단위로 AI 기능을 분리하여 시스템의 안정성과 확장성을 유지할 수 있다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 디자인 패턴 중 'Circuit Breaker' 패턴은 AI 에이전트 호출 시 장애 발생을 빠르게 감지하고 격리하여 전체 시스템 장애를 방지하는 데 효과적이다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **OpenAI API는 에이전트와의 상호작용에서 요청 제한과 응답 지연을 고려한 비동기 처리 및 재시도 로직 구현을 권장하여 안정적인 운영을 지원한다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Anthropic의 프롬프트 엔지니어링 가이드는 AI 에이전트의 행동을 제어하는 데 있어 명확하고 구조화된 프롬프트 설계가 시스템 예측 가능성과 안정성 확보에 필수적임을 강조한다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **TypeScript 5.x의 최신 기능들은 AI-네이티브 시스템 개발 시 타입 안정성과 코드 가독성을 높여 복잡한 AI 에이전트 통합 시 발생할 수 있는 오류를 줄이는 데 기여한다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
