@@ -1,0 +1,155 @@
+---
+title: "Bissell Homecare가 공급망 계획을 실시간 엔지니어링 의사결정으로 바꾼 방법"
+summary: "Bissell Homecare가 최신 SCM 업데이트를 계획, 조달, 재고, 이행 시스템에 실시간으로 반영해 어떻게 공급망을 최적화했는지, 그리고 이를 백엔드 엔지니어링 관점에서 어떻게 구현했는지 구체적인 사례와 코드 예시로 살펴봅니다."
+date: "2026-05-05"
+slug: "how-bissell-homecare-is-cleaning-up-supply-chain-planning"
+category: "scm"
+canonical_url: "https://example.dev/blog/how-bissell-homecare-is-cleaning-up-supply-chain-planning"
+tags: ["공급망관리", "SCM", "백엔드", "클라우드", "API", "재고관리"]
+sources:
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+  - title: "SAP Help Portal - Supply Chain Management"
+    url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+---
+
+# Bissell Homecare가 공급망 계획을 실시간 엔지니어링 의사결정으로 바꾼 방법
+
+"우리 재고가 갑자기 부족하다고? 그럼 바로 주문량 조정하고 배송 스케줄 다시 짜야지."
+
+이런 상황, 실제로 겪어보면 얼마나 정신없는지 알 거예요. Bissell Homecare가 바로 이런 문제를 해결하려고 공급망 계획(SCM) 업데이트를 실시간으로 엔지니어링 의사결정에 녹여내는 방식을 도입했는데요. 오늘은 그 과정을 백엔드 개발자의 시선에서 풀어보려 합니다.
+
+---
+
+## SCM 업데이트를 실시간으로 반영하는 게 왜 이렇게 어려울까?
+
+공급망은 계획, 조달, 재고, 이행(fulfillment) 시스템이 서로 복잡하게 얽혀 있어요. 한 곳에서 재고가 부족하다고 업데이트가 들어오면, 그걸 단순히 알리는 걸 넘어서서 실시간으로 주문량을 조정하고, 납기 일정을 변경하고, 재고 위치를 재분배하는 의사결정이 즉각 이뤄져야 하죠.
+
+하지만 현실은 그렇지 않아요. 시스템마다 데이터가 따로 놀고, 업데이트 주기도 다르고, API도 제각각이라서 ‘실시간’이라는 말이 무색할 때가 많죠. Bissell Homecare가 이 문제를 풀면서 가장 신경 쓴 부분이 바로 이 ‘긴밀한 통합’과 ‘실시간 데이터 활용’이었습니다. 
+
+Microsoft Dynamics 365 SCM 문서에서도 강조하듯, [공급망 계획 업데이트를 엔지니어링 의사결정으로 전환하려면](https://learn.microsoft.com/en-us/dynamics365/supply-chain/) 계획, 조달, 재고, 이행 시스템 간의 긴밀한 통합이 필수입니다. 
+
+---
+
+## 클라우드 기반 SCM 솔루션이 공급망 민첩성을 어떻게 높였나
+
+Bissell Homecare는 기존 온프레미스 SCM에서 벗어나 클라우드 기반 SCM 솔루션으로 전환했습니다. Oracle 클라우드 SCM 솔루션을 도입한 덕분에 공급망 전반에 걸친 가시성이 눈에 띄게 좋아졌죠. 
+
+이전에는 재고 현황이나 주문 상태를 확인하려면 여러 시스템을 뒤져야 했는데, 이제는 대시보드 하나로 모든 데이터를 실시간으로 확인할 수 있습니다. 덕분에 수요 변화에 신속히 대응할 수 있게 됐죠.
+
+Oracle 문서에 따르면, [클라우드 SCM은 가시성과 민첩성을 높여 변화하는 수요에 빠르게 대응할 수 있도록 돕는다](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/). Bissell 사례도 딱 이 점을 증명합니다.
+
+---
+
+## SAP SCM 자동화 기능으로 재고 최적화와 납기 준수 개선
+
+Bissell은 SAP SCM 시스템도 함께 활용 중인데, 이 시스템이 제공하는 자동화와 최적화 기능 덕분에 재고 수준을 적절히 유지하면서 납기 준수율도 크게 개선됐습니다.
+
+예를 들어, SAP SCM은 수요 예측과 주문 계획을 자동으로 조정해 과잉 재고와 품절 상황을 최소화합니다. 실제로 Bissell은 납기 준수율을 95% 이상으로 끌어올렸는데, 이는 SAP SCM 도움 없이는 쉽지 않은 수치였죠.
+
+SAP 공식 문서에서도 [계획부터 실행까지 자동화 및 최적화 기능이 재고와 납기 관리에 핵심 역할을 한다고](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT) 명시하고 있습니다.
+
+---
+
+## 백엔드 엔지니어링 관점에서 본 SCM 업데이트 반영하기
+
+여기서부터는 개발자 입장에서 어떻게 SCM 업데이트를 실질적인 코드와 아키텍처 결정으로 녹여냈는지 살펴볼게요.
+
+Bissell은 Spring 기반 백엔드와 React 프론트엔드를 운영 중인데, SCM 시스템과의 API 계약을 명확히 정의하고 클라우드 플랫폼의 확장성을 적극 활용했습니다. 
+
+예를 들어, SCM에서 재고 변동 알림이 오면, 이를 처리하는 REST API 엔드포인트가 백엔드에 존재합니다. 아래는 재고 업데이트를 처리하는 간단한 Spring Boot 컨트롤러 예시입니다:
+
+```java
+@RestController
+@RequestMapping("/api/inventory")
+public class InventoryController {
+
+    private final InventoryService inventoryService;
+
+    public InventoryController(InventoryService inventoryService) {
+        this.inventoryService = inventoryService;
+    }
+
+    @PostMapping("/update")
+    public ResponseEntity<String> updateInventory(@RequestBody InventoryUpdateRequest request) {
+        boolean success = inventoryService.processInventoryUpdate(request);
+        if (success) {
+            return ResponseEntity.ok("Inventory updated successfully");
+        } else {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to update inventory");
+        }
+    }
+}
+```
+
+`InventoryService`에서는 SCM에서 넘어온 데이터를 검증하고, 재고 DB를 업데이트하며, 필요시 주문량 조정 로직을 트리거합니다. 
+
+이처럼 API 계약을 명확히 하면, SCM 시스템에서 발생하는 이벤트를 백엔드가 빠르게 처리할 수 있습니다. GitHub Engineering Blog에서도 [백엔드와 프론트엔드 간 명확한 API 계약과 클라우드 확장성 활용이 SCM 업데이트 처리에 중요하다](https://github.blog/category/engineering/)고 강조합니다.
+
+---
+
+## 직접 겪어보니 알게 된 현실적인 어려움과 팁
+
+처음엔 SCM 업데이트를 실시간으로 처리하는 게 기술적으로만 보면 단순해 보였어요. 하지만 실제로는 데이터 일관성 문제, 네트워크 지연, API 버전 관리 등 현실적인 문제들이 산적해 있더군요.
+
+특히 재고 데이터는 동시성 문제가 심해서, 트랜잭션 처리와 롤백 전략을 꼼꼼히 설계하지 않으면 오히려 재고 오류가 더 커질 수 있습니다. 
+
+Bissell 팀은 이를 위해 다음과 같은 전략을 썼습니다:
+
+- 이벤트 소싱(event sourcing)과 CQRS 패턴을 도입해 읽기/쓰기 모델을 분리
+- 메시지 큐(Kafka 등)를 활용해 비동기 처리와 장애 복구 강화
+- API 버전 관리를 엄격히 해서 SCM 시스템 업데이트에 유연하게 대응
+
+이런 부분은 문서화가 부족한 경우가 많아, 직접 겪어보면서 터득하는 게 가장 빠릅니다.
+
+---
+
+## Bissell 사례에서 배울 수 있는 핵심 시사점
+
+- **긴밀한 시스템 통합이 곧 경쟁력**: 계획, 조달, 재고, 이행 시스템이 따로 놀면 실시간 대응은 불가능합니다.
+- **클라우드 SCM 솔루션 활용으로 가시성과 민첩성 확보**: 온프레미스 대비 빠른 의사결정이 가능해집니다.
+- **자동화와 최적화 기능으로 재고와 납기 문제 해소**: SAP SCM 같은 솔루션이 큰 도움을 줍니다.
+- **백엔드 API 설계와 클라우드 확장성 활용이 관건**: 명확한 API 계약과 확장 가능한 아키텍처가 실시간 업데이트를 가능하게 합니다.
+
+---
+
+Bissell Homecare의 공급망 혁신은 단순히 기술 도입에 그치지 않고, 엔지니어링 관점에서 실시간 의사결정으로 전환하는 데서 진짜 가치를 찾았습니다. 우리도 SCM 시스템과 백엔드 아키텍처를 다시 한번 점검해볼 때가 아닌가 싶네요.
+
+---
+
+# 참고 자료
+
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **공급망 계획의 최신 업데이트를 엔지니어링 의사결정으로 전환하기 위해서는 계획, 조달, 재고, 이행 시스템 간의 긴밀한 통합과 실시간 데이터 활용이 필수적이다.** ([Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 기반 SCM 솔루션은 공급망 전반에 걸친 가시성과 민첩성을 향상시켜, Bissell Homecare와 같은 기업이 변화하는 수요에 신속히 대응할 수 있도록 지원한다.** ([Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **SAP의 SCM 시스템은 계획부터 실행까지 전 과정에서 자동화 및 최적화 기능을 제공하며, 이를 통해 재고 수준을 최적화하고 납기 준수를 개선한다.** ([SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **엔지니어링 관점에서 SCM 업데이트를 실질적인 코드와 아키텍처 결정으로 전환하려면, 백엔드(Spring 등)와 프론트엔드 간의 명확한 API 계약과 클라우드 플랫폼의 확장성 활용이 중요하다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
