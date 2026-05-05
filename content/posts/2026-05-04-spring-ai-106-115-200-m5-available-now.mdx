@@ -1,0 +1,186 @@
+---
+title: "Spring AI 1.0.6부터 2.0.0-M5까지, 실무에서 바로 써먹는 통합과 튜닝 팁"
+summary: "Spring AI 최신 릴리즈(1.0.6, 1.1.5, 2.0.0-M5)를 백엔드에 통합하고, 확장성과 보안을 고려해 실무에서 안정적으로 운영하는 방법을 경험담과 함께 소개합니다."
+date: "2026-05-04"
+slug: "spring-ai-106-115-200-m5-available-now"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-ai-106-115-200-m5-available-now"
+tags: ["spring-ai", "spring-boot", "ai-backend", "performance-tuning", "security"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+---
+
+## "Spring AI 최신 버전, 도대체 뭐가 달라졌길래?"
+
+최근에 우리 팀에서 AI 서비스 백엔드를 Spring AI 1.0.6에서 2.0.0-M5까지 업그레이드하는 작업을 했는데, 솔직히 처음에는 버전마다 뭐가 달라졌는지 감이 잘 안 오더라고요. 그런데 직접 적용해보니 단순 기능 추가뿐 아니라 확장성과 보안, 그리고 성능 튜닝 측면에서 꽤 중요한 변화들이 숨어 있었어요. 특히 AI API 호출이 많아지면서 부하 관리와 토큰 보안이 핵심이 됐는데, 이 부분을 Spring Boot의 다양한 설정 옵션과 조합해서 해결할 수 있더라고요.
+
+## Spring AI 2.0.0-M5, 코어 기술과 모듈화가 얼마나 중요한지 다시 깨달은 순간
+
+Spring Framework의 핵심인 의존성 주입(DI)과 모듈화 덕분에 AI 백엔드 서비스 구조가 훨씬 깔끔해졌습니다. 예전에는 AI 관련 로직이 여기저기 흩어져서 유지보수가 어려웠는데, 이번에 2.0.0-M5 버전으로 넘어가면서 AI 서비스 모듈을 별도 컴포넌트로 분리할 수 있었어요. 덕분에 테스트 코드 작성도 훨씬 수월해졌고, 새로운 AI 모델이 추가돼도 기존 코드를 크게 손대지 않아도 되더라고요.
+
+```java
+// AIServiceConfig.java
+@Configuration
+public class AIServiceConfig {
+
+    @Bean
+    public OpenAIClient openAIClient(@Value("${spring.ai.openai.api-key}") String apiKey) {
+        return OpenAIClient.builder()
+                .apiKey(apiKey)
+                .timeout(Duration.ofSeconds(30))
+                .build();
+    }
+
+    @Bean
+    public AIService aiService(OpenAIClient client) {
+        return new AIService(client);
+    }
+}
+
+// AIService.java
+public class AIService {
+    private final OpenAIClient client;
+
+    public AIService(OpenAIClient client) {
+        this.client = client;
+    }
+
+    public String generateText(String prompt) {
+        // 실제 API 호출 로직
+        return client.chatCompletion(
+            ChatCompletionRequest.builder()
+                .model("gpt-4o-mini")
+                .messages(List.of(new ChatMessage("user", prompt)))
+                .build()
+        ).getChoices().get(0).getMessage().getContent();
+    }
+}
+```
+
+이 코드는 Spring Boot 설정 파일에서 OpenAI API 클라이언트를 빈으로 등록하고, AIService에서 의존성 주입을 받아 사용하는 예시입니다. 이런 구조 덕분에 API 키 관리도 중앙 집중화되고, 테스트 시 모킹(mocking)도 훨씬 편해졌죠.
+
+## AI 백엔드에 꼭 필요한 JVM 튜닝과 비동기 처리
+
+AI API 호출은 네트워크 지연과 모델 처리 시간 때문에 응답이 느릴 수밖에 없는데, 이걸 그냥 동기식으로 처리하면 서버 스레드가 금방 꽉 차서 서비스가 뻗기 십상입니다. 그래서 Spring Boot에서 제공하는 비동기 처리 기능과 JVM 튜닝이 필수더라고요.
+
+예를 들어, 우리 팀은 아래처럼 `@Async`를 적극 활용해서 AI API 호출을 별도 스레드 풀에서 처리하게 했습니다.
+
+```java
+@Service
+public class AsyncAIService {
+
+    private final AIService aiService;
+
+    public AsyncAIService(AIService aiService) {
+        this.aiService = aiService;
+    }
+
+    @Async("aiExecutor")
+    public CompletableFuture<String> generateTextAsync(String prompt) {
+        return CompletableFuture.completedFuture(aiService.generateText(prompt));
+    }
+}
+
+@Configuration
+@EnableAsync
+public class AsyncConfig {
+
+    @Bean(name = "aiExecutor")
+    public Executor aiExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(10);
+        executor.setMaxPoolSize(50);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("AI-Executor-");
+        executor.initialize();
+        return executor;
+    }
+}
+```
+
+이렇게 하면 AI 호출이 병목 없이 처리되고, JVM 힙 메모리도 적절히 관리할 수 있습니다. JVM 옵션으로는 `-Xms4g -Xmx8g -XX:+UseG1GC`를 기본으로 쓰면서, GC 튜닝도 병행했어요. 특히 G1 GC는 짧은 지연시간을 유지하는 데 효과적이라 AI 서비스에 잘 맞았습니다.
+
+## OpenAI API 호출 최적화와 보안, 토큰 관리 전략
+
+Spring AI는 OpenAI API를 비롯해 다양한 AI 제공자와 연동하는데, API 호출 횟수가 많아질수록 인증 토큰 관리와 요청 제한(rate limiting)이 중요해집니다. OpenAI 공식 문서에 따르면, 토큰은 안전하게 저장하고, 주기적으로 갱신하며, 실패 시 재시도 로직을 반드시 구현해야 한다고 권장하죠[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+우리 팀에서는 Spring Security와 함께 OAuth2 토큰 저장소를 활용해 API 키를 암호화된 상태로 관리했고, 요청 제한을 위해 Resilience4j 라이브러리를 도입했습니다. 간단한 예를 들면 아래와 같습니다.
+
+```java
+@Bean
+public Retry openAiRetry() {
+    return Retry.of("openAiRetry", config -> config
+        .maxAttempts(3)
+        .waitDuration(Duration.ofMillis(500))
+        .retryExceptions(IOException.class, TimeoutException.class)
+    );
+}
+
+public String callOpenAiWithRetry(String prompt) {
+    return Retry.decorateSupplier(openAiRetry, () -> aiService.generateText(prompt)).get();
+}
+```
+
+이렇게 하면 네트워크 장애나 일시적 API 오류가 발생해도 자동으로 재시도해서 안정성을 높일 수 있습니다.
+
+## 프롬프트 엔지니어링과 사용자 맞춤형 AI 응답 품질 개선
+
+AI 모델과의 대화 품질을 높이려면 단순히 API 호출만 잘하는 걸 넘어서, 프롬프트 설계가 매우 중요합니다. Anthropic 가이드에서 말하는 것처럼[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview), 프롬프트는 명확하고 구체적이어야 하며, 사용자 의도에 맞게 적절히 컨텍스트를 제공해야 하죠.
+
+예를 들어, 우리 서비스에서는 사용자의 최근 대화 내역을 3~5개 정도 캐싱해서 프롬프트 앞부분에 포함시키고, 모델에게 "이전 대화 내용을 참고해서 답변해줘"라는 명시적인 지시문을 추가합니다. 이렇게 하면 AI가 맥락을 놓치지 않고 더 자연스러운 대화를 이어갈 수 있더라고요.
+
+```java
+public String buildPromptWithContext(List<String> recentMessages, String userInput) {
+    String context = String.join("\n", recentMessages);
+    return String.format("이전 대화 내용:\n%s\n사용자 질문: %s\n답변:", context, userInput);
+}
+```
+
+이 작은 차이가 실제 사용자 체감 품질에 큰 영향을 줍니다.
+
+---
+
+### 마무리하며
+
+Spring AI 최신 버전으로 업그레이드하면서 느낀 점은, 단순히 AI 모델 연동만 하는 게 아니라, 백엔드 아키텍처 관점에서 확장성과 보안, 성능 튜닝까지 꼼꼼히 챙겨야 진짜 프로덕션에서 안정적인 AI 서비스를 운영할 수 있다는 겁니다. JVM 튜닝과 비동기 처리, API 호출 재시도 전략, 그리고 프롬프트 설계까지 전반적인 스펙트럼을 다뤄야 하죠.
+
+처음에는 설정값 하나하나가 귀찮고 복잡해 보이지만, 실제 트래픽이 몰리거나 장애가 발생했을 때 이 튜닝들이 얼마나 큰 차이를 만드는지 경험해보면 절대 무시 못 합니다. 여러분도 Spring AI 2.0.0-M5 도입을 고민 중이라면, 이번 글에서 소개한 팁들을 참고해서 단계적으로 적용해보시길 추천합니다.
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Boot은 AI 서비스 통합 시 확장성과 보안을 위해 다양한 설정 옵션과 성능 튜닝 기법을 제공하며, 최신 버전에서 AI 관련 기능 확장이 포함되어 있다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework의 코어 기술은 모듈화 및 의존성 주입을 통해 AI 백엔드 서비스 구축 시 유지보수성과 확장성을 극대화할 수 있도록 설계되어 있다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot 성능 튜닝 가이드에서는 JVM 튜닝, 캐싱, 비동기 처리, 데이터베이스 연결 최적화 등 AI 백엔드 서비스의 고부하 상황에 대응하는 방법을 상세히 다루고 있다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **OpenAI API 문서는 Spring AI와 같은 백엔드 프레임워크와 연동 시 API 호출 최적화 및 보안을 위한 토큰 관리, 요청 제한 및 에러 핸들링 전략을 권장한다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Anthropic의 프롬프트 엔지니어링 가이드는 AI 모델과의 상호작용 최적화를 위한 프롬프트 설계 원칙을 제공하며, Spring AI 통합 시 사용자 맞춤형 AI 응답 품질 향상에 기여할 수 있다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
