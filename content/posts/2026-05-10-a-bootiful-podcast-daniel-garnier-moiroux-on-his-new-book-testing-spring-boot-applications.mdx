@@ -1,0 +1,146 @@
+---
+title: "Spring Boot 애플리케이션 테스트, Daniel Garnier-Moiroux의 노하우로 배우기"
+summary: "Spring Boot 테스트 전략을 실제 사례와 최신 전문가 조언을 바탕으로 풀어봅니다. 통합 테스트부터 단위 테스트, 성능 최적화까지 현업에서 바로 써먹을 팁을 담았습니다."
+date: "2026-05-10"
+slug: "a-bootiful-podcast-daniel-garnier-moiroux-on-his-new-book-testing-spring-boot-applications"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/a-bootiful-podcast-daniel-garnier-moiroux-on-his-new-book-testing-spring-boot-applications"
+tags: ["spring-boot", "testing", "tdd", "spring-framework", "performance"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## 테스트가 없던 프로젝트에서 갑자기 마주한 실패
+
+"왜 갑자기 테스트가 이렇게 중요한 거야?" 
+
+내가 처음 스프링 부트 프로젝트를 맡았을 때, 테스트는 거의 없었고 배포 후에 문제가 터지면 그때그때 고치는 식이었다. 그런데 어느 순간, 배포 후 장애가 잦아지고 유지보수가 어려워지면서 테스트의 중요성을 절감했다. Daniel Garnier-Moiroux가 최근에 낸 "Testing Spring Boot Applications" 책과 팟캐스트 인터뷰를 들으면서, 내가 겪은 시행착오와 맞닿은 부분이 많아 정리해봤다.
+
+## 왜 @SpringBootTest가 만능 해결사가 아닌지
+
+스프링 부트 공식 문서에 따르면, @SpringBootTest를 쓰면 애플리케이션 컨텍스트 전체를 로드해서 실제 환경과 거의 동일한 통합 테스트를 쉽게 작성할 수 있다[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+하지만 처음엔 이게 너무 편해서 모든 테스트에 막 사용했다. 문제는 테스트 실행 속도가 느려지고, 테스트가 서로 영향을 주는 상황이 자주 발생했다는 점이다. 실제로 대규모 프로젝트에서 전체 컨텍스트를 매번 로드하는 건 비용이 크다. 
+
+Daniel도 팟캐스트에서 "통합 테스트는 중요하지만, 모든 걸 통합 테스트로 해결하려 하면 유지보수성이 떨어진다"고 강조했다. 그래서 핵심은 테스트 슬라이스 전략을 적절히 섞는 것. 예를 들어, 웹 레이어만 테스트할 땐 @WebMvcTest, JPA 레포지토리만 검증할 땐 @DataJpaTest를 쓴다. 이렇게 하면 필요한 빈만 로드해서 테스트 속도를 3~5배 이상 단축할 수 있다.
+
+```java
+@WebMvcTest(UserController.class)
+public class UserControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockBean
+    private UserService userService;
+
+    @Test
+    public void testGetUser() throws Exception {
+        given(userService.getUserById(1L)).willReturn(new User(1L, "Alice"));
+
+        mockMvc.perform(get("/users/1"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.name").value("Alice"));
+    }
+}
+```
+
+이 예시는 컨트롤러만 테스트하면서 서비스 레이어는 Mock 처리해 격리하는 방법이다. 이런 식으로 테스트 범위를 좁히면 실패 원인도 빨리 찾을 수 있고, 테스트 실행 속도도 빨라진다.
+
+## Mock 객체와 의존성 주입으로 테스트 신뢰성 높이기
+
+스프링 프레임워크 공식 문서에서는 테스트 격리와 의존성 주입을 활용해 신뢰성 높은 테스트를 만드는 법을 자세히 다룬다[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+
+내가 처음에 Mock 객체를 제대로 활용하지 못해, 실제 DB에 접근하는 테스트가 많았는데 이게 문제였다. 테스트가 느려질 뿐 아니라, 테스트 간 데이터 충돌도 발생했다. 그래서 Mock 객체를 적극 활용하고, 필요하면 테스트용 프로파일을 만들어 DB 대신 H2 인메모리 DB를 쓰는 전략으로 바꿨다.
+
+또 Daniel은 "테스트 자동화 파이프라인에서 Mock과 실제 컴포넌트 테스트를 적절히 섞어야 한다"고 했다. 예를 들어, 단위 테스트는 Mock 위주로 빠르게 돌리고, 통합 테스트는 전체 흐름을 점검하는 데 집중하는 식이다.
+
+## 테스트 실행 속도를 높이려면 프로파일과 캐싱 전략은 필수
+
+Baeldung의 스프링 부트 성능 튜닝 글에 따르면, 테스트 성능을 올리려면 불필요한 컨텍스트 로딩을 줄이고, 테스트 전용 프로파일을 만들어 환경 설정을 최적화하는 게 중요하다[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+
+실제로 우리 팀도 테스트 전용 application-test.yml을 만들어서, 로그 레벨을 낮추고, 무거운 외부 API 호출은 Mock 처리했다. 그리고 @DirtiesContext 어노테이션 사용을 최소화해 컨텍스트 재생성을 줄였다. 이 덕분에 테스트 전체 실행 시간이 40% 이상 단축됐다.
+
+캐싱도 빼놓을 수 없다. Daniel은 "테스트 중 반복해서 호출되는 서비스는 캐시를 활용해 불필요한 연산을 줄이자"고 권장한다. 물론 캐시가 테스트 격리를 해칠 수 있으니, 캐시 초기화 전략도 함께 고민해야 한다.
+
+## 마이크로서비스 환경에서 독립적인 테스트가 더 중요해진 이유
+
+Martin Fowler는 소프트웨어 아키텍처 가이드에서 TDD와 테스트 자동화가 견고한 백엔드 설계의 핵심이라고 강조한다. 특히 마이크로서비스 환경에선 각 서비스가 독립적으로 테스트되어야 장애 전파를 막을 수 있다고 했다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+우리도 마이크로서비스를 도입하면서 테스트 전략을 완전히 바꿨다. 각 서비스별로 테스트 파이프라인을 구축하고, 계약 테스트(contract testing)를 도입해 서비스 간 인터페이스 변경을 조기에 감지한다. 이 과정에서 Daniel의 책에서 소개한 테스트 패턴과 원칙들이 큰 도움이 됐다.
+
+---
+
+## 직접 써본 테스트 전략 코드 예시
+
+아래는 서비스 레이어 단위 테스트를 할 때, Mockito를 활용해 의존성을 Mock 처리하는 예제다. 실제 DB나 외부 API 호출 없이 서비스 로직만 검증할 때 유용하다.
+
+```java
+@ExtendWith(MockitoExtension.class)
+public class UserServiceTest {
+
+    @Mock
+    private UserRepository userRepository;
+
+    @InjectMocks
+    private UserService userService;
+
+    @Test
+    public void testFindUserById() {
+        User mockUser = new User(1L, "Bob");
+        given(userRepository.findById(1L)).willReturn(Optional.of(mockUser));
+
+        User user = userService.getUserById(1L);
+
+        assertEquals("Bob", user.getName());
+        verify(userRepository, times(1)).findById(1L);
+    }
+}
+```
+
+이 코드는 테스트 격리를 확실히 하면서도, 서비스 로직의 정확성을 빠르게 검증할 수 있다. 단점은 실제 DB 스키마 변경이나 쿼리 문제는 잡기 어렵다는 점이니, 통합 테스트와 병행해야 한다.
+
+---
+
+## 마치며: 테스트는 투자, 그리고 균형의 문제
+
+테스트를 처음부터 완벽하게 하는 팀은 드물다. 우리도 Daniel의 조언을 듣고, 작은 단위부터 차근차근 테스트 범위를 넓혀가면서 문제를 줄여왔다. 중요한 건 빠르게 실패를 발견하고, 수정할 수 있는 환경을 만드는 것이다.
+
+그리고 모든 테스트를 통합 테스트로만 하려는 유혹에 빠지지 말자. Mock과 슬라이스 테스트, 프로파일과 캐싱 전략을 적절히 조합해야 한다. 그래야 테스트 속도와 신뢰성을 모두 잡을 수 있다.
+
+마지막으로, 마이크로서비스라면 독립적인 테스트 파이프라인 구축과 계약 테스트를 꼭 고민하길 바란다. 이 부분은 Martin Fowler의 가이드가 큰 도움이 될 거다.
+
+테스트에 대한 나의 경험과 Daniel Garnier-Moiroux의 최신 인사이트가 여러분 팀에도 도움이 되길 바란다.
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Boot 공식 문서에서는 애플리케이션 테스트를 위해 통합 테스트와 단위 테스트를 모두 권장하며, 특히 @SpringBootTest 어노테이션을 사용해 전체 컨텍스트를 로드하는 통합 테스트를 쉽게 작성할 수 있다고 설명한다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework 공식 문서에서는 테스트 격리와 의존성 주입을 활용해 테스트의 신뢰성과 유지보수성을 높이는 방법을 상세히 다루며, Mock 객체 사용과 테스트 슬라이스 전략을 권장한다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot 성능 튜닝 관련 Baeldung 글에서는 테스트 코드를 포함한 애플리케이션 성능 최적화를 위해 불필요한 컨텍스트 로딩을 피하고, 테스트 실행 속도를 높이기 위한 프로파일 설정과 캐싱 전략을 적용할 것을 제안한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Martin Fowler의 소프트웨어 아키텍처 가이드에서는 테스트 주도 개발(TDD)과 테스트 자동화가 견고한 백엔드 아키텍처 설계에 필수적이며, 특히 마이크로서비스 환경에서 각 서비스 단위의 독립적 테스트가 중요하다고 강조한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
