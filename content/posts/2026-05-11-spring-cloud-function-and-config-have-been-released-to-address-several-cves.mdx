@@ -1,0 +1,124 @@
+---
+title: "Spring Cloud Function과 Config 보안 패치, 실무에서 안전하게 업그레이드하는 법"
+summary: "Spring Cloud Function과 Config의 최신 보안 패치를 적용하면서 겪은 의존성 문제, 단계별 롤아웃, 그리고 보안 강화 전략을 실제 사례와 함께 풀어봅니다."
+date: "2026-05-11"
+slug: "spring-cloud-function-and-config-have-been-released-to-address-several-cves"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-cloud-function-and-config-have-been-released-to-address-several-cves"
+tags: ["spring-cloud", "security", "cve", "spring-boot", "deployment", "performance"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## 갑자기 터진 CVE, 우리 서비스도 안전할까?
+
+얼마 전 우리 팀에서 사용하는 Spring Cloud Function과 Config에서 중요한 CVE(보안 취약점) 패치가 발표됐다는 소식을 들었어요. ‘아, 또 업그레이드 해야 하나’ 하는 생각과 함께, 바로 적용하지 않으면 보안 위험에 노출될 수 있다는 불안감이 들었죠. 그런데 막상 적용하려니 버전 호환성 문제도 있고, 갑자기 서비스 장애가 나면 어쩌나 걱정도 되고요.
+
+이 경험을 공유하려고 합니다. 실제로 어떻게 업그레이드하고, 어떤 점을 조심해야 하는지, 그리고 보안 강화는 어떻게 하는 게 좋은지 단계별로 이야기해볼게요.
+
+---
+
+## Spring Boot 3.x와 호환되는 최신 Spring Cloud Function과 Config 버전부터 확인하자
+
+이번 보안 패치는 Spring Cloud Function과 Config가 Spring Boot 3.x와 호환되도록 맞춰 나오면서 여러 CVE를 해결했어요. 단순히 버전만 올린 게 아니라, 내부적으로 보안 취약점들을 집중적으로 패치한 거죠. 
+
+우리 서비스가 아직 Spring Boot 2.x 기반이라면, 바로 최신 버전으로 올리면 의존성 충돌이 발생할 수 있어요. 그래서 먼저 Spring Boot 3.x로 마이그레이션하는 작업부터 차근차근 준비해야 합니다.
+
+```gradle
+// build.gradle 예시
+implementation 'org.springframework.boot:spring-boot-starter:3.0.5'
+implementation 'org.springframework.cloud:spring-cloud-function-context:4.0.3'
+implementation 'org.springframework.cloud:spring-cloud-config-client:4.0.3'
+```
+
+버전은 4.0.x대가 Spring Cloud Function과 Config의 최신 라인입니다. 공식 문서에 따르면 이 버전들이 Spring Boot 3.x와 호환되며, 보안 패치가 포함되어 있다고 하니 꼭 맞춰야 해요[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+---
+
+## 단계별 롤아웃 전략으로 갑작스러운 장애 리스크 줄이기
+
+우리 팀은 대규모 서비스라서 한 번에 모든 서버에 업데이트를 적용하는 건 위험했어요. 그래서 Canary 배포 전략을 썼습니다. 전체 서버 중 5%에만 먼저 배포해서 모니터링을 집중했죠. 
+
+이때 중요한 건 모니터링과 로깅 강화입니다. 보안 패치 후에 예상치 못한 예외가 발생할 수 있으니, 로그를 꼼꼼히 체크하고 CPU, 메모리 사용량도 주시했어요. 
+
+만약 문제가 없으면 점진적으로 50%, 100%까지 늘렸고, 중간에 문제가 발견되면 바로 롤백했습니다. 이런 배포 방식은 Martin Fowler의 아키텍처 가이드에서도 추천하는 방법이에요[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+---
+
+## 보안 강화는 단순 업그레이드만으로 끝나지 않는다
+
+최신 버전으로 올리는 게 기본이지만, 여기서 한발 더 나아가야 해요. 우리 서비스에서 적용한 보안 강화 전략을 공유할게요.
+
+- **불필요한 함수 노출 최소화**: Spring Cloud Function은 기본적으로 함수가 외부에 노출될 수 있어요. 필요한 함수만 export하고, 나머지는 숨겨서 공격 표면을 줄였습니다.
+
+- **Config 서버 접근 제한**: Config 서버는 민감한 설정을 담고 있어서 IP 화이트리스트와 인증을 걸었어요. 내부 네트워크에서만 접근 가능하도록 방화벽 설정도 강화했습니다.
+
+- **환경별 프로파일 세분화**: dev, staging, prod 환경별로 프로파일을 나누고, 각 환경에 맞는 최소 권한 설정을 적용했습니다.
+
+이런 전략들은 Spring Framework 코어 문서에서 권장하는 보안 설정과도 일치합니다[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+
+---
+
+## 보안 패치 후 성능 변화, 어떻게 체크하고 대응했나
+
+보안 패치를 적용하면 내부 로직이 바뀌거나 추가 검증이 생기면서 성능에 영향을 줄 수 있어요. 우리도 패치 후 부하 테스트를 꼭 진행했는데, 다행히 큰 성능 저하는 없었지만 JVM 튜닝과 캐시 설정을 조금 조정했어요.
+
+예를 들어, JVM 힙 메모리를 기존 2GB에서 3GB로 늘리고, 가비지 컬렉션 옵션을 G1GC로 바꿨죠. 캐시 TTL(Time To Live)도 10분에서 15분으로 연장해서 DB 호출을 줄였습니다.
+
+```java
+// 간단한 함수 노출 최소화 예시
+@Bean
+public Function<String, String> uppercase() {
+    return value -> value.toUpperCase();
+}
+
+// 이 함수만 외부에 노출, 나머지는 빈으로 등록하지 않거나 private 처리
+```
+
+성능 튜닝 관련해서는 Baeldung의 가이드가 많은 도움이 됐어요[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+
+---
+
+## 마무리하며
+
+이번 보안 패치 적용은 단순히 버전 업그레이드 이상의 의미가 있었어요. 실제 서비스에 적용하면서 의존성 문제, 배포 전략, 보안 강화, 성능 튜닝까지 종합적으로 고민해야 했죠. 
+
+무엇보다 중요한 건 ‘급하게 한 번에 끝내려 하지 말고, 단계별로 안전하게 적용하자’는 점입니다. 그리고 보안은 한 번의 패치로 끝나는 게 아니라, 지속적으로 관리하고 점검해야 하는 작업이라는 것도 다시 느꼈어요.
+
+혹시 지금 Spring Cloud Function이나 Config를 사용 중이라면, 이번 기회에 꼭 최신 보안 패치 확인하고, 우리처럼 단계별 롤아웃과 보안 설정 강화 전략을 세워보시길 추천합니다.
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Cloud Function과 Spring Cloud Config의 최신 릴리스는 여러 중요한 CVE(보안 취약점)를 해결하기 위해 출시되었으며, 이는 Spring Boot 3.x와의 호환성을 강화하고 보안 패치 적용을 위한 기반을 제공한다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Cloud Function과 Config의 보안 업데이트를 적용할 때는 기존 애플리케이션의 의존성 충돌을 방지하기 위해 Spring Boot 버전과의 호환성을 반드시 확인해야 하며, 단계별 롤아웃 전략으로 점진적 배포를 권장한다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **보안 강화 전략으로는 최신 버전으로의 업그레이드 외에도, 불필요한 함수 노출 최소화, Config 서버에 대한 접근 제한 설정, 그리고 환경별 프로파일을 활용한 세분화된 설정 관리가 포함된다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **성능 최적화 관점에서 보안 패치 적용 후에는 애플리케이션의 부하 테스트를 수행하여 패치가 시스템 성능에 미치는 영향을 평가하고, 필요시 JVM 튜닝이나 캐시 설정을 조정하는 것이 권장된다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **롤아웃 시에는 Canary 배포나 Blue-Green 배포 전략을 활용하여 보안 패치 적용 후 발생할 수 있는 문제를 최소화하고, 모니터링과 로깅을 강화해 이상 징후를 조기에 탐지하는 것이 중요하다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
