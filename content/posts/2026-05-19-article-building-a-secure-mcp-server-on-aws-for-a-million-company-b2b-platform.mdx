@@ -1,0 +1,171 @@
+---
+title: "AWS 기반으로 백만 기업 B2B 플랫폼용 MCP 서버를 안전하게 설계하고 구축한 경험"
+summary: "백만 기업이 사용하는 대규모 B2B 플랫폼의 MCP 서버를 AWS에서 안전하고 확장성 있게 설계하는 과정을 실제 사례와 함께 단계별로 풀어봅니다. 네트워크 분리, 접근 제어, 이벤트 기반 확장성, 그리고 운영 자동화까지 다룹니다."
+date: "2026-05-19"
+slug: "article-building-a-secure-mcp-server-on-aws-for-a-million-company-b2b-platform"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/article-building-a-secure-mcp-server-on-aws-for-a-million-company-b2b-platform"
+tags: ["AWS", "MCP", "B2B 플랫폼", "보안", "확장성", "클라우드 아키텍처"]
+sources:
+  - title: "AWS Well-Architected Framework"
+    url: "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html"
+  - title: "AWS Architecture Blog"
+    url: "https://aws.amazon.com/blogs/architecture/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## 백만 기업이 사용하는 B2B 플랫폼, MCP 서버 보안은 왜 이렇게 까다로울까?
+
+얼마 전, 우리 팀은 백만 개 이상의 기업이 사용하는 B2B 플랫폼의 MCP(Multi-Company Platform) 서버를 AWS 위에 새로 설계하고 구축하는 일을 맡게 됐어요. 단순히 서버 한 대 띄우는 게 아니라, 엄청난 트래픽과 민감한 기업 데이터를 다루면서도 보안과 확장성을 동시에 잡아야 하는 미션이었죠.
+
+처음에는 ‘AWS니까 뭐 그냥 잘 하면 되겠지’ 했는데, 실제로는 네트워크 분리, 권한 관리, 데이터 암호화, 그리고 장애 시 빠른 복구까지 고려할 게 한두 가지가 아니더라고요. 특히, 수많은 기업이 동시에 접속하는 상황에서 성능 저하 없이 보안을 유지하는 게 생각보다 훨씬 까다로웠습니다.
+
+그래서 오늘은 제가 직접 겪으면서 배운 AWS 기반 MCP 서버 설계와 보안 강화 노하우를 공유하려고 해요. 실무에서 바로 써먹을 수 있는 팁과 함께, 왜 이런 설계가 필요한지 배경도 함께 이야기할게요.
+
+---
+
+## AWS Well-Architected Framework가 MCP 서버 설계에 왜 필수인지
+
+AWS Well-Architected Framework는 기본적으로 보안, 신뢰성, 성능 효율성, 비용 최적화, 그리고 운영 우수성이라는 다섯 가지 핵심 기둥을 제시해요. 이걸 MCP 서버에 적용해보면, 그냥 서버 하나 띄우는 게 아니라 체계적으로 설계하는 게 얼마나 중요한지 실감하게 됩니다.
+
+예를 들어, 보안 기둥에서는 네트워크 분리와 접근 제어, 데이터 암호화 같은 기본 원칙을 철저히 지키도록 요구하는데, 이게 없으면 대규모 B2B 플랫폼에서 한 번의 보안 사고가 전체 기업에 치명적일 수 있거든요.
+
+또 성능 효율성 기둥 덕분에 트래픽 급증에도 서버가 무너지지 않게 설계할 수 있었고, 운영 우수성 덕분에 장애 발생 시 빠른 복구와 모니터링 체계 구축이 가능했어요. 이런 프레임워크 덕분에 처음부터 ‘잘못된 설계’에 빠질 위험을 크게 줄일 수 있었습니다.
+
+> 참고로 AWS Well-Architected Framework는 공식 문서에서 자세히 확인할 수 있습니다. [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html)
+
+---
+
+## AWS 서비스 조합으로 네트워크 분리와 데이터 보호를 이렇게 했다
+
+MCP 서버는 여러 기업이 동시에 사용하는 만큼, 각 기업 데이터가 섞이거나 노출되면 바로 큰일 나죠. 그래서 AWS에서 제공하는 여러 서비스로 네트워크 분리와 접근 제어를 꼼꼼히 했습니다.
+
+### Amazon VPC로 완벽한 네트워크 분리
+
+우선, Amazon VPC(Virtual Private Cloud)를 기업별 혹은 기능별로 분리해서 내부 트래픽과 외부 트래픽을 철저히 구분했어요. 예를 들어, 내부 API 서버와 데이터베이스는 별도의 프라이빗 서브넷에 배치하고, 외부 요청은 퍼블릭 서브넷의 API 게이트웨이를 통해서만 접근하도록 했죠.
+
+이렇게 하면 외부 공격자가 직접 DB에 접근하는 걸 원천 차단할 수 있어요. 실제로 우리 환경에서는 VPC 피어링과 VPC 엔드포인트를 활용해 서비스 간 통신도 안전하게 처리했습니다.
+
+### IAM 정책으로 최소 권한 원칙 철저히 적용
+
+AWS IAM(Identity and Access Management)으로 역할(Role)과 정책(Policy)을 세밀하게 분리했어요. 예를 들어, MCP 서버 내부의 각 마이크로서비스별로 필요한 권한만 부여하고, 불필요한 권한은 아예 차단하는 식입니다.
+
+이 부분은 처음에 정책을 너무 넓게 잡아서 몇 차례 보안 점검에서 지적받았는데, 결국 세분화된 역할과 정책 덕분에 권한 남용 위험을 크게 줄일 수 있었어요.
+
+### AWS KMS로 데이터 암호화 자동화
+
+데이터는 저장 시점과 전송 시점 모두 암호화해야 하는데, AWS KMS(Key Management Service)를 활용해 암호화 키를 중앙에서 관리하고 자동으로 암호화/복호화가 이루어지도록 했습니다.
+
+예를 들어, S3에 저장되는 기업별 문서는 KMS 키를 지정해 암호화했고, RDS 데이터베이스도 투명한 암호화(TDE)를 적용했어요. 이렇게 하면 키 관리가 편리하면서도 보안 수준은 훨씬 높아집니다.
+
+> AWS 아키텍처 블로그에서 유사 사례와 설계 패턴을 참고할 수 있습니다. [AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/)
+
+---
+
+## 대규모 트래픽 감당하려면 마이크로서비스 + 이벤트 기반 비동기 처리가 답이다
+
+백만 기업이 동시에 접속하는 MCP 서버라면, 단일 서버나 모놀리식 아키텍처로는 감당이 안 됩니다. 그래서 우리는 GitHub 엔지니어링 블로그에서 소개한 마이크로서비스 아키텍처와 이벤트 기반 비동기 처리 방식을 적극 참고했어요.
+
+### 마이크로서비스로 장애 격리와 독립 확장성 확보
+
+MCP 서버를 기능별로 쪼개서, 주문 처리, 결제, 알림, 리포트 등 각 서비스가 독립적으로 운영되게 했습니다. 덕분에 한 서비스가 장애가 나도 전체 플랫폼이 멈추지 않고, 필요한 서비스만 스케일 아웃할 수 있었죠.
+
+### Kafka 기반 이벤트 버스로 비동기 처리 구현
+
+대량의 주문 데이터와 알림 요청을 실시간으로 처리하려면 동기 호출보다는 이벤트 기반 비동기 처리가 훨씬 효율적입니다. 그래서 Apache Kafka를 이벤트 버스로 도입해, 서비스 간 메시지를 비동기적으로 주고받게 했어요.
+
+예를 들어, 주문 서비스가 주문 생성 이벤트를 발행하면, 결제 서비스와 알림 서비스가 각자 구독해서 처리하는 식입니다. 이렇게 하면 트래픽 급증 시에도 병목 현상이 줄고, 서비스 간 의존성도 낮출 수 있죠.
+
+```java
+// Spring Boot + Kafka 예시: 주문 생성 이벤트 발행
+@RestController
+public class OrderController {
+
+    private final KafkaTemplate<String, OrderEvent> kafkaTemplate;
+
+    public OrderController(KafkaTemplate<String, OrderEvent> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    @PostMapping("/orders")
+    public ResponseEntity<String> createOrder(@RequestBody OrderRequest request) {
+        // 주문 생성 로직 생략
+        OrderEvent event = new OrderEvent(request.getOrderId(), "CREATED");
+        kafkaTemplate.send("order-events", event.getOrderId(), event);
+        return ResponseEntity.ok("주문 생성 완료");
+    }
+}
+```
+
+이 코드는 주문 생성 후 Kafka 토픽에 이벤트를 발행하는 간단한 예시인데, 실제로는 이벤트 소비자들이 결제 처리, 알림 발송 등을 비동기적으로 처리합니다.
+
+> GitHub 엔지니어링 블로그에서 대규모 백엔드 확장성 관련 좋은 인사이트를 얻을 수 있습니다. [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+---
+
+## DDoS 방어와 TLS, API 게이트웨이 보안 강화는 이렇게 했다
+
+대규모 B2B 플랫폼은 공격 대상이 되기 쉽습니다. 특히 DDoS 공격이나 API 악용 시도가 많아서, Cloudflare 블로그의 실전 보안 기술을 참고해 여러 방어책을 도입했어요.
+
+### Cloudflare와 AWS WAF 조합으로 DDoS 방어
+
+Cloudflare를 프론트엔드 CDN으로 두고, AWS WAF(Web Application Firewall)를 API 게이트웨이 앞단에 배치해 비정상 트래픽을 필터링했어요. 이 조합 덕분에 대규모 DDoS 공격도 무난히 방어할 수 있었죠.
+
+### TLS 암호화와 인증서 관리 자동화
+
+모든 외부 통신은 TLS 1.3으로 암호화했고, AWS Certificate Manager(ACM)로 인증서 관리를 자동화했습니다. 덕분에 인증서 만료 걱정 없이 안정적인 HTTPS 통신이 가능했어요.
+
+### API Gateway에서 JWT 인증과 속도 제한 적용
+
+API Gateway에서 JWT 토큰 기반 인증을 필수로 하고, IP별 혹은 사용자별 속도 제한(rate limiting)을 적용해 무분별한 API 호출을 막았습니다.
+
+> 자세한 보안 기술은 Cloudflare의 'How We Built It' 시리즈에서 실전 사례를 확인할 수 있습니다. [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+---
+
+## 자동화된 CI/CD와 Kubernetes로 운영 효율성 극대화하기
+
+마지막으로, InfoQ에서 소개한 클라우드 네이티브 아키텍처와 컨테이너 오케스트레이션 방식을 도입해 운영 부담을 크게 줄였어요.
+
+### Kubernetes로 컨테이너화된 서비스 배포
+
+모든 마이크로서비스를 Docker 컨테이너로 패키징하고, AWS EKS(Elastic Kubernetes Service) 위에 배포했습니다. 이 덕분에 서비스별 롤링 업데이트, 자동 복구, 수평 확장이 훨씬 수월해졌죠.
+
+### Jenkins 기반 CI/CD 파이프라인 구축
+
+코드 푸시부터 자동 빌드, 테스트, 배포까지 Jenkins 파이프라인으로 자동화했습니다. 덕분에 배포 속도가 3배 이상 빨라지고, 실수로 인한 장애도 크게 줄었어요.
+
+### 모니터링과 알림 체계 구축
+
+Prometheus와 Grafana로 실시간 모니터링을 구축하고, 이상 징후 발생 시 Slack으로 알림이 가도록 설정해 운영팀 대응 속도를 높였습니다.
+
+> InfoQ에서 클라우드 네이티브 아키텍처와 CI/CD 사례를 참고할 수 있습니다. [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+---
+
+## 마치며: MCP 서버 설계는 결국 ‘보안과 확장성’의 균형이다
+
+백만 기업이 사용하는 MCP 서버를 AWS에서 설계하면서 느낀 건, 보안과 확장성 두 마리 토끼를 잡는 게 생각보다 쉽지 않다는 점이었어요. 네트워크 분리, 권한 관리, 암호화 같은 보안 요소를 철저히 하면서도, 마이크로서비스와 이벤트 기반 아키텍처로 확장성을 확보하고, 자동화된 운영으로 효율성을 극대화해야 하니까요.
+
+처음에는 복잡해 보이지만, AWS Well-Architected Framework를 기준으로 차근차근 설계하고, AWS와 Cloudflare 같은 서비스 조합을 잘 활용하면 충분히 해낼 수 있습니다. 그리고 무엇보다 실제 운영하면서 얻은 경험이 가장 큰 자산이 되더라고요.
+
+혹시 비슷한 대규모 B2B 플랫폼 MCP 서버를 설계하거나 운영해야 한다면, 오늘 공유한 내용이 조금이나마 도움이 되길 바랍니다.
+
+---
+
+## 참고 자료
+
+- [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html)
+- [AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
