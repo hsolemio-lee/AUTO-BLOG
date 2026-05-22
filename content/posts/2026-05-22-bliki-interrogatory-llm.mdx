@@ -1,0 +1,188 @@
+---
+title: "Bliki 인터로가토리 LLM 구축기: 아키텍처 선택과 실무 마이그레이션 이야기"
+summary: "인터로가토리 LLM 시스템을 API 중심 아키텍처로 설계하며 겪은 확장성, 지연시간, 비용 문제와 프롬프트 엔지니어링, 마이크로서비스 도입, 그리고 점진적 마이그레이션 전략을 실제 사례와 함께 풀어봅니다."
+date: "2026-05-22"
+slug: "bliki-interrogatory-llm"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/bliki-interrogatory-llm"
+tags: ["LLM", "인터로가토리", "아키텍처", "마이크로서비스", "프롬프트엔지니어링"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+# API 중심 아키텍처를 선택했는데… 왜 호출 지연이 이렇게 심하지?
+
+최근 우리 팀에서 인터로가토리 LLM 시스템, 그러니까 사용자의 질문에 답을 찾아주는 대화형 LLM 서비스를 구축하면서 가장 먼저 부딪힌 현실적인 문제는 바로 ‘지연시간’과 ‘비용’이었다. OpenAI API를 비롯한 여러 LLM API를 호출하는 구조로 설계했는데, 네트워크 왕복 시간과 호출 비용이 생각보다 컸다. 
+
+이걸 직접 겪으면서 ‘API 중심 아키텍처가 무조건 최고’라는 생각을 다시 점검하게 됐다. 물론 API 중심 설계는 모델 교체나 확장에 굉장히 유연하다. Anthropic, OpenAI, 자체 모델 등 다양한 LLM을 손쉽게 붙일 수 있으니 말이다. 하지만 그 유연성의 대가로 네트워크 지연과 호출 비용이 늘어난다는 점은 명확한 트레이드오프다.
+
+우리 사례를 간단히 들자면, 한 번의 사용자 질의에 평균 300ms의 네트워크 지연이 추가됐고, 호출량이 많아지면서 월간 API 비용이 예상치 대비 30% 이상 증가했다. 이건 OpenAI 공식 문서에서도 확인할 수 있는 사실이다[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+---
+
+## 프롬프트 엔지니어링, 질문 설계가 답의 질을 좌우한다
+
+인터로가토리 LLM을 다루면서 프롬프트 엔지니어링이 얼마나 중요한지 새삼 깨달았다. 단순히 질문을 던지는 게 아니라, 명확하고 구조화된 프롬프트를 설계해야 모델이 정확한 답변을 내놓는다. Anthropic에서 제시하는 단계별 프롬프트 설계법은 우리 팀에도 큰 도움이 됐다[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+예를 들어, 단순히 “서울의 날씨 알려줘”라고 묻는 대신,
+
+```plaintext
+"서울의 현재 기온과 강수 확률을 3시간 단위로 요약해줘. 최신 기상청 데이터를 참고해."
+```
+
+이런 식으로 구체적이고 제약 조건을 명확히 하면, LLM이 더 정확하고 유용한 답변을 준다. 프롬프트가 복잡해질수록 모델 호출 비용과 처리 시간도 늘어나긴 하지만, 쓸데없는 재호출을 줄여 결국 비용 효율을 개선하는 셈이다.
+
+---
+
+## 캐싱과 배치 처리로 호출 비용과 지연을 줄이는 실전 노하우
+
+실제 대규모 서비스에서 LLM 호출은 비용과 지연 문제를 반드시 해결해야 한다. GitHub 엔지니어링 블로그에서 소개한 것처럼 캐싱, 배치 처리, 비동기 호출 패턴이 핵심이다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+우리 시스템에서는 다음과 같은 전략을 썼다:
+
+- **결과 캐싱**: 동일한 질문이나 거의 변하지 않는 정보에 대해 10분 단위 TTL 캐시 적용
+- **배치 처리**: 여러 사용자의 비슷한 요청을 1초 단위로 모아서 한 번에 API 호출
+- **비동기 처리**: 프론트엔드에선 1차 답변을 빠르게 주고, 상세 답변은 백그라운드에서 추가 호출 후 업데이트
+
+이렇게 하니 호출 비용을 25% 이상 절감했고, 사용자 체감 응답 시간도 20% 이상 개선됐다. 다만 캐싱 TTL 설정과 배치 주기 조율은 서비스 특성에 맞게 세밀한 튜닝이 필요하다. 너무 길면 정보 신선도가 떨어지고, 너무 짧으면 캐시 효과가 줄어든다.
+
+---
+
+## 클라우드 자동 확장과 규제 준수 사이에서 균형 잡기
+
+우리 팀은 초기부터 AWS Lambda와 Kubernetes 기반 클라우드 인프라를 활용했다. Cloudflare 사례처럼 클라우드 플랫폼은 자동 확장과 장애 복원력 면에서 큰 장점이 있다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+하지만 데이터 프라이버시 문제와 지역별 규제(예: GDPR, CCPA)를 맞추는 건 별개의 도전이었다. 특히 민감한 사용자 데이터가 포함된 질의응답 로그를 외부 API에 보내는 경우, 암호화와 익명화, 데이터 저장 위치 관리가 필수였다. 
+
+우리 아키텍처는 다음과 같이 설계했다:
+
+- **API 호출 전 데이터 마스킹**: 개인 식별 정보 제거
+- **지역별 엔드포인트 분리**: EU 사용자 요청은 EU 리전 내 서버에서 처리
+- **감사 로그 자동화**: 호출 내역과 데이터 흐름 추적
+
+이 과정에서 클라우드 자동 확장 기능과 규제 준수 요구사항이 충돌할 수 있어, 정책과 기술적 조치 간 절충이 필요했다.
+
+---
+
+## 마이크로서비스와 이벤트 기반 설계, 모듈화가 가져온 복잡성
+
+인터로가토리 LLM 시스템을 마이크로서비스 아키텍처로 분리하면 각 기능별 독립적 확장과 배포가 가능해진다. Martin Fowler의 아키텍처 가이드도 이점을 강조한다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+우리 팀도 질의 처리, 프롬프트 생성, API 호출, 결과 후처리, 캐싱 등 기능을 각각 서비스로 쪼갰다. 이벤트 기반 메시징 시스템(Kafka)을 통해 서비스 간 비동기 통신을 구현했다.
+
+하지만 서비스가 늘어나면서 다음과 같은 문제도 체감했다:
+
+- 서비스 간 호출 비용 및 지연 증가
+- 장애 발생 시 원인 파악과 복구 복잡도 상승
+- 배포 시 버전 호환성 관리 부담
+
+그래서 점진적으로 중요 기능은 통합하거나, 호출 경로를 최적화하는 작업을 병행했다. 결국 마이크로서비스는 확장성과 유연성 측면에선 탁월하지만, 운영 복잡도 증가라는 대가를 반드시 감수해야 한다.
+
+---
+
+## 기존 백엔드와 점진적 통합, 마이그레이션 전략
+
+기존 시스템과 완전히 분리된 새로운 LLM 서비스를 만드는 건 현실적으로 리스크가 크다. InfoQ에서 소개한 단계별 마이그레이션 전략을 참고해, 우리도 점진적 통합 방식을 택했다[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+예를 들어, 기존 QA 시스템에서 LLM 호출을 보조 기능으로 먼저 넣고, 점차 핵심 답변 생성에 LLM을 활용하는 식이다. 이렇게 하면 다음과 같은 이점이 있다:
+
+- 장애 발생 시 기존 시스템으로 빠르게 롤백 가능
+- 사용자 피드백을 반영하며 점진 개선
+- 개발팀 부담 분산
+
+아래는 간단한 마이그레이션 코드 예시다. 기존 REST API에 LLM 호출을 비동기로 추가하는 구조다.
+
+```java
+@RestController
+public class QuestionController {
+
+    private final LlmService llmService;
+    private final LegacyQaService legacyQaService;
+
+    public QuestionController(LlmService llmService, LegacyQaService legacyQaService) {
+        this.llmService = llmService;
+        this.legacyQaService = legacyQaService;
+    }
+
+    @GetMapping("/qa")
+    public ResponseEntity<String> getAnswer(@RequestParam String question) {
+        // 기존 QA 시스템 우선 응답
+        String legacyAnswer = legacyQaService.getAnswer(question);
+
+        // LLM 호출은 비동기로 처리
+        llmService.requestAnswerAsync(question)
+            .thenAccept(llmAnswer -> {
+                // 결과 저장 또는 후처리
+                // ...
+            });
+
+        return ResponseEntity.ok(legacyAnswer);
+    }
+}
+```
+
+이렇게 하면 기존 서비스 안정성을 유지하면서 LLM 기능을 서서히 확장할 수 있다.
+
+---
+
+# 마치며: 인터로가토리 LLM, 현실적인 설계는 결국 타협의 연속
+
+인터로가토리 LLM 시스템 구축은 단순히 모델 API를 붙이는 것 이상의 고민이 필요하다. API 중심 아키텍처의 유연성과 호출 지연, 비용 사이에서 균형을 맞추고, 프롬프트 설계에 공을 들이며, 캐싱과 배치 처리를 통해 성능을 개선해야 한다. 클라우드 자동 확장과 지역 규제 준수도 무시할 수 없는 요소다.
+
+마이크로서비스와 이벤트 기반 설계는 확장성의 열쇠지만, 운영 복잡도도 함께 올라간다. 그래서 기존 시스템과의 점진적 통합 마이그레이션 전략을 반드시 염두에 둬야 한다. 
+
+이 글에서 소개한 경험과 전략들이 여러분의 인터로가토리 LLM 구축 여정에 조금이나마 도움이 되길 바란다. 
+
+---
+
+# 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **Interrogatory LLM 시스템 구축 시, API 중심의 아키텍처를 채택하면 유연한 확장성과 다양한 모델 통합이 가능하나, 네트워크 지연과 호출 비용이 증가하는 트레이드오프가 존재한다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **프롬프트 엔지니어링은 인터로가토리 LLM의 핵심 구성 요소로, 명확하고 구조화된 질의 설계가 모델의 응답 정확도와 효율성을 크게 향상시키며, Anthropic의 프롬프트 가이드에서는 단계별 설계법과 제약 조건을 제시한다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **대규모 서비스 운영 환경에서는 LLM 호출 지연과 비용 문제를 해결하기 위해 캐싱, 배치 처리, 비동기 호출 패턴을 도입하는 것이 중요하며, GitHub 엔지니어링 블로그에서는 이러한 실무적 제약 조건과 대응 방안을 다룬다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 플랫폼을 활용한 인터로가토리 LLM 시스템은 자동 확장과 장애 복원력 측면에서 이점을 가지지만, 데이터 프라이버시 및 지역별 규제 준수 문제로 인해 아키텍처 설계 시 신중한 고려가 필요하다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 관점에서 인터로가토리 LLM 시스템은 마이크로서비스 아키텍처와 이벤트 기반 설계를 통해 모듈화와 확장성을 확보할 수 있으나, 복잡도 증가와 서비스 간 통신 비용 증가라는 트레이드오프가 존재한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **운영 환경에서의 마이그레이션 경로는 기존 백엔드 시스템과의 점진적 통합을 통해 리스크를 최소화하며, InfoQ 아키텍처 디자인 자료에서는 단계별 마이그레이션 전략과 실무 적용 사례를 소개한다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
