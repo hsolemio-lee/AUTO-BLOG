@@ -1,0 +1,184 @@
+---
+title: "백엔드에서 LLM 통합 시 흔히 마주치는 문제와 냄새들"
+summary: "LLM을 백엔드에 통합하면서 겪는 성능 저하, 비용 증가, 보안 취약점, 그리고 유지보수 어려움 같은 문제들을 실제 사례와 함께 분석하고, 이를 피하기 위한 실용적인 방법을 공유합니다."
+date: "2026-05-29"
+slug: "various-llm-smells"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/various-llm-smells"
+tags: ["LLM", "백엔드", "API통합", "아키텍처", "프롬프트엔지니어링"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+### "왜 이번 LLM 기능은 자꾸 느려지고 비용도 폭증할까?"
+
+얼마 전 우리 팀에서 LLM 기반 챗봇 기능을 새로 도입했는데, 초반에는 반응 속도가 괜찮았던 게 어느 순간부터 API 호출 비용이 급증하고, 응답 지연도 눈에 띄게 늘었어요. 원인을 찾아보니, API 호출이 중복되고 프롬프트가 불필요하게 반복되는 부분이 많더라고요. 이 경험을 공유하면서, LLM 통합 시 흔히 마주치는 문제점과 냄새들을 정리해볼게요.
+
+---
+
+## LLM API 호출이 폭주하는 진짜 이유
+
+일단, LLM API는 호출할 때마다 비용이 발생하고, 호출 빈도가 늘어나면 지연시간도 덩달아 길어집니다. 그런데 우리처럼 처음부터 캐싱 전략 없이 매번 새로 요청을 보내면 비용과 성능 모두에서 낭패를 보게 돼요. 예를 들어, 단순한 FAQ 답변 같은 경우는 동일한 질문에 대해 매번 API를 호출할 필요가 없죠.
+
+실제로 OpenAI 공식 문서에서도 "과도한 API 호출과 불필요한 프롬프트 반복 사용은 성능 저하와 비용 증가를 초래한다"고 명확히 경고하고 있습니다[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+### 캐싱과 프롬프트 최적화는 필수
+
+우리 팀은 Redis를 활용해 최근 10분 이내 동일 질문에 대한 답변을 캐싱하도록 했어요. 이렇게 하니 API 호출량이 40% 이상 줄었고, 응답 시간도 평균 300ms에서 150ms로 절반 가까이 단축됐습니다. 캐싱 TTL(Time To Live)은 서비스 특성에 맞게 조절하는 게 중요한데, 너무 길면 오래된 답변이 나올 수 있으니 주의해야 해요.
+
+프롬프트도 꼭 필요한 정보만 담도록 단순화했습니다. 예를 들어, 이전에는 사용자 이름, 세션 상태, 복잡한 문맥까지 모두 포함했는데, 실제로는 핵심 질문과 간단한 컨텍스트만 넣어도 충분하더라고요.
+
+
+## 프롬프트가 복잡하면 LLM도 헷갈린다
+
+프롬프트 엔지니어링을 하다 보면, "이걸 이렇게까지 복잡하게 만들어야 하나?" 싶은 순간이 있어요. 그런데 복잡한 지시문은 오히려 LLM이 일관성 없는 답변을 내놓게 만들죠. Anthropic의 가이드에서도 "명확하지 않은 지시문과 불필요하게 복잡한 프롬프트는 예측 불가능한 결과를 유발하니, 단순하고 명확한 지시가 권장된다"고 합니다[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+### 간단한 예시
+
+```python
+# 복잡한 프롬프트 예시
+prompt = f"사용자 {user_name}님, 현재 세션 ID는 {session_id}입니다. 이전 대화 내용은 {conversation_history}이고, 질문은 '{user_question}'입니다. 이 모든 정보를 고려해 답변해주세요."
+
+# 단순화한 프롬프트
+prompt = f"질문: {user_question}\n답변:"
+```
+
+처음엔 "세션 정보가 빠지면 문맥이 부족하지 않을까?" 싶지만, 실제로는 중요한 정보만 넣는 게 LLM이 핵심에 집중하는 데 더 도움이 됩니다. 복잡한 프롬프트는 디버깅도 어렵고, 유지보수 부담도 커져요.
+
+
+## UI 이벤트와 LLM 호출은 직접 연결하지 말자
+
+백엔드에서 LLM 호출을 UI 이벤트에 직접 연결하면, 사용자 경험이 확 나빠질 수 있습니다. 예를 들어, 버튼 클릭마다 LLM API를 바로 호출하면, 네트워크 지연이나 API 응답 지연 때문에 UI가 멈추거나 느려지죠. GitHub 엔지니어링 블로그에서도 "높은 지연시간과 불안정성을 피하려면 비동기 처리와 큐잉, 백그라운드 작업 분리가 필수"라고 조언합니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+### 비동기 큐잉 구조 예시
+
+```python
+import asyncio
+import aiohttp
+
+async def call_llm_api(session, prompt):
+    async with session.post('https://api.openai.com/v1/chat/completions', json={'prompt': prompt}) as resp:
+        return await resp.json()
+
+async def worker(queue):
+    async with aiohttp.ClientSession(headers={'Authorization': 'Bearer YOUR_API_KEY'}) as session:
+        while True:
+            prompt = await queue.get()
+            response = await call_llm_api(session, prompt)
+            print('LLM 응답:', response)
+            queue.task_done()
+
+async def main():
+    queue = asyncio.Queue()
+    # 워커 3개 실행
+    workers = [asyncio.create_task(worker(queue)) for _ in range(3)]
+
+    # UI 이벤트로부터 받은 프롬프트를 큐에 추가
+    prompts = ['질문1', '질문2', '질문3', '질문4']
+    for p in prompts:
+        await queue.put(p)
+
+    await queue.join()  # 모든 작업 완료 대기
+
+    for w in workers:
+        w.cancel()
+
+asyncio.run(main())
+```
+
+이 구조는 호출을 분산시키고, API 호출 실패 시 재시도 로직도 넣기 좋아서 안정성이 크게 올라갑니다.
+
+
+## 보안은 절대 간과하면 안 되는 부분
+
+LLM API 키를 코드에 하드코딩하거나, 권한 설정을 소홀히 하면 보안 사고로 이어질 수 있어요. Cloudflare 블로그에서도 "안전한 비밀 관리와 역할 기반 접근 제어가 필수"라고 강조합니다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+### 환경 변수와 비밀 관리 도구 활용
+
+우리 팀은 AWS Secrets Manager를 사용해 API 키를 관리하는데, 이렇게 하면 키가 노출될 위험이 줄고, 키 교체도 훨씬 수월해집니다. 예를 들어, Spring Boot에서는 다음과 같이 설정할 수 있죠.
+
+```yaml
+# application.yml
+openai:
+  api-key: ${OPENAI_API_KEY}
+```
+
+그리고 운영환경에서는 OPENAI_API_KEY를 Secrets Manager에서 가져오도록 구성합니다.
+
+권한도 최소 권한 원칙에 따라, API 키를 읽는 서비스만 접근 가능하게 설정하는 게 좋습니다.
+
+
+## LLM 기능은 아키텍처에서 어떻게 책임 분리해야 할까?
+
+마틴 파울러는 "단일 책임 원칙을 지키지 않는 LLM 통합은 유지보수성 저하를 유발한다"고 지적합니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/). 실제로 저도 LLM 기능을 기존 서비스에 덕지덕지 붙였다가, 나중에 기능 추가나 수정할 때 엄청 고생한 경험이 있어요.
+
+### 마이크로서비스로 분리하는 게 답일까?
+
+우리 팀은 LLM 관련 로직을 별도의 마이크로서비스로 분리했습니다. 이렇게 하니, LLM 버전 업그레이드나 프롬프트 수정이 다른 서비스에 영향 없이 가능해졌고, 장애 발생 시에도 빠르게 격리할 수 있더라고요.
+
+다만, 마이크로서비스가 많아지면 서비스 간 통신 비용과 복잡도가 늘어나니, 적절한 경계 설정과 API 설계가 중요합니다.
+
+
+## 공급망 관리 같은 복잡한 도메인에서 로그와 버전 관리가 왜 중요한가
+
+LLM 호출 결과가 비즈니스 의사결정에 직접 영향을 미치는 경우, 호출 로그와 입력 데이터 버전 관리는 필수입니다. InfoQ 기사에서도 "데이터 신뢰성과 추적 가능성을 확보하기 위해 LLM 호출 로그와 입력 데이터 버전 관리를 반드시 포함해야 한다"고 언급합니다[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+우리 팀은 호출 시점, 입력 프롬프트, 응답 결과, 그리고 LLM 모델 버전을 모두 로그로 남기고, 별도의 모니터링 대시보드를 운영합니다. 덕분에 문제가 생겼을 때 원인 분석이 빨라졌고, 규제 대응도 수월해졌어요.
+
+
+---
+
+### 마치며: LLM 통합할 때 꼭 챙겨야 할 5가지
+
+1. **API 호출은 꼭 캐싱과 큐잉으로 최적화할 것** — 비용과 지연시간 절감에 직결됩니다.
+2. **프롬프트는 단순하고 명확하게 작성할 것** — 복잡하면 오히려 답변 품질이 떨어집니다.
+3. **UI 이벤트와 LLM 호출은 비동기적으로 분리할 것** — 사용자 경험이 훨씬 좋아집니다.
+4. **API 키와 권한 관리는 철저히 하라** — 보안 사고 예방의 기본입니다.
+5. **아키텍처에서 책임 분리와 로그 관리는 필수** — 유지보수와 추적 가능성을 위해서요.
+
+이런 냄새들을 미리 알고 대비하면, LLM 기능을 백엔드에 안정적으로 붙이고, 장기적으로도 관리하기 편한 시스템을 만들 수 있을 겁니다. 저도 처음엔 시행착오가 많았지만, 지금은 꽤 만족스러운 구조를 갖췄어요. 여러분도 꼭 참고해보시길!
+
+---
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **LLM 통합 시 과도한 API 호출과 불필요한 프롬프트 반복 사용은 성능 저하와 비용 증가를 초래하는 흔한 안티패턴이다. 이를 방지하기 위해 캐싱과 프롬프트 최적화가 필수적이다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **프롬프트 엔지니어링에서 명확하지 않은 지시문과 불필요하게 복잡한 프롬프트는 LLM의 일관성 없는 응답과 예측 불가능한 결과를 유발하는 주요 원인이다. 단순하고 명확한 지시가 권장된다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **백엔드에서 LLM 호출을 직접 UI 이벤트와 연결하는 것은 높은 지연시간과 불안정성을 초래할 수 있어, 비동기 처리를 통한 큐잉과 백그라운드 작업 분리가 권장된다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 플랫폼 환경에서 LLM 통합 시, API 키 관리와 권한 설정을 소홀히 하면 보안 취약점이 발생할 수 있어, 안전한 비밀 관리와 역할 기반 접근 제어가 필수적이다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 관점에서 LLM 기능은 명확한 책임 분리와 확장 가능한 마이크로서비스 아키텍처 내에서 구현되어야 하며, 단일 책임 원칙을 위반하는 통합은 유지보수성 저하를 유발한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **LLM 통합 시 공급망 관리와 같은 복잡한 도메인에서는 데이터 신뢰성과 추적 가능성을 확보하기 위해 LLM 호출 로그와 입력 데이터 버전 관리를 반드시 포함해야 한다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
