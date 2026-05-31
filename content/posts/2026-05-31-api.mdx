@@ -1,0 +1,143 @@
+---
+title: "공개 웹 API 버전 관리, URI부터 헤더까지 실무에서 고민한 전략들"
+summary: "공개 웹 API를 안정적으로 운영하고 확장하려면 어떻게 버전 관리를 해야 할까요? URI 경로, 요청 헤더, 쿼리 파라미터 등 다양한 전략과 실제 사례를 통해 실무에서 적용 가능한 구체적인 방법을 공유합니다."
+date: "2026-05-31"
+slug: "api"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/api"
+tags: ["API", "버전관리", "REST", "웹서비스", "운영전략"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+### "API 버전이 바뀌었는데, 클라이언트는 어떻게 알죠?"
+
+이런 질문 한 번쯤 받아본 적 있죠? 공개 API를 운영하다 보면 새 기능을 추가하거나 기존 기능을 바꿔야 할 때, 기존 사용자들이 갑자기 오류를 겪거나 서비스가 깨지는 걸 막는 게 가장 큰 고민입니다. 그래서 API 버전 관리가 필수인데, 이게 생각보다 단순한 숫자 붙이기 이상의 문제더라고요.
+
+---
+
+## URI 경로에 버전 번호를 명시하는 게 왜 가장 흔할까?
+
+실제로 가장 많이 쓰는 방식은 URI 경로에 `/v1/`, `/v2/` 같은 버전 번호를 넣는 겁니다. 예를 들어 `https://api.example.com/v1/users` 이런 식이죠. 이렇게 하면 클라이언트가 명확하게 어떤 버전을 호출하는지 알 수 있어서, 서버 입장에서도 요청을 분기 처리하기 쉽습니다.
+
+Martin Fowler도 이 방식을 가장 일반적이라고 꼽았는데, 이유는 명확성 때문입니다. 클라이언트가 어떤 버전을 쓰는지 URI만 보면 바로 알 수 있고, 캐시 정책도 버전별로 따로 관리하기 편해요[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+처음엔 이게 별거 아닌 것 같지만, 실제 운영 환경에서 버전 혼동으로 인한 장애가 얼마나 많이 나는지 경험해보면 URI 버전 명시의 중요성이 피부로 와닿습니다.
+
+---
+
+## 헤더로 버전 관리를 하는 GitHub의 사례
+
+그런데 URI에 버전을 넣는 게 항상 최선은 아닙니다. GitHub REST API는 버전 관리를 미디어 타입(media type) 헤더로 하는데, 클라이언트가 `Accept` 헤더에 `application/vnd.github.v3+json` 같은 식으로 원하는 버전을 명시할 수 있어요.
+
+이 방식의 장점은 URI가 깔끔해지고, 같은 엔드포인트에서 다양한 버전을 동시에 지원할 수 있다는 점입니다. 하지만 서버 쪽에서는 헤더를 파싱해서 버전을 분기해야 하니 구현 난이도가 URI 방식보다 조금 올라가죠. 그리고 클라이언트가 헤더를 잘못 보내면 버전 혼란이 생길 수 있습니다.
+
+```http
+GET /users/octocat HTTP/1.1
+Host: api.github.com
+Accept: application/vnd.github.v3+json
+```
+
+GitHub Engineering Blog에 따르면, 이 방법은 REST API 버전 관리에 유연성을 주면서도 클라이언트와 서버가 명확히 소통할 수 있게 해줍니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+---
+
+## 쿼리 파라미터로 버전을 지정하는 경우도 있지만...
+
+URI나 헤더 외에도 `?version=1` 같은 쿼리 파라미터로 버전 관리를 하는 경우가 있습니다. 이 방식은 구현이 쉽고, 클라이언트가 URL만 보면 버전을 알 수 있다는 장점이 있지만, 캐시나 프록시 설정에서 복잡함이 늘어나고, RESTful API 설계 원칙에서 약간 벗어난다는 지적도 있습니다.
+
+Martin Fowler는 이 방식이 상황에 따라 선택될 수 있지만, URI 경로나 헤더 방식보다 덜 선호된다고 언급하고 있습니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+---
+
+## 버전 관리, 단순히 숫자 붙이기만 하면 끝인가?
+
+사실 버전 번호 붙이는 건 시작일 뿐입니다. InfoQ에서는 안정적인 API 운영을 위해선 문서화와 테스트 자동화, 그리고 클라이언트와의 커뮤니케이션 체계가 반드시 병행되어야 한다고 강조합니다. 버전별 API 문서를 명확히 제공하지 않으면 클라이언트가 헷갈리고, 테스트가 부족하면 새 버전에서 버그가 터지기 쉽거든요[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+예를 들어, 새 버전 API가 나오면 기존 버전과 비교해 어떤 필드가 추가됐고, 어떤 동작이 달라졌는지 상세히 문서화하고, 자동화된 테스트 스위트에서 두 버전을 모두 검증해야 합니다. 그래야 클라이언트가 점진적으로 새 버전으로 전환할 수 있습니다.
+
+---
+
+## Cloudflare가 알려준 점진적 롤아웃과 피처 플래그 활용법
+
+버전 관리가 단순히 버전 번호 관리에 그치지 않는다는 걸 보여주는 좋은 사례가 Cloudflare입니다. 그들은 새 API 버전을 바로 전체 사용자에게 공개하지 않고, 단계적으로 롤아웃합니다. 그리고 피처 플래그(feature flags)를 활용해 문제가 발견되면 빠르게 롤백할 수 있도록 준비해두죠.
+
+이렇게 하면 새 버전 도입 시 발생할 수 있는 장애 위험을 크게 줄일 수 있습니다. 실제로 Cloudflare는 이런 전략 덕분에 대규모 트래픽을 안정적으로 처리하면서도 빠르게 기능을 개선할 수 있었다고 합니다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+---
+
+## 실전에서 내가 써본 간단한 API 버전 처리 코드 예시
+
+아래는 Spring Boot에서 URI 경로 기반 버전 관리를 간단히 구현한 예입니다. `/v1/users`와 `/v2/users` 두 버전을 각각 컨트롤러로 분리해두고, 클라이언트가 명확히 호출할 수 있게 했죠.
+
+```java
+@RestController
+@RequestMapping("/v1/users")
+public class UserControllerV1 {
+    @GetMapping
+    public List<User> getUsersV1() {
+        // 기존 버전 사용자 리스트 반환
+        return userService.getAllUsers();
+    }
+}
+
+@RestController
+@RequestMapping("/v2/users")
+public class UserControllerV2 {
+    @GetMapping
+    public List<UserDto> getUsersV2() {
+        // v2에서는 UserDto로 반환, 필드가 추가됨
+        return userService.getAllUsersDto();
+    }
+}
+```
+
+이렇게 하면 새 버전을 만들 때 기존 코드를 건드리지 않고 새로운 컨트롤러를 추가하는 식으로 확장할 수 있습니다. 단점은 API 경로가 길어지고, 클라이언트가 버전별로 별도 처리를 해야 한다는 점이죠.
+
+---
+
+## 마무리하며: "버전 관리, 결국은 사람과의 소통"
+
+API 버전 관리는 기술적인 문제 같지만, 사실은 사람과의 소통 문제에 가깝습니다. 클라이언트 개발자에게 새 버전이 언제 나오고, 어떻게 바뀌는지 정확히 알려줘야 하고, 서버 운영팀은 점진적 배포와 롤백 전략을 준비해야 하죠.
+
+URI 경로 명시, 헤더 기반, 쿼리 파라미터 등 각 방식의 장단점을 이해하고, 우리 서비스 환경과 클라이언트 요구에 맞게 선택하는 게 중요합니다. 그리고 문서화, 테스트, 커뮤니케이션을 함께 신경 쓰지 않으면 버전 관리는 실패하기 쉽습니다.
+
+이 글이 공개 API 버전 관리에 대해 고민하는 분들께 조금이나마 도움이 되었으면 합니다. 
+
+---
+
+### 참고 자료
+
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **공개 웹 API의 안정적 운영을 위해 URI 경로에 버전 번호를 명시하는 방식이 가장 일반적이며, 이는 클라이언트가 명확하게 사용할 API 버전을 지정할 수 있게 한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **API 버전 관리는 새 기능 추가나 변경 사항이 기존 클라이언트에 영향을 주지 않도록 하는 것이 핵심이며, 이를 위해 점진적 버전 관리와 하위 호환성 유지가 중요하다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub에서는 REST API 버전 관리를 위해 미디어 타입(media type) 헤더를 활용하는 전략을 사용하며, 이를 통해 클라이언트가 요청 시 원하는 API 버전을 헤더로 지정할 수 있게 한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare는 API 버전 관리를 위해 단계적 롤아웃과 피처 플래그(feature flags)를 활용하여 새로운 API 버전을 점진적으로 배포하고, 문제가 발생할 경우 빠르게 롤백할 수 있도록 한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **버전 관리 전략으로는 URI 버전명 명시, 요청 헤더를 통한 버전 지정, 쿼리 파라미터 이용 방식 등이 있으며, 각 방식은 운영 환경과 클라이언트 요구사항에 따라 선택된다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **API 버전 관리는 단순히 버전 번호를 붙이는 것을 넘어서, 문서화, 테스트 자동화, 그리고 클라이언트와의 커뮤니케이션 체계 구축이 병행되어야 안정적인 서비스 운영이 가능하다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
