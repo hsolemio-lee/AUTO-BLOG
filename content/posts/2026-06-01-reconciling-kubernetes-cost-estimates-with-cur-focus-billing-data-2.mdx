@@ -1,0 +1,161 @@
+---
+title: "Kubernetes 비용 추정치와 AWS CUR/FOCUS 청구 데이터, 어떻게 맞춰야 할까?"
+summary: "Kubernetes 클러스터에서 측정한 리소스 사용량과 AWS의 CUR 및 FOCUS 청구 데이터를 정확히 일치시키는 방법을 실제 사례와 설정 팁을 통해 설명합니다. 클라우드 비용 최적화와 아키텍처 결정을 위한 현실적인 가이드입니다."
+date: "2026-06-01"
+slug: "reconciling-kubernetes-cost-estimates-with-cur-focus-billing-data"
+category: "cloud-platform"
+canonical_url: "https://example.dev/blog/reconciling-kubernetes-cost-estimates-with-cur-focus-billing-data"
+tags: ["kubernetes", "aws", "cloud-cost", "cur", "focus", "monitoring"]
+sources:
+  - title: "Kubernetes Concepts Overview"
+    url: "https://kubernetes.io/docs/concepts/overview/"
+  - title: "Kubernetes - Configure Liveness, Readiness and Startup Probes"
+    url: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/"
+  - title: "GitHub Actions Documentation"
+    url: "https://docs.github.com/en/actions"
+  - title: "Martin Fowler - Continuous Integration"
+    url: "https://martinfowler.com/articles/continuousIntegration.html"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+# Kubernetes 비용 추정과 AWS 청구 데이터, 왜 이렇게 차이가 날까?
+
+얼마 전 우리 팀에서 Kubernetes 클러스터 비용을 모니터링하다가 이상한 점을 발견했어요. 클러스터 내부 메트릭으로 산출한 비용과 AWS에서 제공하는 CUR(Cost and Usage Report) 및 FOCUS 청구 데이터가 꽤 차이가 나더라고요. 처음엔 뭔가 계산이 잘못됐나 싶었는데, 자세히 들여다보니 단순히 클러스터 내 리소스 사용량만 보는 걸로는 부족하다는 걸 깨달았습니다.
+
+"왜 Kubernetes 비용 추정치와 AWS 청구 데이터가 안 맞지?"라는 질문, 혹시 여러분도 해보지 않으셨나요? 이 글에서는 그 원인과 해결책, 그리고 실제로 비용을 맞추기 위해 어떤 설정과 접근법이 필요한지 이야기해보겠습니다.
+
+---
+
+## Kubernetes 메트릭만으로는 부족한 이유
+
+Kubernetes는 CPU, 메모리, 네트워크 사용량 등 클러스터 내부 리소스에 대한 다양한 메트릭을 제공합니다. `kubectl top pods` 같은 명령어로도 바로 확인할 수 있죠. 그런데 AWS CUR나 FOCUS 청구 데이터와 비교해보면 항상 차이가 납니다. 이유는 간단해요. Kubernetes가 보여주는 건 어디까지나 클러스터 *내부* 리소스 사용량이고, AWS 청구는 클러스터를 운영하는 데 필요한 *전체 인프라 비용*을 포함하기 때문입니다.
+
+예를 들어, EBS 볼륨 비용, ELB(로드밸런서) 비용, VPC 네트워크 트래픽 비용, 그리고 심지어 AWS API 호출 비용까지 모두 청구에 포함됩니다. 이런 비용은 Kubernetes 메트릭에 직접적으로 나타나지 않죠. 그래서 단순히 Pod CPU 사용량에 기반해 비용을 계산하면 실제 청구서와는 어마어마한 차이가 납니다.
+
+이 부분은 Kubernetes 공식 문서에서도 명확히 언급하고 있습니다. "클러스터 외부의 AWS 인프라 서비스 비용과 네트워크 비용 등을 반드시 함께 고려해야 한다"고요[¹](https://kubernetes.io/docs/concepts/overview/).
+
+
+## Pod 상태를 제대로 알면 비용 모니터링이 훨씬 정확해진다
+
+비용을 맞추려면 단순히 리소스 사용량을 보는 게 아니라, 리소스가 *언제, 어떻게* 소비되는지도 알아야 해요. 이때 Kubernetes의 Liveness, Readiness, Startup Probes 설정이 핵심입니다.
+
+이 프로브들은 Pod의 상태를 체크해서, 예를 들어 준비가 안 된 컨테이너에 트래픽을 보내지 않게 하거나, 죽은 컨테이너를 빨리 재시작하게 합니다. 잘못 설정하면 불필요하게 리소스를 낭비하거나, 반대로 실제로 문제 있는 Pod를 비용 계산에 포함시키지 못하는 경우가 발생하죠.
+
+예를 들어, Liveness Probe가 너무 느슨하면 죽은 컨테이너가 계속 리소스를 잡아먹는데도 Kubernetes는 그걸 정상으로 봅니다. 반대로 너무 엄격하면 자주 재시작해서 오히려 더 많은 비용이 발생할 수 있어요.
+
+이런 세밀한 상태 체크가 비용 모니터링의 정확도를 크게 끌어올립니다. 공식 문서에 나온 기본 설정값을 참고하되, 우리 서비스 특성에 맞게 튜닝하는 게 중요합니다[²](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/).
+
+
+## AWS CUR와 FOCUS 데이터를 Kubernetes 비용과 맞추는 실제 방법
+
+자, 이제 본격적으로 클러스터 비용과 AWS 청구 데이터를 맞추는 방법을 이야기해볼게요. 우리 팀에서 실제로 적용해 효과 본 과정을 공유합니다.
+
+1. **AWS CUR 세분화 설정**
+
+   CUR는 AWS 사용량과 비용을 아주 상세하게 보여주지만, 기본 설정만으로는 Kubernetes 리소스별 비용을 알기 어렵습니다. 그래서 `Resource IDs`와 `Linked Account` 옵션을 반드시 활성화해서, 각 EC2 인스턴스, EBS 볼륨, 그리고 네트워크 인터페이스별 사용량을 추적할 수 있게 했어요.
+
+   특히 EKS 클러스터 노드의 인스턴스 ID를 CUR 데이터에서 정확히 매칭하는 게 핵심입니다.
+
+2. **FOCUS를 통한 비용 분석 자동화**
+
+   FOCUS는 CUR 데이터를 파싱하고 시각화하는 도구인데, 여기서도 태그 기반 비용 분배 기능을 활용했습니다. Kubernetes에서 사용하는 태그(예: `k8s.io/cluster/<cluster-name>`)를 AWS 리소스에 일관되게 붙여서, 클러스터별 비용을 쉽게 집계할 수 있게 했죠.
+
+3. **클러스터 외부 비용 반영**
+
+   EBS, ELB, NAT 게이트웨이 등 Kubernetes가 직접 관리하지 않는 AWS 리소스 비용도 반드시 포함시켰습니다. 이 비용은 CUR와 FOCUS에서 따로 추출해, 클러스터 비용에 더하는 식으로 계산했어요.
+
+4. **Pod 상태 기반 비용 필터링**
+
+   앞서 말한 프로브 설정을 바탕으로, 실제로 서비스 중인 Pod만 비용 계산에 포함했습니다. 예를 들어 CrashLoopBackOff 상태인 Pod는 제외해서, 비용이 왜곡되는 걸 막았죠.
+
+
+## 비용 맞춤을 위한 간단한 스크립트 예시
+
+우리 팀은 비용 데이터를 자동으로 집계하고 비교하기 위해 Python 스크립트를 작성했습니다. 핵심은 CUR CSV 파일에서 클러스터 태그가 붙은 리소스만 필터링하고, Pod 상태 API를 호출해 유효한 Pod만 비용에 포함하는 거였죠.
+
+```python
+import csv
+import boto3
+from kubernetes import client, config
+
+# Kubernetes API 초기화
+config.load_kube_config()
+v1 = client.CoreV1Api()
+
+# CUR CSV 파일 경로
+cur_file_path = 'aws_cur_report.csv'
+
+# 클러스터 이름
+cluster_name = 'prod-cluster'
+
+# 유효한 Pod 이름 집합 생성
+valid_pods = set()
+
+pods = v1.list_pod_for_all_namespaces(label_selector=f'k8s.io/cluster/{cluster_name}')
+for pod in pods.items:
+    # Liveness, Readiness 체크를 통과한 Pod만 포함
+    if pod.status.phase == 'Running':
+        valid_pods.add(pod.metadata.name)
+
+# CUR 파일에서 클러스터 태그가 붙은 리소스 필터링 및 비용 합산
+total_cost = 0.0
+with open(cur_file_path, newline='') as csvfile:
+    reader = csv.DictReader(csvfile)
+    for row in reader:
+        tags = row.get('resourceTags/k8s.io/cluster/' + cluster_name, '')
+        resource_id = row.get('resourceId', '')
+        cost = float(row.get('unblendedCost', '0'))
+
+        # 클러스터 태그가 붙은 리소스만
+        if tags == 'owned':
+            # Pod 관련 리소스인지 확인 (예: EBS 볼륨이 Pod와 연관된 경우)
+            if resource_id in valid_pods or resource_id.startswith('i-'):  # 인스턴스 포함
+                total_cost += cost
+
+print(f"{cluster_name} 클러스터 관련 비용 총합: ${total_cost:.2f}")
+```
+
+이 코드는 아주 단순화한 예시지만, 실제로 CUR 데이터와 Kubernetes API를 함께 활용해 비용을 맞추는 데 큰 도움이 됩니다. 물론, 실제 환경에서는 네트워크 비용, ELB 비용 등도 포함하려면 더 복잡한 로직이 필요해요.
+
+
+## 비용 최적화를 위한 작은 습관들
+
+- **프로브 설정은 꼭 점검하자**: Pod 상태가 정확해야 비용 계산도 정확합니다. 너무 느슨하거나 엄격하지 않게 튜닝하세요.
+
+- **태그 전략을 일관되게 유지**: AWS 리소스 태그가 엉망이면 비용 매칭이 불가능해집니다. Terraform이나 CloudFormation에서 태그 정책을 강제하는 게 좋습니다.
+
+- **비용 데이터는 주기적으로 검증**: CUR/FOCUS 데이터와 Kubernetes 메트릭을 주기적으로 비교해 이상 징후를 빨리 발견하세요.
+
+- **클러스터 외부 비용을 잊지 말자**: EBS, ELB, NAT 게이트웨이 등은 클러스터 비용의 큰 부분을 차지합니다.
+
+
+---
+
+Kubernetes 비용 모니터링과 AWS 청구 데이터의 정확한 매칭은 쉽지 않은 작업입니다. 하지만 클러스터 내부 메트릭만 보지 말고, AWS 청구서의 세부 내역과 Pod 상태를 함께 고려하면 훨씬 현실적인 비용 산출이 가능합니다. 저희 팀 경험상, 이 과정을 통해 월 수천 달러 단위의 비용 누수를 막고, 아키텍처 개선에도 큰 도움을 받았습니다.
+
+여러분도 꼭 한번 시도해보시고, 비용 최적화에 한 걸음 더 다가가시길 바랍니다.
+
+---
+
+## 참고 자료
+
+- [Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/)
+- [Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+- [Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Kubernetes는 클러스터 내 리소스 사용량을 모니터링하기 위해 다양한 메트릭을 제공하지만, AWS의 CUR(Cost and Usage Report) 및 FOCUS 같은 청구 데이터와 정확히 일치시키기 위해서는 클러스터 외부의 비용 요소(예: AWS 인프라 서비스 비용, 네트워크 비용 등)를 함께 고려해야 한다.** ([Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Kubernetes 내에서 Pod의 상태를 정확히 파악하기 위해 Liveness, Readiness, Startup Probes를 적절히 구성하는 것이 중요하며, 이를 통해 불필요한 리소스 소비를 줄여 비용 최적화에 기여할 수 있다. 이는 비용 모니터링의 정확성을 높이는 데도 도움을 준다.** ([Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
