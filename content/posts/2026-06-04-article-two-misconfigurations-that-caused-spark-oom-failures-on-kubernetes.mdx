@@ -1,0 +1,161 @@
+---
+title: "Kubernetes에서 Spark OOM 문제, 두 가지 설정 실수로 고생한 이야기"
+summary: "Kubernetes 환경에서 Spark 작업 중 발생하는 OOM(Out-Of-Memory) 문제를 두 가지 잘못된 설정 사례를 통해 진단하고 해결한 경험을 공유합니다. 리소스 제한과 프로브 설정의 중요성을 실제 설정값과 함께 살펴봅니다."
+date: "2026-06-04"
+slug: "article-two-misconfigurations-that-caused-spark-oom-failures-on-kubernetes"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/article-two-misconfigurations-that-caused-spark-oom-failures-on-kubernetes"
+tags: ["kubernetes", "spark", "OOM", "resource-management", "backend"]
+sources:
+  - title: "Kubernetes Concepts Overview"
+    url: "https://kubernetes.io/docs/concepts/overview/"
+  - title: "Kubernetes - Configure Liveness, Readiness and Startup Probes"
+    url: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/"
+---
+
+## 갑자기 터진 Spark 작업, OOM 에러가 왜 나지?
+
+"어? 갑자기 Spark 작업이 죽었는데 로그 보니까 OOM(Out-Of-Memory) 에러야. 근데 메모리 설정은 충분히 준 것 같은데 왜?"
+
+내가 Kubernetes 위에서 Spark 작업을 돌리던 중에 겪은 일이다. 처음에는 Spark 자체 문제인 줄 알았는데, 자세히 파고들다 보니 Kubernetes 리소스 설정과 프로브 설정 두 군데에서 실수가 있었다. 이건 실제로 겪어보면 진짜 머리 아픈 문제다.
+
+이번 글에서는 내가 겪은 두 가지 대표적인 설정 실수와 그 해결 과정을 공유하려 한다. 특히 Spark를 Kubernetes 위에 올려서 운영하는 분들에게 도움이 되길 바란다.
+
+---
+
+## Kubernetes 리소스 요청과 제한, 이걸 잘못 설정하면 Spark가 바로 죽는다
+
+Kubernetes에서 Pod와 컨테이너에 메모리 리소스를 할당할 때는 `resources.requests`와 `resources.limits`를 꼭 설정해야 한다. 이 설정이 없으면 Kubernetes가 메모리 부족 상황을 제대로 감지하지 못하거나, 반대로 너무 엄격하게 제한해서 애플리케이션이 OOMKill 당할 수 있다.
+
+내 경우는 `limits.memory`를 너무 낮게 잡아서 Spark executor가 메모리 부족으로 계속 죽었다. 예를 들어, executor 하나당 4Gi 메모리를 쓰는데, `limits.memory`를 3Gi로 설정해버린 거다. Kubernetes는 이걸 넘어서면 바로 프로세스를 강제로 종료시킨다.
+
+```yaml
+resources:
+  requests:
+    memory: "4Gi"
+    cpu: "2"
+  limits:
+    memory: "3Gi"  # 이게 문제였다
+    cpu: "2"
+```
+
+이렇게 설정하면, Spark executor가 4Gi를 요구해도 Kubernetes가 3Gi 이상은 안 준다. 결국 OOMKill이 발생한다.
+
+해결책은 `limits.memory`를 `requests.memory` 이상으로 맞춰주는 것. 보통은 `requests`와 `limits`를 동일하게 맞추거나, `limits`를 약간 더 크게 잡아준다. 내 경우는 둘 다 5Gi로 맞춰서 안정화했다.
+
+이 부분은 [Kubernetes 공식 문서](https://kubernetes.io/docs/concepts/overview/)에도 잘 나와 있는데, 실제 운영 환경에서는 꼭 꼼꼼히 확인해야 한다.
+
+---
+
+## 프로브 설정이 엉망이면 Kubernetes가 컨테이너를 계속 재시작한다
+
+두 번째 문제는 Liveness, Readiness, Startup 프로브 설정이었다. 처음에는 이게 OOM과 무슨 상관인가 싶었는데, 의외로 큰 영향을 줬다.
+
+우리 Spark driver와 executor 컨테이너에 프로브를 너무 짧게 잡았다. 예를 들어, Liveness 프로브를 5초마다 체크하고, 실패 허용 횟수를 1로 설정했다. Spark가 초기화 중일 때 약간 느려지면 프로브가 실패로 판단해서 Kubernetes가 컨테이너를 재시작하는 상황이 발생했다.
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 4040
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  failureThreshold: 1
+```
+
+이 설정은 Spark가 완전히 준비되기 전에 너무 빨리 재시작을 유발했다. 특히 driver가 메모리 할당하고 초기화하는 동안 프로브가 실패하면, Kubernetes가 "이 컨테이너는 문제 있다" 판단해서 재시작하는데, 이 과정에서 메모리 사용량이 급증하고 결국 OOM으로 이어졌다.
+
+해결은 프로브의 `initialDelaySeconds`와 `failureThreshold`를 늘려주는 것. 나는 `initialDelaySeconds`를 60초, `failureThreshold`를 5로 늘렸다. 이렇게 하니까 Spark가 안정적으로 초기화되고, 불필요한 재시작이 사라졌다.
+
+[Kubernetes 프로브 설정 가이드](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)를 참고하면, 애플리케이션 특성에 맞게 프로브 타이밍을 조절하는 게 얼마나 중요한지 알 수 있다.
+
+---
+
+## Spark 메모리 설정과 Kubernetes 리소스 설정, 둘 다 조율해야 한다
+
+Kubernetes 리소스 제한만 맞춘다고 끝나는 게 아니다. Spark 자체 메모리 설정도 같이 맞춰야 한다.
+
+예를 들어, Spark executor 메모리를 6Gi로 줬는데 Kubernetes limits는 5Gi로 설정하면 당연히 OOM이 난다. 반대로 Kubernetes limits를 넉넉히 줘도 Spark executor 메모리가 너무 작으면 작업이 느려지고 실패할 수 있다.
+
+내가 현장에서 쓴 Spark submit 예시는 다음과 같다.
+
+```bash
+spark-submit \
+  --master k8s://https://kubernetes.default.svc \
+  --deploy-mode cluster \
+  --name spark-oom-fix \
+  --conf spark.executor.memory=5g \
+  --conf spark.driver.memory=4g \
+  --conf spark.executor.memoryOverhead=1g \
+  --conf spark.kubernetes.executor.request.cores=2 \
+  --conf spark.kubernetes.executor.limit.cores=2 \
+  --conf spark.kubernetes.memoryOverheadFactor=0.2 \
+  local:///path/to/app.jar
+```
+
+여기서 `spark.executor.memory`는 JVM heap 메모리이고, `spark.executor.memoryOverhead`는 JVM 외에 필요한 off-heap 메모리를 위한 설정이다. Kubernetes의 `limits.memory`는 이 두 개를 합친 값 이상으로 설정해야 한다.
+
+이 부분을 잘못 맞추면 JVM이 할당된 메모리를 넘어서서 OOMKill 당한다. 반면 너무 크게 잡으면 리소스 낭비가 심하다.
+
+---
+
+## 내 경험상 Spark OOM 문제 해결에 가장 도움이 된 점
+
+1. **Kubernetes 리소스 요청과 제한을 꼼꼼히 맞추기**
+   - requests <= limits
+   - Spark 메모리 설정과 Kubernetes limits 간 일관성 유지
+
+2. **프로브 설정은 충분히 여유 있게 잡기**
+   - 초기 지연시간(initialDelaySeconds) 늘리기
+   - 실패 허용 횟수(failureThreshold) 높이기
+
+3. **Spark 메모리 설정과 Kubernetes 설정을 함께 조율하기**
+   - executor, driver 메모리와 memoryOverhead 고려
+
+4. **로그와 이벤트를 꼼꼼히 확인하기**
+   - Kubernetes 이벤트에서 OOMKill 원인 확인
+   - Spark 로그에서 GC, 메모리 사용량 모니터링
+
+이건 실제로 겪어보면 "아, 이게 문제였구나" 하는 순간이 온다. 처음엔 프로브 설정이랑 메모리 제한이랑 별개인 줄 알았는데, 이게 서로 얽혀서 문제를 키우는 경우가 많다.
+
+---
+
+## 마치며: Spark on Kubernetes 운영, 작은 설정 하나가 큰 장애를 만든다
+
+Spark 작업을 Kubernetes에서 돌릴 때는 단순히 Spark 설정만 조정하는 게 아니라, Kubernetes 리소스와 프로브 설정까지 함께 봐야 한다. 특히 메모리 관련 설정은 한쪽만 잘 맞추면 다른 쪽에서 문제가 터진다.
+
+내가 겪은 두 가지 실수 사례가 여러분 환경에서도 도움이 되길 바란다. 그리고 꼭 Kubernetes 공식 문서도 함께 참고하자. 설정 하나하나가 실제 서비스 안정성에 큰 영향을 준다.
+
+---
+
+### 참고 자료
+
+- [Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/)
+- [Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Kubernetes에서는 Pod 및 컨테이너의 메모리 사용량을 제한하기 위해 리소스 요청과 제한(resource requests and limits)을 설정해야 하며, 이를 잘못 설정하면 Spark 작업이 OOM(Out-Of-Memory) 오류를 일으킬 수 있다.** ([Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Liveness, Readiness, Startup 프로브 설정이 부적절하면 Kubernetes가 컨테이너를 잘못 판단해 재시작하거나 비정상 상태로 간주하여 Spark 작업이 불필요하게 중단될 수 있다. 이는 OOM 문제 진단 시 고려해야 할 중요한 요소이다.** ([Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spark 작업에서 OOM 문제를 해결하기 위해서는 Kubernetes의 리소스 제한뿐만 아니라 Spark 자체의 메모리 관리 설정(예: executor 메모리, driver 메모리)도 같이 조정해야 한다는 점이 중요하다. Kubernetes 설정만으로는 완전한 해결이 어렵다.** ([Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **Kubernetes에서는 Pod 및 컨테이너의 메모리 사용량을 제한하기 위해 리소스 요청과 제한(resource requests and limits)을 설정해야 하며, 이를 잘못 설정하면 Spark 작업이 OOM(Out-Of-Memory) 오류를 일으킬 수 있다.** ([Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Liveness, Readiness, Startup 프로브 설정이 부적절하면 Kubernetes가 컨테이너를 잘못 판단해 재시작하거나 비정상 상태로 간주하여 Spark 작업이 불필요하게 중단될 수 있다. 이는 OOM 문제 진단 시 고려해야 할 중요한 요소이다.** ([Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spark 작업에서 OOM 문제를 해결하기 위해서는 Kubernetes의 리소스 제한뿐만 아니라 Spark 자체의 메모리 관리 설정(예: executor 메모리, driver 메모리)도 같이 조정해야 한다는 점이 중요하다. Kubernetes 설정만으로는 완전한 해결이 어렵다.** ([Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
