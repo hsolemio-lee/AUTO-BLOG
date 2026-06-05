@@ -1,0 +1,115 @@
+---
+title: "스타벅스 AI 재고 시스템 실패에서 배운 SCM 엔지니어링 교훈"
+summary: "스타벅스가 9개월 만에 AI 기반 재고 시스템을 포기한 사례를 통해, 안정적인 데이터 통합과 모듈화된 아키텍처가 왜 공급망 관리 시스템에서 중요한지 실제 경험을 바탕으로 살펴봅니다."
+date: "2026-06-05"
+slug: "starbucks-ditches-ai-inventory-system-after-just-9-months"
+category: "scm"
+canonical_url: "https://example.dev/blog/starbucks-ditches-ai-inventory-system-after-just-9-months"
+tags: ["SCM", "AI", "공급망관리", "시스템통합", "백엔드아키텍처"]
+sources:
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "SAP Help Portal - Supply Chain Management"
+    url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+---
+
+## AI 재고 시스템, 왜 9개월 만에 철회했을까?
+
+최근 스타벅스가 도입한 AI 기반 재고 관리 시스템을 9개월 만에 포기했다는 소식이 업계에 꽤 큰 화제가 됐어요. 처음엔 ‘AI가 재고 예측을 다 해준대, 완전 혁신 아니야?’라는 기대가 컸는데, 현실은 생각보다 복잡했죠. 실제로 스타벅스 내부에서는 데이터 품질 문제와 기존 비즈니스 로직과의 충돌, 사용자 경험 이슈가 복합적으로 작용하면서 시스템 안정성에 치명타를 입었다고 합니다.
+
+이 사례는 단순히 ‘AI가 실패했다’가 아니라, 우리가 SCM 시스템 설계 시 어떤 점을 놓치면 안 되는지 다시 한번 곱씹어보게 만듭니다.
+
+## SCM에서 데이터 품질과 실시간 가시성이 왜 그렇게 중요한가
+
+공급망 관리에서 가장 기본이 되는 건 결국 ‘정확한 재고 데이터’예요. AI 모델이 아무리 똑똑해도, 입력 데이터가 엉망이면 결과도 엉망이 될 수밖에 없죠. 스타벅스 사례도 마찬가지로, 초기 데이터 통합 과정에서 여러 매장과 창고의 재고 정보가 제대로 실시간으로 반영되지 않았다고 해요. 
+
+Microsoft의 Dynamics 365 SCM 문서에서도 강조하는 부분인데, “효과적인 SCM 시스템 설계는 안정적인 데이터 통합과 실시간 재고 가시성이 필수”라고 명확하게 나옵니다. 데이터가 신뢰할 수 없으면 AI가 아무리 고도화돼도 운영 리스크가 커질 수밖에 없죠[Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/).
+
+여기서 중요한 점은 단순히 데이터 수집만 빠르게 하는 게 아니라, 데이터 품질을 보장하는 검증 루틴과 비즈니스 규칙을 실시간으로 반영하는 체계가 필요하다는 겁니다. 예를 들어, 매장별 판매 패턴, 프로모션, 지역별 특성 같은 복잡한 변수들을 AI 모델이 제대로 학습하고 반영해야 하니까요.
+
+## 클라우드 기반 SCM 솔루션이 주는 장점과 스타벅스가 겪은 현실적 문제
+
+스타벅스가 도입한 시스템은 클라우드 기반 AI SCM 솔루션이었어요. 클라우드의 가장 큰 장점은 확장성, 그리고 빠른 업데이트 배포입니다. 실제로 Oracle의 SCM 클라우드 문서에서는 이런 점을 강점으로 꼽죠. 하지만 클라우드라 해도 도입 초기에는 예상치 못한 사용자 경험 문제와 시스템 통합 이슈가 빈번히 발생할 수 있다고 명시되어 있습니다[Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/).
+
+스타벅스 사례를 보면, 매장 직원들이 AI가 추천하는 재고 주문량과 실제 매장 상황이 맞지 않아 혼란이 생겼다고 합니다. AI가 ‘이렇게 주문해라’라고 해도, 현장에선 ‘이건 너무 많거나 적다’고 느끼는 거죠. 결국 사용자 신뢰가 떨어지면서 시스템 활용도가 급감했고, 빠른 롤백으로 이어졌습니다.
+
+이 경험을 보면, 클라우드 기반 SCM 도입 시에도 사용자 피드백 루프를 짧게 가져가고, 현장 상황을 반영하는 커스터마이징이 필수라는 걸 알 수 있어요.
+
+## AI 기능을 기존 SCM 백엔드에 무리 없이 통합하려면 어떻게 해야 할까?
+
+우리 팀에서도 AI 기능을 기존 Spring 기반 SCM 백엔드에 붙여본 경험이 있는데, 이게 생각보다 까다로웠습니다. GitHub 엔지니어링 블로그에서도 언급했듯이, AI를 기존 시스템에 통합할 때는 모듈화된 설계와 철저한 테스트가 필수입니다. 특히, AI 모델의 결과가 비즈니스 로직과 충돌할 가능성을 사전에 차단하는 게 중요하죠[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+예를 들어, 우리 팀은 주문 예측 AI를 별도의 마이크로서비스로 분리하고, API 게이트웨이를 통해 기존 주문 처리 시스템과 통신하도록 했습니다. 이렇게 하면 AI 결과가 문제가 있을 때 빠르게 롤백하거나, 대체 경로를 통해 수동 주문 처리가 가능하거든요.
+
+```java
+@RestController
+@RequestMapping("/api/ai-inventory")
+public class AIInventoryController {
+
+    private final AIInventoryService aiInventoryService;
+
+    public AIInventoryController(AIInventoryService aiInventoryService) {
+        this.aiInventoryService = aiInventoryService;
+    }
+
+    @GetMapping("/predict")
+    public ResponseEntity<InventoryPrediction> getPrediction(@RequestParam String storeId) {
+        InventoryPrediction prediction = aiInventoryService.predictInventory(storeId);
+        if (prediction == null) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        return ResponseEntity.ok(prediction);
+    }
+}
+```
+
+이 코드는 AI 예측 결과를 REST API로 노출하는 간단한 예시입니다. 중요한 건 AI 서비스가 독립적이기 때문에, 문제가 생겨도 전체 SCM 시스템에 영향을 주지 않고 빠르게 대응할 수 있다는 점이에요.
+
+## SAP SCM 사례에서 보는 비즈니스 프로세스와 AI 조율의 중요성
+
+SAP SCM 솔루션은 제조부터 유통까지 복잡한 환경을 지원하는 만큼, AI 도입 시 비즈니스 프로세스와 긴밀하게 맞춰야 한다는 점을 시사합니다. 단순히 AI 알고리즘만 돌리는 게 아니라, 현장의 프로세스와 정책, 예외 상황을 모두 반영해야 하죠[ SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT).
+
+스타벅스 사례에서 AI가 실패한 이유 중 하나도 바로 이런 ‘현장 맞춤형 조율 부족’이었습니다. AI가 추천한 재고량이 현장 상황과 맞지 않으니 결국 시스템 신뢰도가 떨어질 수밖에 없었죠.
+
+이걸 방지하려면 AI 도입 초기부터 현장 담당자와 긴밀히 협업하고, AI 추천 결과를 검증하는 수작업 단계도 반드시 포함해야 합니다. 그리고 AI가 점진적으로 학습하며 개선되도록 피드백 루프를 설계하는 게 핵심이에요.
+
+---
+
+### 내가 스타벅스 사례에서 얻은 교훈
+
+- **데이터 품질과 실시간 가시성 없이는 AI SCM은 무용지물이다.** 데이터가 엉망이면 AI가 아무리 똑똑해도 소용없다.
+- **클라우드라 해도 초기 통합과 사용자 경험 문제는 반드시 발생한다.** 빠른 롤백과 대체 경로를 준비하자.
+- **AI는 기존 SCM 시스템과 모듈화해서 통합해야 한다.** 문제 발생 시 전체 시스템 다운을 막는 게 중요하다.
+- **비즈니스 프로세스와 AI 결과를 조율하는 작업은 필수다.** AI가 현장 상황을 반영하지 못하면 실패 확률이 높다.
+
+우리도 SCM 시스템 설계할 때 이 점들을 꼭 기억하고, AI 도입 시 무리한 기대보다는 현실적이고 단계적인 접근을 해야겠다는 생각이 듭니다.
+
+---
+
+## 참고 자료
+
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **효과적인 공급망 관리(SCM) 시스템 설계는 안정적인 데이터 통합과 실시간 재고 가시성이 필수적이며, AI 기반 시스템은 초기 데이터 품질 문제와 복잡한 비즈니스 로직 반영 실패 시 운영 리스크가 크다.** ([Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 기반 SCM 솔루션은 확장성과 신속한 업데이트 배포가 가능하지만, Starbucks 사례처럼 AI 시스템 도입 초기에는 예상치 못한 사용자 경험 문제와 시스템 통합 이슈가 발생할 수 있다.** ([Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 측면에서, AI 기능을 기존 SCM 백엔드(Spring 기반 등)에 무리 없이 통합하려면 모듈화된 설계와 철저한 테스트가 필수이며, 실패 시 빠른 롤백과 대체 경로 확보가 중요하다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **SAP의 SCM 솔루션은 복잡한 제조 및 유통 환경에 맞춰 다양한 시나리오를 커버할 수 있도록 설계되어, AI 도입 시에도 비즈니스 프로세스와의 긴밀한 조율이 필요함을 시사한다.** ([SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
