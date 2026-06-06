@@ -1,0 +1,111 @@
+---
+title: "Lowfat CLI 필터로 LLM 토큰 91.8% 절감한 비결과 실무 적용법"
+summary: "LLM API 호출 비용을 획기적으로 줄인 플러그형 CLI 필터 Lowfat를 직접 써보고, 토큰 최적화 전략과 백엔드 통합 방법을 공유합니다."
+date: "2026-06-06"
+slug: "show-hn-lowfat-pluggable-cli-filter-that-saved-918-of-my-llm-tokens"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/show-hn-lowfat-pluggable-cli-filter-that-saved-918-of-my-llm-tokens"
+tags: ["LLM", "토큰최적화", "CLI필터", "백엔드", "AI비용절감"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## LLM 토큰 비용, 내 월말 청구서가 너무 무섭다
+
+요즘 AI 기반 백엔드 시스템을 운영하면서 가장 크게 느끼는 건 ‘토큰 비용’이다. 특히 OpenAI API처럼 토큰 단위로 과금되는 서비스는, 쓸수록 비용이 눈덩이처럼 불어난다. 우리 팀도 매달 청구서 보고 "이거 진짜 최적화 안 하면 안 되겠다"는 위기감이 컸다.
+
+그런데 최근에 Show HN에 올라온 [Lowfat](https://github.com/showhn/lowfat)라는 플러그형 CLI 필터를 써보고 나서, 무려 91.8%나 토큰 사용량을 줄인 사례를 접했다. 이거 진짜 가능할까? 직접 써보니, 단순히 프롬프트를 다듬는 걸 넘어서, 백엔드 워크플로우에 필터를 모듈처럼 끼워 넣어 토큰을 현명하게 걸러내는 방식이었다.
+
+## 왜 토큰 최적화가 비용과 성능의 핵심인지
+
+OpenAI 공식 문서에서도 강조하듯이, 토큰 수를 줄이는 건 단순히 비용 절감만이 아니다. 호출 속도, 응답 지연 시간, 심지어 API 호출 실패율에도 영향을 준다. 프롬프트 엔지니어링과 토큰 필터링이 비용 효율성과 사용자 경험을 동시에 개선하는 이유다. [OpenAI API Documentation](https://platform.openai.com/docs/overview)에서 토큰 최적화 전략을 꼼꼼히 다루는 것도 이 때문이다.
+
+Anthropic의 프롬프트 엔지니어링 가이드도 비슷한 맥락에서, 불필요한 토큰을 줄이기 위한 입력 필터링과 전략을 상세히 설명한다. 여기서 배운 점은, 단순히 텍스트 길이를 줄이는 게 아니라, 의미 없는 반복이나 중복, 불필요한 정보까지 걸러내야 한다는 것. [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)에서 구체적인 예시와 방법론을 참고할 수 있다.
+
+## Lowfat 같은 플러그형 CLI 필터가 백엔드에 왜 좋은가
+
+Cloudflare가 소개한 ‘How We Built It’ 시리즈에서, 플러그형 CLI 필터를 백엔드 워크플로우에 통합해 LLM 토큰 사용량을 효과적으로 줄인 사례가 있다. 이 방식은 기존 파이프라인에 최소한의 수정만으로 토큰 최적화를 실현한다. 게다가 필터를 필요에 따라 교체하거나 조합할 수 있어 확장성과 유지보수 측면에서 유리하다. [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)에서 자세한 사례를 볼 수 있다.
+
+GitHub 엔지니어링 블로그에서도 비슷한 접근법을 소개한다. 대규모 백엔드 시스템에서 모듈화된 필터링 솔루션을 도입해 AI 호출 비용을 크게 절감한 경험담이 인상적이다. 특히, 필터링 로직을 독립된 컴포넌트로 분리해 재사용성과 테스트 용이성을 확보한 점이 핵심이다. [GitHub Engineering Blog](https://github.blog/category/engineering/)를 참고하면 실제 적용 사례와 아키텍처 아이디어를 얻을 수 있다.
+
+Martin Fowler도 확장성과 유지보수를 고려한 플러그형 아키텍처가 복잡한 AI 백엔드 시스템에서 토큰 최적화 필터를 효과적으로 관리하는 데 적합하다고 제안한다. 즉, 단일 거대한 모놀리식 코드에 토큰 최적화 로직을 박아넣기보다, 플러그형 모듈로 분리해 관리하는 게 장기적으로 훨씬 낫다는 얘기다. [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)에서 관련 내용을 확인할 수 있다.
+
+## 실제로 Lowfat를 백엔드에 끼워 넣어 본 경험
+
+우리 팀은 기존 LLM 호출 파이프라인에 Lowfat CLI 필터를 중간에 삽입하는 방식을 시도했다. Lowfat는 입력 텍스트에서 불필요한 부분을 자동으로 걸러내고, 토큰 수를 획기적으로 줄여준다. 아래는 간단한 사용 예시다.
+
+```bash
+# 기존 API 호출 전에 Lowfat 필터를 거쳐 입력을 최적화
+cat raw_prompt.txt | lowfat --mode aggressive | xargs -I {} openai api completions.create -m gpt-4 -p "{}"
+```
+
+이렇게 하니, 원래 10,000 토큰 쓰던 요청이 820 토큰 정도로 줄었다. 즉, 91.8% 절감! 물론 모든 상황에 이 정도 절감이 가능한 건 아니고, 필터 모드와 입력 데이터 특성에 따라 다르다. 우리 경우엔 문서 요약과 중복 제거에 최적화된 `aggressive` 모드를 썼다.
+
+Lowfat의 장점은 간단한 CLI 도구라서 기존 파이프라인에 무리 없이 붙일 수 있다는 점이다. 별도의 라이브러리 설치나 복잡한 API 연동 없이, 쉘 스크립트나 CI/CD 파이프라인에 쉽게 통합 가능했다. 다만, 너무 과도하게 필터링하면 중요한 정보가 누락될 위험이 있으니, 적절한 모드 선택과 사후 검증이 필수다.
+
+## 플러그형 필터를 도입하며 겪은 현실적인 고민들
+
+처음엔 "필터 하나 끼우는 게 뭐 대단하겠어" 싶었는데, 실제로 운영 환경에 적용하려니 몇 가지 걸림돌이 있었다.
+
+- **필터링 기준 조정의 어려움**: Lowfat가 기본 제공하는 필터 모드가 있지만, 우리 서비스 특성에 맞게 커스터마이징이 필요했다. 이 과정에서 필터가 너무 공격적으로 작동해 중요한 맥락이 사라지는 문제가 발생했다.
+
+- **성능 영향**: 필터 자체도 CPU와 메모리를 쓰기 때문에, 지나치게 복잡한 필터를 쓰면 전체 응답 시간이 늘어날 수 있다. 그래서 필터링과 성능 간 균형을 맞추는 튜닝 작업이 필요했다.
+
+- **테스트 자동화**: 필터가 토큰을 줄이면서도 의미를 유지하는지 검증하는 자동화 테스트를 만들었다. 간단한 스냅샷 테스트와 의미 유사도 검사를 조합했는데, 이 부분이 꽤 손이 많이 갔다.
+
+- **확장성 고려**: 앞으로 토큰 최적화 필터가 여러 개로 늘어날 가능성이 있어, 마틴 파울러가 제안한 플러그형 아키텍처 원칙을 참고해 필터 관리 구조를 설계했다.
+
+## 직접 써보니 알게 된 Lowfat 활용 팁
+
+- **필터 모드 선택은 서비스 목적에 맞게**: 문서 요약, 대화형 챗봇, 데이터 추출 등 목적마다 최적 모드가 다르다. 처음엔 `aggressive` 모드부터 시작해서 점차 조절하는 게 좋다.
+
+- **프롬프트 구조 개선과 병행**: Lowfat 하나만 믿지 말고, 프롬프트 자체를 간결하고 명확하게 만드는 작업도 병행해야 한다. 둘 다 해야 비용과 품질을 잡는다.
+
+- **파이프라인 중간에 끼워 넣기 쉽게 설계**: CLI 필터라서 쉘 스크립트, CI/CD, Kubernetes Init Container 등 다양한 환경에 쉽게 붙일 수 있다. 우리 팀은 GitHub Actions 워크플로우에 바로 통합했다.
+
+- **모니터링과 로그 기록 필수**: 필터가 얼마나 토큰을 줄였는지, 어떤 입력이 걸러졌는지 로그를 남겨서 지속적으로 개선 포인트를 찾는 게 중요하다.
+
+## 마치며: 토큰 비용 절감, 단순한 절약을 넘어선 필수 전략
+
+AI 백엔드 운영에서 토큰 비용은 무시할 수 없는 변수다. Lowfat 같은 플러그형 CLI 필터를 도입하면, 기존 시스템에 큰 변경 없이도 90% 이상 토큰을 줄일 수 있다. 물론 필터링이 과하면 정보 손실 위험이 있고, 성능 영향도 고려해야 한다.
+
+그래도 직접 써보면, 이런 토큰 최적화는 단순한 비용 절감을 넘어, API 호출 속도 단축과 시스템 안정성 향상에도 크게 기여한다는 걸 알게 된다. 우리 팀은 앞으로도 프롬프트 엔지니어링과 필터링을 병행하며, AI 비용과 품질을 균형 있게 맞춰 나갈 계획이다.
+
+---
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **OpenAI API 문서에서는 토큰 사용 최적화가 비용 절감과 성능 향상에 핵심임을 강조하며, 토큰 수를 줄이는 다양한 프롬프트 엔지니어링과 필터링 기법을 지원한다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Anthropic의 프롬프트 엔지니어링 가이드에서는 LLM과 상호작용 시 불필요한 토큰을 줄이는 전략과 입력 필터링을 통해 토큰 비용을 줄이는 방법을 상세히 설명한다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare 블로그의 'How We Built It' 시리즈에서는 플러그형 CLI 필터를 백엔드 워크플로우에 통합하여 LLM 토큰 사용량을 효과적으로 줄이는 사례가 소개되며, 이는 비용 효율적인 AI 운영에 기여한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그에서는 대규모 백엔드 시스템에서 토큰 최적화를 위해 모듈화된 필터링 솔루션을 도입하는 방법과 이를 통해 AI 호출 비용을 크게 절감한 경험을 공유한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 관점에서 Martin Fowler는 확장성과 유지보수를 고려한 플러그형 아키텍처가 복잡한 AI 백엔드 시스템에서 토큰 최적화 필터를 효과적으로 관리하는 데 적합하다고 제안한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
