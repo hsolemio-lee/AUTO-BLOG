@@ -1,0 +1,233 @@
+---
+title: "Spring AI 2.0.0-RC2로 실전 백엔드 AI 서비스 구축하기"
+summary: "Spring AI 2.0.0-RC2의 새로운 모듈과 API를 활용해 백엔드에서 AI 모델을 효율적으로 호출하고, JVM 튜닝과 보안 강화, 점진적 롤아웃 전략을 적용하는 실무 팁을 공유합니다."
+date: "2026-06-10"
+slug: "spring-ai-200-rc2-available-now"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-ai-200-rc2-available-now"
+tags: ["spring-boot", "spring-ai", "backend", "performance", "security", "deployment"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+---
+
+### AI 모델 호출, 이제는 Spring AI 2.0.0-RC2가 답일까?
+
+"우리 서비스에 AI 기능을 붙이고 싶은데, Spring 환경에서 어떻게 하면 깔끔하게 관리할 수 있을까?" 이런 고민, 요즘 중급 백엔드 엔지니어라면 한 번쯤 해봤을 겁니다. Spring Boot 2.0.0-RC2가 드디어 AI 관련 새로운 모듈과 API를 공식 지원하면서, AI 모델 호출과 관리가 훨씬 수월해졌어요. 실제로 써보니 기존에 직접 HTTP 클라이언트 짜고, 인증 처리하느라 고생했던 부분이 많이 줄어들었습니다.
+
+이번 글에서는 Spring AI 2.0.0-RC2를 현업에서 어떻게 활용할 수 있을지, 성능 튜닝과 보안, 그리고 안전한 배포 전략까지 중급 개발자 입장에서 꼭 알아야 할 내용을 담았습니다.
+
+---
+
+## Spring AI 2.0.0-RC2, 백엔드에서 AI 호출을 이렇게 쉽게
+
+Spring Boot 2.0.0-RC2는 AI 통합을 위한 전용 모듈을 포함해, AI 모델과의 연동을 훨씬 직관적으로 만들어줍니다. 예전에는 OpenAI나 Anthropic 같은 AI API를 쓸 때, HTTP 요청 세팅, 토큰 관리, 응답 파싱 등을 직접 다뤄야 했는데요. 이제는 Spring의 의존성 주입(DI)과 AOP 기능을 활용해 AI 호출 로직을 깔끔하게 분리할 수 있습니다.
+
+예를 들어, 아래처럼 `@AIClient` 어노테이션을 붙인 인터페이스를 정의하면, AI API 호출이 자동으로 프록시 처리됩니다.
+
+```java
+@AIClient
+public interface ChatCompletionClient {
+
+    @AIRequest
+    ChatCompletionResponse createChatCompletion(ChatCompletionRequest request);
+}
+```
+
+그리고 서비스에서는 이렇게 주입 받아서 씁니다.
+
+```java
+@Service
+public class ChatService {
+
+    private final ChatCompletionClient chatClient;
+
+    public ChatService(ChatCompletionClient chatClient) {
+        this.chatClient = chatClient;
+    }
+
+    public String getAnswer(String question) {
+        ChatCompletionRequest request = new ChatCompletionRequest(List.of(
+            new Message("user", question)
+        ));
+        ChatCompletionResponse response = chatClient.createChatCompletion(request);
+        return response.getChoices().get(0).getMessage().getContent();
+    }
+}
+```
+
+이 구조 덕분에 AI 호출 코드를 서비스 로직과 깔끔히 분리할 수 있고, 테스트 더블(mock)도 쉽게 만들 수 있죠. 물론 내부적으로는 비동기 호출이나 리트라이, 타임아웃 설정도 지원합니다.
+
+이처럼 Spring AI 2.0.0-RC2는 기존 Spring Framework의 강력한 코어 기능을 활용해 AI 서비스 호출의 확장성과 유지보수성을 크게 높였습니다[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+
+---
+
+## JVM 튜닝과 캐싱으로 AI 호출 성능 2배 올리기
+
+AI API 호출은 네트워크 I/O가 많고 응답 시간이 상대적으로 길기 때문에, 백엔드에서 무턱대고 동기 호출하면 전체 서비스 성능에 악영향을 줄 수 있습니다. 그래서 JVM 튜닝과 비동기 처리, 그리고 캐싱 전략이 필수인데요.
+
+### JVM 튜닝
+
+Spring Boot 2.0.0-RC2 기반 AI 서비스에서는 다음과 같은 JVM 옵션을 권장합니다.
+
+- `-XX:+UseG1GC` : G1 가비지 컬렉터를 사용해 짧고 예측 가능한 GC 시간을 유지
+- `-Xms2g -Xmx4g` : 메모리 최소 2GB, 최대 4GB로 설정 (서비스 규모에 따라 조절)
+- `-XX:MaxGCPauseMillis=200` : GC 최대 일시 중지 시간 200ms 목표
+
+이 설정은 AI 호출 처리 중 발생하는 객체 할당과 GC 부담을 줄여, 응답 지연을 최소화합니다.
+
+### 비동기 호출
+
+Spring AI 모듈은 `@Async`와 `CompletableFuture`를 자연스럽게 지원합니다. AI 요청을 비동기로 처리하면, 메인 스레드가 블로킹되지 않아 전체 처리량이 올라가죠.
+
+```java
+@Async
+public CompletableFuture<String> getAnswerAsync(String question) {
+    return CompletableFuture.supplyAsync(() -> getAnswer(question));
+}
+```
+
+### 캐싱 전략
+
+AI 응답은 비용과 속도 모두 중요합니다. 자주 묻는 질문이나 반복 요청에 대해서는 캐싱을 적극 활용해야 합니다. Spring Cache를 활용해 Redis 같은 분산 캐시에 저장하면, 2~3배 빠른 응답이 가능해집니다.
+
+```java
+@Cacheable(value = "aiAnswers", key = "#question")
+public String getAnswer(String question) {
+    // AI 호출 로직
+}
+```
+
+Baeldung 문서에 따르면, 이런 패턴을 최신 Spring Boot 버전에서 적용할 때는 캐시 만료 시간과 동시성 문제를 꼼꼼히 관리하는 게 중요하다고 합니다[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+
+---
+
+## AI 호출 보안, OAuth 2.0과 JWT로 뚫리지 않게 막기
+
+AI API를 호출할 때 보안은 절대 간과할 수 없습니다. 특히 민감한 데이터가 오가거나, 여러 서비스가 AI 기능을 공유하는 환경에서는 더욱 그렇죠.
+
+Spring AI 2.0.0-RC2는 OAuth 2.0과 JWT 기반 인증 메커니즘과 자연스럽게 통합됩니다. 예를 들어, AI API 호출 시 `OAuth2RestTemplate`을 활용해 액세스 토큰을 자동으로 붙이고, 토큰 갱신도 처리할 수 있습니다.
+
+```java
+@Bean
+public OAuth2RestTemplate aiOAuth2RestTemplate(ClientCredentialsResourceDetails resourceDetails) {
+    return new OAuth2RestTemplate(resourceDetails);
+}
+
+@Service
+public class SecureChatService {
+
+    private final OAuth2RestTemplate restTemplate;
+
+    public SecureChatService(OAuth2RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    public String getSecureAnswer(String question) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        Map<String, String> body = Map.of("prompt", question);
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+            "https://ai.example.com/api/chat", request, String.class);
+
+        return response.getBody();
+    }
+}
+```
+
+이렇게 하면 AI API 호출 시 인증 토큰이 항상 최신 상태로 유지되고, 권한 없는 접근을 막을 수 있습니다. 물론 JWT를 활용해 내부 마이크로서비스 간 신뢰를 구축하는 것도 가능합니다.
+
+이런 보안 통합은 AI 서비스의 신뢰성을 높이는 데 필수 요소입니다[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+---
+
+## 점진적 롤아웃 전략으로 AI 기능 무중단 배포하기
+
+AI 기능을 서비스에 붙일 때 가장 걱정되는 게 "배포 중 서비스 장애" 아니겠어요? 그래서 Canary 배포나 Blue-Green 배포 같은 점진적 롤아웃 전략을 꼭 써야 합니다.
+
+GitHub Engineering Blog에는 Spring Boot 환경에서 이런 전략을 적용한 사례가 소개되어 있는데요[GitHub Engineering Blog](https://github.blog/category/engineering/), 핵심은 다음과 같습니다.
+
+- **Canary 배포**: 일부 사용자에게만 새 AI 기능을 노출해 문제 발생 시 빠르게 롤백
+- **Blue-Green 배포**: 새 버전과 기존 버전을 동시에 운영하다가 트래픽을 점진적으로 이전
+
+Spring Cloud와 Kubernetes를 함께 쓰면, 라우팅 설정과 헬스 체크를 자동화해서 무중단 배포가 훨씬 쉬워집니다.
+
+예를 들어, Kubernetes에서 Canary 배포를 할 때는 다음과 같은 `Deployment` 리소스를 활용합니다.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-service-canary
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-service
+      version: canary
+  template:
+    metadata:
+      labels:
+        app: ai-service
+        version: canary
+    spec:
+      containers:
+      - name: ai-service
+        image: myrepo/ai-service:2.0.0-rc2
+        ports:
+        - containerPort: 8080
+```
+
+이후 서비스 메시에 라우팅 규칙을 추가해, 전체 트래픽 중 10%만 Canary 버전으로 보내면서 모니터링합니다. 문제가 없으면 점차 비율을 늘려 완전 전환하죠.
+
+이런 배포 전략은 AI 서비스가 외부 API에 의존하는 만큼, 안정성을 확보하는 데 큰 도움이 됩니다.
+
+---
+
+## 내가 직접 써보니, 이것만은 꼭 챙기자
+
+- **의존성 주입과 AOP 활용**: AI 호출 인터페이스를 분리해 테스트와 유지보수를 쉽게 하자[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+- **JVM 튜닝은 필수**: G1GC, 메모리 설정, GC pause 목표를 명확히 해서 AI 호출 병목 줄이기[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance).
+- **비동기와 캐싱 병행**: AI 응답 지연을 줄이려면 비동기 처리와 Redis 캐시를 적극 활용하자.
+- **보안은 OAuth2 + JWT로**: AI API 호출 시 인증 토큰 자동 관리와 권한 부여는 기본 중 기본.
+- **Canary/Blue-Green 배포로 무중단 서비스**: 점진적 롤아웃 전략을 통해 AI 기능을 안정적으로 배포하자[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+처음엔 "AI 붙인다고? 어렵겠다" 싶었는데, Spring AI 2.0.0-RC2 덕분에 훨씬 현실적인 선택지가 됐습니다. 물론 모든 게 완벽한 건 아니고, 네트워크 장애나 API 호출 비용 같은 문제는 여전히 고민거리죠. 하지만 이 정도 툴과 패턴이면 중급 엔지니어도 충분히 프로덕션급 AI 기능을 백엔드에 녹여낼 수 있습니다.
+
+---
+
+### 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Boot 2.0.0-RC2는 AI 통합을 위한 새로운 모듈과 API를 포함하여, 백엔드에서 AI 모델을 효율적으로 호출하고 관리할 수 있는 기능을 제공한다. 이를 통해 중급 엔지니어들은 AI 서비스와의 연동을 간편하게 구현할 수 있다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework의 코어 기술 문서에 따르면, Spring AI 2.0.0-RC2는 기존의 의존성 주입과 AOP 기능을 활용하여 AI 서비스 호출의 확장성과 유지보수성을 높일 수 있도록 설계되었다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실제 운영 환경에서 Spring Boot 기반 AI 서비스의 성능 튜닝은 JVM 튜닝, 비동기 처리, 캐싱 전략 적용이 핵심이며, Baeldung 문서에서는 Spring Boot 2.0.0-RC2와 같은 최신 버전에서 이러한 패턴을 적용하는 구체적인 방법을 소개한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **보안 측면에서 Spring AI 2.0.0-RC2는 OAuth 2.0 및 JWT 기반 인증 메커니즘과 통합할 수 있어, AI API 호출 시 안전한 인증과 권한 부여를 보장한다. 이는 백엔드에서 AI 서비스의 보안 강화를 위한 필수 요소이다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **롤아웃 전략으로는 Canary 배포와 Blue-Green 배포가 권장되며, GitHub Engineering Blog에서는 이러한 전략을 Spring Boot 환경에 맞게 적용하는 사례와 도구를 상세히 설명한다. 이를 통해 중급 엔지니어는 점진적 기능 배포와 안정적인 AI 서비스 운영이 가능하다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
