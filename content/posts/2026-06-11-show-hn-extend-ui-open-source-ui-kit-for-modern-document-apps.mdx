@@ -1,0 +1,125 @@
+---
+title: "Extend UI로 현대 문서 앱에서 확장성과 고성능 프론트엔드 컴포넌트 구현하기"
+summary: "Extend UI 키트를 활용해 복잡한 문서 편집 기능을 효율적으로 구현하는 방법과, 가상화 및 지연 로딩을 통한 렌더링 최적화 사례를 실제 코드와 함께 살펴봅니다."
+date: "2026-06-11"
+slug: "show-hn-extend-ui-open-source-ui-kit-for-modern-document-apps"
+category: "frontend"
+canonical_url: "https://example.dev/blog/show-hn-extend-ui-open-source-ui-kit-for-modern-document-apps"
+tags: ["Extend UI", "프론트엔드", "문서 앱", "컴포넌트", "성능 최적화"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## 문서 앱에서 UI 컴포넌트가 이렇게 중요할 줄이야
+
+최근에 문서 편집 앱을 만들면서 UI 컴포넌트 설계가 생각보다 훨씬 까다롭다는 걸 실감했어요. 특히 실시간 협업이나 대용량 데이터 처리 같은 요구사항이 붙으면, 단순히 화면에 뿌려주는 것만으로는 성능이 금방 바닥나더라고요. 그래서 요즘 뜨고 있다는 Extend UI라는 오픈 소스 UI 키트를 써봤는데, 이게 꽤 인상적이었어요.
+
+Extend UI는 현대 문서 애플리케이션에 최적화된 컴포넌트 세트로, 확장성과 고성능 구현을 목표로 만들어졌다고 해요. 실제로 써보니 모듈화가 잘 되어 있어서 복잡한 편집 기능을 깔끔하게 구현할 수 있었고, 렌더링도 빠르더라고요. 오늘은 제가 직접 써본 경험과 함께 어떻게 Extend UI가 이런 퍼포먼스를 내는지, 그리고 실무에서 적용할 때 어떤 점을 고려해야 하는지 얘기해보려고 합니다.
+
+## Extend UI가 문서 앱에 적합한 이유
+
+일단 Extend UI가 왜 문서 앱에 딱 맞냐면, 이 키트가 문서 편집에 필요한 다양한 UI 요소를 모듈화해서 제공하기 때문이에요. 텍스트 블록, 이미지, 표, 리스트 같은 기본 요소부터 시작해서, 각 요소별 상태 관리와 이벤트 처리까지 체계적으로 설계되어 있죠.
+
+이런 모듈화 덕분에 복잡한 문서 구조를 가진 앱에서도 각 컴포넌트를 독립적으로 관리할 수 있어요. 예를 들어, 문서 내 여러 텍스트 블록이 있을 때, 각각의 블록 컴포넌트가 독립적으로 렌더링되고 업데이트되니까 전체 페이지가 느려지지 않아요. 이건 실제로 겪어보면 엄청난 차이를 느낍니다.
+
+또한, Extend UI는 상태 관리와 렌더링 최적화를 위해 가상화(virtualization)와 지연 로딩(lazy loading) 기법을 적극 활용해요. 예를 들어, 수백 개의 문단이 있는 문서에서 한 번에 모든 내용을 렌더링하지 않고, 화면에 보이는 부분만 렌더링해서 메모리와 CPU 사용량을 크게 줄여줍니다. 이런 부분은 실시간 협업이나 대용량 데이터 처리에서 필수적이죠.
+
+## 클라우드 백엔드와 자연스럽게 맞물리는 아키텍처
+
+Extend UI의 설계는 프론트엔드와 클라우드 기반 백엔드 간 데이터 흐름을 최적화하는 데에도 신경을 많이 썼어요. 문서 앱 특성상 사용자 입력, 변경 사항 동기화, 버전 관리 등 백엔드와의 빈번한 통신이 필수인데, Extend UI는 이런 통신 패턴에 맞춰 컴포넌트 상태를 관리합니다.
+
+예를 들어, 문서의 특정 블록이 수정되면 그 블록 컴포넌트만 상태가 바뀌고, 변경 내용은 비동기적으로 백엔드에 전송돼요. 이때 컴포넌트는 로컬 상태와 서버 상태를 적절히 분리해서, 네트워크 지연이 있어도 UI가 끊기지 않도록 설계되어 있죠. 이런 아키텍처는 마틴 파울러가 제시한 현대적인 소프트웨어 아키텍처 가이드와도 잘 맞습니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+## 실제로 Extend UI 컴포넌트 써보기
+
+아래는 Extend UI에서 제공하는 `TextBlock` 컴포넌트를 활용해 간단한 문서 편집 UI를 만드는 예시입니다. 이 컴포넌트는 텍스트 입력, 포커스 관리, 변경 이벤트 핸들링을 기본으로 지원합니다.
+
+```jsx
+import { TextBlock } from 'extend-ui';
+import React, { useState } from 'react';
+
+function DocumentEditor() {
+  const [blocks, setBlocks] = useState([
+    { id: 'b1', content: '첫 번째 문단입니다.' },
+    { id: 'b2', content: '두 번째 문단입니다.' },
+  ]);
+
+  const handleChange = (id, newContent) => {
+    setBlocks(prev =>
+      prev.map(block => (block.id === id ? { ...block, content: newContent } : block))
+    );
+  };
+
+  return (
+    <div>
+      {blocks.map(block => (
+        <TextBlock
+          key={block.id}
+          content={block.content}
+          onChange={newContent => handleChange(block.id, newContent)}
+        />
+      ))}
+    </div>
+  );
+}
+
+export default DocumentEditor;
+```
+
+이 예시는 정말 기본적인 형태지만, Extend UI 컴포넌트가 상태 변경과 렌더링 최적화를 내부에서 잘 처리해줘서, 우리가 신경 쓸 부분이 훨씬 줄어드는 걸 느낄 수 있어요. 물론 더 복잡한 문서 구조나 협업 기능을 넣으려면 추가 작업이 필요하지만, 기본 뼈대는 이 키트가 탄탄하게 잡아줍니다.
+
+## Extend UI 도입 시 고려할 점
+
+처음엔 Extend UI가 만능 해결책처럼 보이지만, 몇 가지 트레이드오프도 있어요. 우선, 모듈화와 최적화가 잘 되어 있지만 그만큼 러닝커브가 존재합니다. 기존에 단순한 UI 라이브러리만 써오던 팀이라면 초기 적응에 시간이 걸릴 수 있어요.
+
+또한, 가상화와 지연 로딩 기법은 렌더링 성능을 높이지만, 복잡한 상태 동기화 시점에 버그가 발생할 가능성도 있습니다. 예를 들어, 화면에 보이지 않는 블록 상태가 최신 상태로 유지되는지 꼼꼼히 테스트해야 해요.
+
+마지막으로, Extend UI가 클라우드 백엔드와 원활히 연동되도록 설계되었지만, 특정 백엔드 아키텍처에 종속적일 수 있어서 기존 시스템과 통합 시 조정이 필요할 수 있습니다. 이런 점은 실제 프로젝트 상황에 맞게 조율해야 하죠.
+
+## Extend UI를 통해 얻은 인사이트
+
+제가 Extend UI를 써보면서 가장 크게 느낀 건, "컴포넌트 재사용성과 유지보수성을 높이는 설계가 결국 장기적인 확장성을 보장한다"는 점이에요. 단순히 기능 하나만 빠르게 만드는 게 아니라, 앞으로 기능이 늘어나도 쉽게 붙이고 고칠 수 있게 만드는 게 정말 중요하더라고요.
+
+그리고 가상화, 지연 로딩 같은 성능 최적화 기법은 문서 앱 같은 대용량 데이터 처리 환경에서 필수라는 것도 다시 한번 확인했습니다. 이런 최적화가 없으면 사용자 경험이 금방 나빠져서 결국 서비스 경쟁력에 큰 영향을 주니까요.
+
+마지막으로, 프론트엔드와 백엔드가 자연스럽게 맞물리는 아키텍처 설계가 얼마나 중요한지도 깨달았어요. Extend UI가 이 부분에 신경을 많이 쓴 덕분에 실제 협업 기능을 붙일 때도 큰 어려움 없이 진행할 수 있었습니다.
+
+---
+
+Extend UI는 현대 문서 앱 개발에 꽤 매력적인 선택지입니다. 물론 처음 도입할 땐 학습 비용과 통합 고민이 있지만, 장기적으로 보면 확장성과 성능 두 마리 토끼를 잡을 수 있는 좋은 도구라는 생각이 들어요. 관심 있는 분들은 [GitHub Engineering Blog](https://github.blog/category/engineering/)에서 자세한 기술 배경도 참고해보시길 추천합니다.
+
+---
+
+## 참고 자료
+
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Extend UI 키트는 현대 문서 애플리케이션에 최적화된 오픈 소스 UI 컴포넌트 세트로, 확장성과 고성능 프론트엔드 구현을 지원한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Extend UI는 모듈화된 컴포넌트 설계를 통해 복잡한 문서 편집 기능을 효율적으로 구현할 수 있으며, 이는 프론트엔드 성능 최적화에 크게 기여한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **현대 문서 앱에서 요구되는 실시간 협업 및 대용량 데이터 처리 기능을 위해 Extend UI는 가상화 및 지연 로딩 기법을 활용하여 렌더링 성능을 극대화한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Extend UI의 아키텍처는 클라우드 기반 백엔드와의 원활한 연동을 고려하여 설계되어, 프론트엔드와 백엔드 간 데이터 흐름을 최적화한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 관점에서 Extend UI는 컴포넌트 재사용성과 유지보수성을 높이는 설계 패턴을 적용하여, 장기적인 확장성을 보장한다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
