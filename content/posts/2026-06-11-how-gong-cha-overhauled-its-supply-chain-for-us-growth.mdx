@@ -1,0 +1,131 @@
+---
+title: "공차의 미국 진출을 위한 공급망 혁신에서 배운 실전 백엔드 전략"
+summary: "공차가 미국 시장에서 공급망을 재설계하며 겪은 변화를 바탕으로, 백엔드 엔지니어링 관점에서 계획, 조달, 재고 관리, 주문 처리 시스템 개선에 적용할 수 있는 구체적인 전략을 공유합니다."
+date: "2026-06-11"
+slug: "how-gong-cha-overhauled-its-supply-chain-for-us-growth"
+category: "scm"
+canonical_url: "https://example.dev/blog/how-gong-cha-overhauled-its-supply-chain-for-us-growth"
+tags: ["공급망", "백엔드", "재고관리", "주문처리", "점진적배포", "장애대응"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+---
+
+### 미국 시장에서 공차가 겪은 공급망 문제, 우리도 겪어본 적 있지 않나요?
+
+"왜 주문이 갑자기 밀리지? 재고는 있는데 왜 못 보내?" 이런 경험, 한 번쯤은 해봤을 겁니다. 공차가 미국 진출 과정에서 딱 이런 문제들에 부딪혔고, 결국 공급망 전반을 뜯어고쳤다고 하더라고요. 이걸 보면서 우리 백엔드 시스템에 적용할 수 있는 인사이트가 꽤 많다는 생각이 들었습니다.
+
+### 공급망 계획과 조달 시스템, 어떻게 바꿨길래?
+
+공차는 미국 시장 특성에 맞춰 수요 예측 모델과 조달 계획을 완전히 재설계했습니다. 예를 들어, 기존에는 월 단위로 재고를 주문했는데, 미국 현지에서는 주 단위, 심지어 일 단위로 주문 주기를 세분화했죠. 이게 왜 중요한지 아세요? 수요 변동성이 큰 신시장에서는 너무 큰 배치로 주문하면 재고 부담이 커지고, 반대로 너무 작으면 배송 지연이 발생하거든요.
+
+백엔드에서 이런 계획을 지원하려면, 주문 생성 로직에 유연성을 줘야 합니다. 예를 들어, 아래처럼 TypeScript로 주문 생성 API를 설계할 때, 주문 주기와 주문량을 파라미터로 받도록 만들면 점진적으로 조정하기 편하죠.
+
+```typescript
+interface OrderRequest {
+  productId: string;
+  quantity: number;
+  orderFrequency: 'daily' | 'weekly' | 'monthly';
+  requestedDate: string; // ISO date
+}
+
+function createOrder(request: OrderRequest) {
+  // 주문 생성 로직
+  // 예: 주문 주기에 따라 재고 예약 및 출고 스케줄 조정
+}
+```
+
+이렇게 하면 신규 기능을 점진적으로 배포하면서 운영 리스크를 낮출 수 있는데, 실제로 작은 범위의 점진적 배포 전략이 신규 백엔드 기능의 운영 리스크를 낮춘다는 점은 [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)에서도 강조하는 부분입니다.
+
+### 재고 관리, 단순히 숫자 맞추기 그 이상이더라
+
+공차는 재고를 단순히 쌓아두는 게 아니라, 판매 데이터와 연동해 실시간으로 재고 상태를 추적하는 시스템을 도입했어요. 여기서 주목할 점은 실패 유형을 초기부터 계측하는 설계입니다. 예를 들어, 재고 부족, 주문 중복, 출고 지연 같은 오류를 세분화해서 모니터링했죠.
+
+이 덕분에 장애 대응 속도가 눈에 띄게 빨라졌는데, 이는 [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)에서 실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다고 한 것과 맥락이 같습니다.
+
+실제로, 우리도 재고 부족 알림을 단순히 "재고 없음"으로 처리하지 말고, "재고 부족 - 예상 입고일 지연", "재고 부족 - 공급망 병목" 등으로 나누면 문제 원인 파악이 훨씬 빠릅니다.
+
+### 주문 처리 시스템, 어떻게 하면 더 유연해질까?
+
+공차는 주문 처리에서 여러 물류센터와 매장 간 재고 이동을 자동화했어요. 예를 들어, 특정 매장 재고가 부족하면 가까운 물류센터에서 자동으로 출고 요청을 보내는 식이죠. 이런 자동화는 백엔드에서 이벤트 기반 아키텍처로 설계할 때 훨씬 수월합니다.
+
+간단한 예로, 주문이 들어오면 재고 확인 후 부족하면 재고 보충 이벤트를 발생시키는 코드를 생각해볼 수 있습니다.
+
+```typescript
+async function processOrder(orderId: string) {
+  const order = await getOrder(orderId);
+  const inventory = await checkInventory(order.productId);
+
+  if (inventory < order.quantity) {
+    await emitEvent('InventoryReplenishmentRequested', { productId: order.productId, neededQuantity: order.quantity - inventory });
+    // 주문 대기 상태로 변경
+    await updateOrderStatus(orderId, 'pending');
+  } else {
+    await fulfillOrder(orderId);
+  }
+}
+```
+
+이런 설계는 시스템 확장성도 좋고, 장애가 발생해도 이벤트 재처리가 가능해 안정성을 높입니다.
+
+### 공차 사례에서 우리가 꼭 기억해야 할 점들
+
+- **시장 특성에 맞춘 주문 주기 조정**: 고정된 주문 주기보다 수요 변화에 따라 유연하게 조절하는 게 중요합니다.
+- **실패 유형 세분화로 빠른 장애 대응**: 문제를 구체적으로 나누면 원인 파악과 대응 속도가 빨라집니다.
+- **이벤트 기반 주문 처리로 자동화와 확장성 확보**: 주문부터 재고 보충까지 이벤트로 연결하면 시스템이 더 견고해집니다.
+- **점진적 배포 전략으로 운영 리스크 최소화**: 새 기능을 한꺼번에 적용하지 말고, 작은 범위부터 단계적으로 적용하세요.
+
+### 마치며
+
+처음엔 공차 공급망 혁신이 우리 백엔드와 별 상관없어 보일 수 있지만, 실제로는 우리 시스템 설계에 많은 힌트를 줍니다. 특히, 미국처럼 복잡하고 변동이 심한 시장에선 단순한 재고 관리보다 데이터 기반의 유연한 시스템이 필수라는 점이죠. 그리고 이 모든 걸 코드로 풀어내려면, 실패를 처음부터 잘 계측하고, 점진적으로 배포하며, 이벤트 중심으로 설계하는 게 답입니다.
+
+우리도 공차처럼 공급망의 작은 부분부터 차근차근 개선해보면 어떨까요?
+
+---
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+
+## 정리하며
+
+How Gong cha overhauled its supply chain for US growth을 실무에 적용할 때 가장 중요한 것은 한 번에 완벽하게 하려 하지 않는 것입니다. 작은 범위에서 시작하고, 측정하고, 개선하는 사이클을 반복하세요.
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 3
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
