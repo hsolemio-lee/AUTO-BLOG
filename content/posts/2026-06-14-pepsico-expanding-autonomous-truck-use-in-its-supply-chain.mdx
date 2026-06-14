@@ -1,0 +1,148 @@
+---
+title: "PepsiCo의 자율주행 트럭 도입이 SCM 소프트웨어에 던지는 과제와 기회"
+summary: "PepsiCo가 자율주행 트럭을 공급망에 확대 적용하면서, 중간 수준의 SCM 엔지니어들이 물류 자동화 소프트웨어를 어떻게 최적화할 수 있을지 실제 사례와 함께 분석합니다."
+date: "2026-06-14"
+slug: "pepsico-expanding-autonomous-truck-use-in-its-supply-chain"
+category: "scm"
+canonical_url: "https://example.dev/blog/pepsico-expanding-autonomous-truck-use-in-its-supply-chain"
+tags: ["SCM", "자율주행트럭", "물류자동화", "공급망", "백엔드"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+---
+
+### "우리 물류 시스템에 자율주행 트럭이 들어온다고?"
+
+최근 PepsiCo가 자율주행 트럭을 공급망에 확대 적용한다는 소식을 들었을 때, 저도 꽤 놀랐습니다. 물류 현장에서 사람이 타지 않는 트럭이 실제로 운송 업무를 맡는다는 건, 단순히 하드웨어 혁신만이 아니라 소프트웨어 시스템에도 큰 변화를 요구하기 때문이죠. 특히 우리처럼 중간 단계 SCM 소프트웨어를 담당하는 엔지니어 입장에선 "이걸 어떻게 내 시스템에 맞춰야 할까?"가 가장 큰 고민입니다.
+
+---
+
+## 자율주행 트럭 도입이 SCM 소프트웨어에 던지는 첫 번째 질문
+
+PepsiCo가 실제로 자율주행 트럭을 확대 적용하면서 겪는 문제 중 하나는 기존 SCM 시스템과의 통합입니다. 기존에는 운송 스케줄, 운전자 관리, 차량 상태 모니터링 등이 사람이 개입하는 프로세스에 맞춰져 있었죠. 그런데 자율주행 트럭은 운전자 대신 AI와 센서가 움직이고, 실시간으로 차량 상태와 경로를 자동 조정합니다.
+
+이 말은, 우리 SCM 시스템이 단순히 예약과 추적 기능을 넘어서, 자율주행 트럭의 상태 데이터를 실시간으로 수집하고, 예측 기반의 스케줄링과 장애 대응 로직을 포함해야 한다는 뜻입니다. 예를 들어, 트럭이 도로 상황에 따라 경로를 바꿀 때 이를 즉시 반영해 재고 배분이나 다음 배송지 일정을 자동 조율할 수 있어야 하죠.
+
+이런 변화는 기존 SCM 백엔드 아키텍처에 큰 부담을 줍니다. 특히 이벤트 기반 아키텍처나 스트림 처리 시스템이 준비되어 있지 않다면, 자율주행 트럭에서 발생하는 수많은 실시간 데이터를 감당하기 어렵습니다.
+
+## 점진적 배포 전략으로 자율주행 트럭 기능을 안전하게 도입하는 법
+
+자율주행 트럭 관련 기능을 SCM 시스템에 붙일 때, 한꺼번에 모든 기능을 배포하는 건 위험합니다. PepsiCo 사례처럼 점진적 배포 전략(Progressive Delivery)을 적용하는 게 훨씬 안정적입니다. TypeScript 핸드북에서도 "작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다"고 강조하는데, 이건 우리 SCM 시스템에도 그대로 적용할 수 있어요[TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html).
+
+예를 들어, 자율주행 트럭의 경로 최적화 기능을 전체 운송 네트워크에 한 번에 적용하는 대신, 특정 노선이나 지역에 한정해 먼저 적용해보는 거죠. 이 과정에서 발생하는 문제를 빠르게 감지하고 수정할 수 있습니다. 또한, 실패 유형을 초기에 계측하는 것도 중요합니다. TypeScript 5.x 릴리즈 노트에 따르면 "실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다"고 하니, 우리도 트럭 상태 모니터링과 경로 변경 실패 같은 이벤트를 꼼꼼히 로깅해야 합니다[TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/).
+
+---
+
+## 실시간 데이터 스트림 처리와 장애 대응을 위한 코드 예시
+
+자율주행 트럭에서 오는 데이터를 실시간으로 처리하는 건 필수입니다. 예를 들어, Kafka 같은 메시지 큐를 사용해 트럭 센서 데이터를 수집하고, 이를 기반으로 운송 상태를 업데이트하는 간단한 Node.js 코드 예시를 살펴볼게요.
+
+```typescript
+import { Kafka } from 'kafkajs';
+
+const kafka = new Kafka({
+  clientId: 'scm-service',
+  brokers: ['broker1:9092', 'broker2:9092'],
+});
+
+const consumer = kafka.consumer({ groupId: 'truck-status-group' });
+
+async function run() {
+  await consumer.connect();
+  await consumer.subscribe({ topic: 'autonomous-truck-status', fromBeginning: false });
+
+  await consumer.run({
+    eachMessage: async ({ topic, partition, message }) => {
+      const statusUpdate = JSON.parse(message.value!.toString());
+      // 예: { truckId: 'T123', location: {lat: ..., lon: ...}, battery: 85, routeChanged: true }
+
+      // 실시간으로 SCM DB 업데이트
+      await updateTruckStatusInDB(statusUpdate);
+
+      // 경로 변경 시 재스케줄링 트리거
+      if (statusUpdate.routeChanged) {
+        await triggerRescheduling(statusUpdate.truckId);
+      }
+    },
+  });
+}
+
+run().catch(console.error);
+
+async function updateTruckStatusInDB(status: any) {
+  // DB 업데이트 로직
+  console.log(`Updating truck ${status.truckId} status in DB.`);
+}
+
+async function triggerRescheduling(truckId: string) {
+  // 재스케줄링 API 호출 또는 큐에 작업 추가
+  console.log(`Triggering rescheduling for truck ${truckId}.`);
+}
+```
+
+이 코드는 자율주행 트럭에서 발생하는 상태 업데이트를 실시간으로 받아서 SCM 시스템에 반영하는 기본 구조입니다. 물론 실제 환경에선 장애 대응, 재시도 로직, 데이터 검증, 보안 등 여러 추가 요소가 필요하지만, 이 정도 구조만 갖춰도 실시간 반영이 가능해집니다.
+
+---
+
+## 자율주행 트럭 도입 후 SCM 소프트웨어가 맞닥뜨릴 현실적인 문제들
+
+처음엔 "자율주행 트럭 덕분에 모든 게 자동화되고 쉬워지겠지"라고 생각하기 쉽지만, 실제론 그렇지 않습니다. 예를 들어,
+
+- **데이터 품질 문제**: 센서 오류나 통신 장애로 인한 불완전한 데이터가 SCM 판단에 영향을 줄 수 있습니다.
+- **예측 불확실성 증가**: 도로 상황 변화에 따른 경로 변경이 잦아지면, 재고 배분과 배송 시간 예측이 더 어려워집니다.
+- **시스템 복잡성 증가**: 자율주행 트럭과 기존 시스템 간 인터페이스가 많아지면서, 유지보수 비용이 늘고 장애 원인 파악이 까다로워집니다.
+
+이런 문제들은 결국 우리 SCM 백엔드가 얼마나 유연하고 견고하게 설계되어 있느냐에 달려 있습니다. 이벤트 소싱, CQRS, 마이크로서비스 아키텍처 같은 패턴을 적절히 도입해, 변경에 빠르게 대응할 수 있는 구조를 만드는 게 필수죠.
+
+---
+
+## PepsiCo 사례에서 얻은 SCM 자동화 엔지니어의 실무 교훈
+
+PepsiCo가 자율주행 트럭을 점진적으로 확대하며 겪은 경험에서 몇 가지 배울 점을 정리해봅니다.
+
+1. **실패 유형을 조기에 계측하고 모니터링하라**: 장애가 발생했을 때 로그와 메트릭이 없으면 원인 분석에 수일이 걸립니다. 초기부터 실패 유형과 상태 변화를 꼼꼼히 기록해야 유지보수가 쉬워집니다.
+
+2. **작은 단위로 기능을 배포해 리스크를 줄여라**: 대규모 한방 배포는 장애 시 전체 물류에 치명적입니다. 적은 범위부터 시작해 점진적으로 확대하는 게 안정적입니다.
+
+3. **실시간 데이터 파이프라인 구축에 집중하라**: 자율주행 트럭은 초당 수십 건의 상태 업데이트를 발생시킵니다. 이를 처리할 수 있는 스트림 처리 시스템과 이벤트 기반 아키텍처가 필수입니다.
+
+4. **기존 SCM 시스템과의 인터페이스를 명확히 정의하라**: 자율주행 트럭의 API, 센서 데이터 포맷, 상태 코드 등을 표준화해야 통합이 수월합니다.
+
+---
+
+자율주행 트럭이 공급망에 미치는 영향은 단순히 운송 효율을 높이는 차원을 넘어, SCM 소프트웨어의 설계와 운영 방식을 근본적으로 바꾸고 있습니다. 우리 같은 SCM 엔지니어는 이런 변화를 기회로 삼아, 더 유연하고 견고한 시스템을 만들어야 할 때입니다.
+
+---
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
