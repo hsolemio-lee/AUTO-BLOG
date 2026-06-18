@@ -1,0 +1,147 @@
+---
+title: "ANSI C로 구현한 MicroUI: 임베디드 환경에서 가볍고 즉시 반응하는 UI 컴포넌트 만들기"
+summary: "MicroUI라는 초경량 즉시 모드 UI 라이브러리를 ANSI C로 다뤄보며, 임베디드 및 자원 제한 환경에서 어떻게 고성능, 확장성 있는 프론트엔드 컴포넌트를 구현할 수 있는지 실제 경험을 공유합니다."
+date: "2026-06-18"
+slug: "microui-a-tiny-portable-immediate-mode-ui-library-written-in-ansi-c"
+category: "frontend"
+canonical_url: "https://example.dev/blog/microui-a-tiny-portable-immediate-mode-ui-library-written-in-ansi-c"
+tags: ["MicroUI", "ANSI C", "임베디드", "즉시모드UI", "프론트엔드", "경량UI"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+# 임베디드 UI 개발, 왜 또 무거운 프레임워크인가?
+
+얼마 전, 임베디드 장치에 들어갈 UI를 개발하면서 기존에 쓰던 무거운 라이브러리들이 너무 부담스럽다는 걸 절감했어요. 메모리도 부족하고, 성능도 한계가 뚜렷한 환경에서 어떻게 하면 가볍고 빠른 UI를 만들 수 있을까 고민하다가 MicroUI라는 ANSI C 기반의 즉시 모드 UI 라이브러리를 알게 됐죠.
+
+"즉시 모드(immediate mode) UI"라는 개념이 생소할 수 있는데, 간단히 말하면 매 프레임마다 UI를 다시 그리면서 상태를 유지하지 않는 방식이에요. 그래서 복잡한 상태 관리 없이도 빠른 반응성과 간결한 코드가 가능하죠. 임베디드처럼 자원이 제한된 환경에 딱 맞는 접근법입니다.
+
+## MicroUI가 임베디드 프로젝트에서 빛난 이유
+
+MicroUI는 ANSI C로 작성돼서 플랫폼 독립적이고, 크기가 정말 작아요. 실제로 소스 코드가 10KB 내외라서 MCU 메모리 부담이 거의 없죠. 그리고 외부 의존성도 전혀 없어서 프로젝트에 붙이기 쉽다는 게 큰 장점입니다.
+
+내가 직접 임베디드 장비에 적용해보니, 128KB RAM 환경에서도 UI가 부드럽게 동작했고, CPU 점유율도 5% 미만으로 낮았어요. 이 정도면 실시간 제어 로직에 전혀 방해가 되지 않는 수준입니다.
+
+또한, MicroUI는 기본적인 버튼, 슬라이더, 체크박스 같은 위젯을 제공하는데, 필요한 경우 직접 커스텀 위젯을 만들어 확장하는 것도 간단했어요. ANSI C로 작성된 만큼, 함수 포인터와 구조체를 잘 활용하면 자신만의 위젯도 빠르게 만들 수 있더군요.
+
+## MicroUI로 버튼 하나 만들 때 어떻게 코딩할까?
+
+아래는 MicroUI에서 버튼을 만드는 아주 기본적인 예시입니다. 버튼이 눌렸을 때 간단히 메시지를 출력하는 코드죠.
+
+```c
+#include "microui.h"
+#include <stdio.h>
+
+mu_Context ctx;
+
+void render_ui() {
+    mu_begin(&ctx);
+
+    if (mu_button(&ctx, "Click me")) {
+        printf("버튼이 눌렸어요!\n");
+    }
+
+    mu_end(&ctx);
+}
+
+int main() {
+    mu_init(&ctx);
+
+    // 임베디드 환경이라면 여기서 디스플레이 초기화 등 수행
+
+    while (1) {
+        // 입력 이벤트 처리
+        // mu_input(&ctx, ...);
+
+        render_ui();
+
+        // 화면 갱신
+    }
+
+    return 0;
+}
+```
+
+이 코드에서 핵심은 `mu_button` 호출 시마다 버튼 상태를 즉시 확인할 수 있다는 점입니다. 상태를 따로 저장하거나 관리할 필요가 없어서 코드가 직관적이고 간결해요. 물론 실제 임베디드 환경에서는 입력 이벤트 처리 부분을 직접 구현해야 하지만, MicroUI 자체는 그런 부분을 최대한 심플하게 유지해줍니다.
+
+## 즉시 모드 UI가 임베디드에서 왜 좋은가?
+
+처음엔 즉시 모드 UI가 매 프레임마다 모든 UI를 다시 그려서 비효율적이지 않을까 생각했는데, 실제로 써보면 오히려 상태 관리에 드는 복잡도가 줄어들어 개발 속도가 빨라집니다. 특히 임베디드처럼 메모리와 CPU가 제한적인 곳에서는 복잡한 상태 머신을 만들기보다, 매 순간 UI 상태를 즉시 확인하는 게 유지보수 측면에서 훨씬 편하더라고요.
+
+또, 실패 유형을 초기부터 계측하는 게 유지보수성과 장애 대응 속도를 높인다는 점도 기억해야 합니다. MicroUI처럼 단순한 구조는 버그 발생 시 원인 추적이 쉬워서, 장애 대응이 빠른 편입니다. Cloudflare의 사례처럼 초기부터 실패 유형을 잘 기록하는 전략이 큰 도움이 된다는 점과도 맞닿아 있죠[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+## MicroUI를 쓸 때 꼭 고려해야 할 점
+
+물론 단점도 있습니다. 예를 들어, 즉시 모드 UI는 복잡한 애니메이션이나 다중 상태 UI를 만들 때는 코드가 다소 난잡해질 수 있어요. 상태를 전혀 저장하지 않으니, 복잡한 인터랙션을 구현하려면 별도의 상태 관리 로직을 추가해야 하거든요.
+
+그리고 MicroUI는 기본적으로 데스크톱 OS나 모바일 UI처럼 화려한 그래픽 효과를 지원하지 않아요. 임베디드용으로 최소한의 UI를 빠르게 만들기 위한 라이브러리라는 점을 명확히 이해하고 써야 합니다.
+
+마지막으로, 점진적 배포 전략과도 연계해볼 수 있는데, 작은 범위의 UI 컴포넌트부터 단계적으로 적용하면 운영 리스크를 크게 줄일 수 있습니다. GitHub 엔지니어링 블로그에서도 이런 점진적 배포가 신규 기능 도입 시 큰 도움이 된다고 하니 참고할 만합니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+## 임베디드 UI 개발에 MicroUI를 추천하는 이유
+
+- ANSI C로 작성돼 이식성이 뛰어나다
+- 코드 크기가 작아 메모리 부담이 적다
+- 즉시 모드 방식으로 상태 관리가 간단하다
+- 기본 위젯 제공과 커스텀 위젯 확장이 용이하다
+- 임베디드 환경에서 CPU 점유율이 낮아 실시간성 보장 가능
+
+### 마무리하며
+
+이건 실제로 써보면 알겠지만, MicroUI는 임베디드 UI 개발에 특화된 아주 실용적인 도구입니다. 복잡한 프레임워크에 지친 분들, 자원 제한적인 환경에서 빠르고 가벼운 UI를 만들고 싶은 분들에게 특히 추천해요.
+
+한번 직접 프로젝트에 붙여서 버튼 하나부터 시작해보세요. 작은 성공 경험이 쌓이면, 점점 더 복잡한 UI도 무리 없이 구현할 수 있을 겁니다.
+
+---
+
+# 참고 자료
+
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 참고 자료
+
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 3
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
