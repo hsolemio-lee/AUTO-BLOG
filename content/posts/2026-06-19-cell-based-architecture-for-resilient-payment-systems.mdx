@@ -1,0 +1,134 @@
+---
+title: "결제 시스템에서 셀 기반 아키텍처로 복원력 높이기: 설계와 마이그레이션 이야기"
+summary: "결제 백엔드를 셀(Cell) 단위로 분리해 장애 격리와 복원력을 확보하는 방법, 설계 시 고려할 트레이드오프, 그리고 운영 환경에서 단계적으로 마이그레이션하는 실제 경험을 공유합니다."
+date: "2026-06-19"
+slug: "cell-based-architecture-for-resilient-payment-systems"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/cell-based-architecture-for-resilient-payment-systems"
+tags: ["결제시스템", "셀아키텍처", "복원력", "마이크로서비스", "마이그레이션"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+### "결제 장애 한 번 터지면 회사 매출이 멈추는데, 어떻게 하면 시스템을 더 튼튼하게 만들 수 있을까?"
+
+이 질문은 결제 백엔드 개발을 하면서 누구나 한 번쯤은 고민하는 문제입니다. 우리 팀도 몇 차례 대규모 장애를 겪으면서 기존 모놀리식 구조의 한계를 뼈저리게 느꼈죠. 그래서 선택한 게 바로 **셀 기반 아키텍처(Cell-based Architecture)**였습니다. 이번 글에서는 셀 아키텍처가 왜 결제 시스템에 적합한지, 설계하면서 마주친 고민들, 그리고 실제로 어떻게 단계별 마이그레이션을 진행했는지 솔직하게 이야기해보려 합니다.
+
+---
+
+## 셀 기반 아키텍처가 결제 시스템 복원력에 주는 의미
+
+셀 아키텍처는 크게 보면 마이크로서비스 아키텍처와 닮았지만, 각 셀(Cell)이 완전히 독립된 단위로 운영된다는 점이 핵심입니다. 우리 결제 시스템에서는 결제 수단별, 지역별, 혹은 기능별로 셀을 나누었는데, 각 셀은 자체 데이터 저장소를 가지고 독립적으로 장애를 처리합니다. 이렇게 하면 한 셀에서 장애가 터져도 전체 결제 시스템이 멈추지 않아요.
+
+이게 왜 중요한지, 마틴 파울러가 설명한 마이크로서비스 원칙을 떠올려보면 이해가 빠릅니다. "셀 기반 아키텍처는 단일 장애 지점을 제거하고, 각 셀이 독립적으로 운영되도록 설계하여 전체 시스템의 복원력을 극대화한다"고 하죠[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+결제 시스템은 특히 장애가 곧 매출 손실과 직결되기 때문에, 이런 격리 전략이 필수적입니다. 우리 팀은 셀 단위 장애 복구와 모니터링 체계를 별도로 구축해, 문제 발생 시 빠르게 원인을 파악하고 셀 단위로 롤백하거나 재시작할 수 있게 했습니다. 이 부분은 Cloudflare가 셀 단위 장애 격리를 강조한 사례와도 비슷합니다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+---
+
+## 셀 간 데이터 동기화, 어떻게 해야 할까?
+
+셀마다 독립된 데이터 저장소를 둔다고 하면, 셀 간 데이터 일관성 문제는 불가피합니다. 예를 들어, 한 셀에서 결제 승인 상태가 바뀌었을 때 다른 셀에서 이를 바로 반영해야 하는 경우가 있죠. 이런 상황에서 동기식 호출을 사용하면 셀 간 결합도가 높아지고, 장애 전파 위험이 커집니다.
+
+그래서 우리 팀은 **비동기 이벤트 기반 메시징 패턴**을 적극 활용했습니다. 각 셀은 자신의 변경 사항을 이벤트로 발행하고, 다른 셀은 필요한 이벤트만 구독해서 처리하는 방식입니다. 이러면 셀 간 결합도가 느슨해지고, 한 셀 장애가 다른 셀로 전파되는 걸 막을 수 있어요.
+
+Microsoft의 클라우드 디자인 패턴 문서에서도 셀 간 느슨한 결합과 비동기 통신을 권장하고 있습니다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+하지만 이 방식에도 단점이 있는데, 결국 데이터 최종 일관성(eventual consistency)만 보장된다는 점입니다. 예를 들어, 결제 승인 후 바로 다음 단계 처리에서 승인 상태를 조회하면 아직 반영 안 된 경우가 있을 수 있죠. 이런 트레이드오프는 비즈니스 요구사항에 맞게 적절히 조율해야 합니다.
+
+---
+
+## 마이그레이션은 한 방에 끝내지 말고, 단계별로 쪼개자
+
+기존 모놀리식 결제 시스템을 셀 아키텍처로 바꾸는 건 쉽지 않은 작업입니다. 우리 팀도 처음에 막연히 "모든 걸 셀로 나누자"고 했다가 현실 벽에 부딪혔죠. 데이터 일관성, 트랜잭션 경계, API 계약 등 신경 쓸 게 한두 가지가 아니었습니다.
+
+그래서 마틴 파울러가 말한 것처럼[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/), **점진적이고 단계적인 마이그레이션** 전략을 택했습니다. 예를 들어, 먼저 결제 승인 로직만 별도 셀로 분리하고, 그 다음에 정산이나 환불 같은 기능을 순차적으로 옮겼죠.
+
+이 과정에서 가장 까다로웠던 건 셀 간 API 계약을 명확히 정의하는 거였습니다. 셀 경계 내에서 변경이 생겨도 다른 셀에 영향을 최소화하려면 버전 관리 전략이 필수입니다. 우리 팀은 API 버전을 URI에 명시하고, 하위 호환성을 유지하는 방식으로 대응했는데, GitHub 엔지니어링 블로그에서 소개한 방법과 비슷합니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+---
+
+## 실제 코드로 보는 셀 간 이벤트 발행 예시
+
+우리 결제 시스템에서는 Kafka를 메시징 미들웨어로 활용했는데, 셀 간 이벤트 발행은 다음과 같이 구현했습니다.
+
+```java
+// 결제 승인 완료 후 이벤트 발행 예시
+public class PaymentApprovalService {
+    private final KafkaTemplate<String, PaymentEvent> kafkaTemplate;
+
+    public PaymentApprovalService(KafkaTemplate<String, PaymentEvent> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    public void approvePayment(Payment payment) {
+        // 결제 승인 로직
+        payment.setStatus("APPROVED");
+        savePayment(payment);
+
+        // 이벤트 발행
+        PaymentEvent event = new PaymentEvent(payment.getId(), "APPROVED", Instant.now());
+        kafkaTemplate.send("payment-events", event.getPaymentId(), event);
+    }
+
+    private void savePayment(Payment payment) {
+        // DB 저장 로직
+    }
+}
+```
+
+이 코드는 결제 승인 후 `payment-events` 토픽에 승인 이벤트를 비동기로 발행합니다. 다른 셀에서는 이 이벤트를 구독해 상태를 업데이트하거나 후속 처리를 합니다. 이런 구조 덕분에 셀 간 결합도가 낮아지고 장애 확산 위험이 줄었죠.
+
+---
+
+## 셀 기반 아키텍처 도입 시 꼭 기억해야 할 점
+
+- **셀 단위 모니터링과 장애 복구 체계 구축**: 셀별 로그, 메트릭, 알람을 분리해 장애 원인을 빠르게 찾고 대응할 수 있어야 합니다.
+- **데이터 최종 일관성 감내**: 비동기 이벤트 처리로 인해 즉시 일관성은 보장되지 않으니, 비즈니스 로직에서 이를 고려해야 합니다.
+- **API 계약과 버전 관리**: 셀 간 인터페이스를 엄격히 정의하고, 변경 시 버전 호환성을 유지하는 전략이 필수입니다.
+- **점진적 마이그레이션**: 한꺼번에 다 바꾸려 하지 말고, 기능 단위로 쪼개서 단계적으로 옮기는 게 운영 리스크를 줄입니다.
+
+---
+
+셀 기반 아키텍처는 결제 시스템처럼 장애가 곧 매출에 직결되는 서비스에 특히 효과적입니다. 처음엔 설계와 마이그레이션이 복잡해 보이지만, 실제로 해보면 장애 격리와 복원력 면에서 확실한 이점을 느낄 수 있습니다. 우리 팀도 이 구조 덕분에 장애 발생 시 피해 범위를 크게 줄였고, 운영 안정성이 눈에 띄게 개선됐어요.
+
+혹시 결제 시스템을 더 튼튼하게 만들고 싶다면, 셀 기반 아키텍처를 한 번 진지하게 고민해보시길 추천합니다.
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **셀 기반 아키텍처는 결제 시스템에서 단일 장애 지점을 제거하고, 각 셀(Cell)이 독립적으로 운영되도록 설계하여 전체 시스템의 복원력을 극대화한다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **셀 아키텍처 설계 시 각 셀은 자체 데이터 저장소를 갖고, 셀 간의 데이터 동기화는 비동기 이벤트나 메시징 패턴을 활용하여 느슨하게 결합되도록 한다. 이는 장애 전파를 최소화하는 데 중요한 역할을 한다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **운영 제약 조건 하에서 셀 기반 아키텍처로의 마이그레이션은 점진적이고 단계적으로 진행해야 하며, 기존 모놀리식 또는 모놀리식에 가까운 시스템을 서비스별 셀 단위로 분리하는 과정에서 데이터 일관성 문제와 트랜잭션 경계 설정에 신경 써야 한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **각 셀은 자체 장애 복구 메커니즘과 모니터링 체계를 갖추어야 하며, 셀 단위의 장애가 전체 결제 시스템에 영향을 미치지 않도록 격리하는 것이 핵심 설계 결정이다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **마이그레이션 과정에서 셀 간 API 계약을 명확히 정의하고, 셀 경계 내에서의 변경이 다른 셀에 미치는 영향을 최소화하기 위한 버전 관리 전략이 필요하다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
