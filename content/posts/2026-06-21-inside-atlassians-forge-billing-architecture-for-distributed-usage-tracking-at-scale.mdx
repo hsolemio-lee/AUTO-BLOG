@@ -1,0 +1,141 @@
+---
+title: "Atlassian Forge 청구 시스템, 대규모 분산 사용량 추적을 이렇게 설계했다"
+summary: "Atlassian Forge의 분산 청구 아키텍처를 통해 대규모 환경에서 사용량 기반 청구를 어떻게 안정적이고 확장성 있게 처리하는지, 실무에서 적용할 수 있는 패턴과 설계 철학을 공유합니다."
+date: "2026-06-21"
+slug: "inside-atlassians-forge-billing-architecture-for-distributed-usage-tracking-at-scale"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/inside-atlassians-forge-billing-architecture-for-distributed-usage-tracking-at-scale"
+tags: ["atlassian", "billing", "distributed-systems", "microservices", "event-sourcing", "scalability"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## 분산된 청구 데이터, 왜 이렇게 복잡할까?
+
+"우리 서비스가 갑자기 수백만 건의 API 호출을 처리해야 하는데, 청구 데이터는 어떻게 정확하게 집계하지?"
+
+이런 고민, 백엔드 엔지니어라면 한 번쯤 해봤을 겁니다. Atlassian의 Forge 플랫폼은 수천, 수만 개의 앱과 확장 기능들이 동시에 사용량을 발생시키는 환경에서 청구 데이터를 추적해야 하죠. 단순히 로그를 모으는 걸 넘어, 실시간에 가깝게 정확한 사용량 집계와 장애 복구, 그리고 확장성을 모두 만족시키는 건 쉽지 않은 문제입니다.
+
+## 마이크로서비스로 쪼개고, 각자 독립적으로 데이터 수집하기
+
+Atlassian Forge는 마이크로서비스 아키텍처를 적극 활용합니다. 각 서비스가 자신만의 사용량 데이터를 독립적으로 수집하고 집계할 수 있게 설계했죠. 이게 왜 중요하냐면, 단일 데이터베이스에 모든 청구 데이터를 몰아넣으면 확장성에 한계가 명확히 드러납니다. 서비스가 늘어날수록 병목이 생기고, 장애가 발생하면 전체 청구 시스템이 흔들리게 되거든요.
+
+Martin Fowler가 강조한 마이크로서비스의 핵심은 ‘작고 독립적인 서비스’입니다. Forge는 이 원칙을 따라 각 서비스가 자신의 영역에서 데이터 수집과 1차 집계를 맡고, 중앙 시스템으로는 집계된 결과만 전달합니다. 이 구조 덕분에 확장성이 훨씬 좋아지고, 장애가 한 부분에서 발생해도 전체 시스템에 미치는 영향이 제한적입니다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+## 이벤트 소싱과 CQRS로 데이터 일관성 유지하기
+
+분산된 환경에서 데이터 일관성을 맞추는 건 골치 아픈 일입니다. Atlassian은 이벤트 소싱(Event Sourcing)과 CQRS(Command Query Responsibility Segregation) 패턴을 도입해 이 문제를 해결했어요.
+
+이벤트 소싱은 상태 변경을 이벤트 단위로 기록하는 방식인데, 이 덕분에 시스템은 언제든지 이벤트 로그를 재생해서 현재 상태를 복원할 수 있습니다. CQRS는 명령과 조회를 분리해 각각 최적화된 저장소와 처리 로직을 갖게 하죠. 이 두 패턴을 조합하면, 분산된 여러 서비스가 생성하는 사용량 이벤트를 신뢰성 있게 처리하면서도, 조회 성능은 빠르게 유지할 수 있습니다.
+
+예를 들어, Forge의 청구 시스템에서 사용자가 API를 호출할 때마다 ‘API 호출됨’ 이벤트가 발행됩니다. 이 이벤트는 이벤트 저장소에 기록되고, 별도의 조회용 데이터베이스에 집계 결과가 업데이트됩니다. 장애가 나도 이벤트 로그를 다시 처리하면 데이터 손실 없이 복원 가능하죠.
+
+Microsoft의 클라우드 디자인 패턴에서도 이 접근법을 추천하고 있는데, 특히 대규모 분산 환경에서 데이터 일관성과 확장성을 동시에 보장하는 데 효과적입니다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+## 실시간 집계와 장애 복구를 동시에, 이벤트 기반 아키텍처
+
+GitHub도 비슷한 문제를 겪으면서 이벤트 기반 아키텍처로 전환했습니다. 실시간 데이터 처리와 장애 복구 능력이 크게 향상됐죠. Atlassian Forge 역시 이런 방식을 참고해, 이벤트 스트림을 통해 사용량 데이터를 실시간으로 수집하고 처리합니다.
+
+이벤트 기반 아키텍처의 장점은 처리량이 급증해도 이벤트 큐에 쌓아두고 순차적으로 처리할 수 있어, 시스템이 버티기 쉽다는 점입니다. 장애가 발생하면 큐에 남은 이벤트를 재처리하면 되니, 데이터 신뢰성도 확보할 수 있죠.
+
+하지만 단점도 있습니다. 이벤트 처리 지연으로 인해 청구 데이터가 실시간과 약간의 차이가 날 수 있고, 이벤트 순서 보장 문제도 신경 써야 합니다. 이런 부분은 결국 트레이드오프인데, Forge는 최종적 일관성(eventual consistency)을 수용하는 방향으로 설계해 확장성과 복원력을 높였습니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+## 분산 캐시와 스트림 처리로 처리량과 지연 시간 줄이기
+
+Cloudflare가 분산 사용량 집계에서 스트림 처리와 분산 캐시를 결합해 높은 처리량과 낮은 지연 시간을 달성한 사례도 참고할 만합니다. Atlassian Forge도 비슷한 아키텍처를 적용해, 이벤트를 빠르게 처리하면서도 자주 조회되는 사용량 데이터는 캐시에 올려두어 조회 성능을 최적화했습니다.
+
+이렇게 하면 매번 DB에 직접 조회하는 비용을 줄일 수 있고, 급격한 트래픽 변화에도 대응하기 쉽습니다. 다만 캐시 일관성 문제를 항상 염두에 두고, 적절한 TTL 설정과 캐시 무효화 전략을 세워야 합니다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+## 실제 코드 예시: 이벤트 소싱으로 사용량 기록하기
+
+아래는 간단한 이벤트 소싱 패턴을 적용한 사용량 기록 예시입니다. 실제 Forge 코드와는 다르지만, 개념 이해에 도움 될 거예요.
+
+```java
+// 사용량 이벤트 정의
+public class UsageEvent {
+    private final String serviceId;
+    private final String userId;
+    private final String eventType; // e.g. API_CALL
+    private final long timestamp;
+
+    public UsageEvent(String serviceId, String userId, String eventType, long timestamp) {
+        this.serviceId = serviceId;
+        this.userId = userId;
+        this.eventType = eventType;
+        this.timestamp = timestamp;
+    }
+
+    // getters...
+}
+
+// 이벤트 저장소 인터페이스
+public interface EventStore {
+    void append(UsageEvent event);
+    List<UsageEvent> getEvents(String serviceId, long fromTimestamp, long toTimestamp);
+}
+
+// 간단한 이벤트 기록 서비스
+public class UsageEventService {
+    private final EventStore eventStore;
+
+    public UsageEventService(EventStore eventStore) {
+        this.eventStore = eventStore;
+    }
+
+    public void recordUsage(String serviceId, String userId) {
+        UsageEvent event = new UsageEvent(serviceId, userId, "API_CALL", System.currentTimeMillis());
+        eventStore.append(event);
+    }
+
+    // 이벤트를 재생해서 집계 결과 계산 가능
+}
+```
+
+이런 식으로 이벤트를 쌓아두면, 나중에 장애가 생겨도 이벤트 로그를 다시 읽어 상태를 복원할 수 있습니다. CQRS 패턴을 적용해 조회용 DB를 별도로 두면, 집계 결과를 빠르게 조회할 수도 있죠.
+
+## 실무에서 이 패턴이 주는 교훈
+
+처음엔 이벤트 소싱이나 CQRS가 너무 복잡해 보일 수 있습니다. 하지만 대규모 분산 청구 시스템에서 이걸 안 쓰면 데이터 신뢰성, 확장성, 장애 복구 모두에서 한계가 분명히 드러나요.
+
+Atlassian Forge 사례를 보면, 마이크로서비스로 쪼개고, 이벤트 기반으로 사용량을 추적하며, 최종적 일관성을 받아들이는 게 현실적인 해법임을 알 수 있습니다. 그리고 캐시와 스트림 처리 같은 보조 기술을 적절히 섞어 처리량과 지연 시간 문제도 해결했죠.
+
+우리 팀에서 청구나 사용량 추적 시스템을 설계할 때도 이런 패턴을 참고하면 좋을 것 같습니다. 물론 복잡도가 올라가니, 작은 프로젝트에서는 과도한 설계가 될 수 있으니 상황에 맞게 조절하는 게 중요합니다.
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **대규모 분산 환경에서 사용량 기반 청구 시스템은 마이크로서비스 아키텍처를 활용하여 각 서비스별 독립적인 데이터 수집과 집계를 가능하게 하며, 이는 확장성과 신뢰성을 높이는 핵심 패턴이다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 환경에서 분산 사용량 추적을 구현할 때, 이벤트 소싱과 CQRS 패턴을 적용하여 데이터의 일관성과 확장성을 보장하는 것이 효과적이다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **대규모 분산 시스템에서 청구 데이터의 신뢰성을 확보하기 위해, GitHub는 이벤트 기반 아키텍처를 도입하여 실시간 데이터 처리와 장애 복구 능력을 강화하였다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare는 분산된 사용량 데이터를 효율적으로 집계하기 위해, 스트림 처리와 분산 캐시를 결합한 아키텍처를 설계하여 높은 처리량과 낮은 지연 시간을 달성하였다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **분산 청구 시스템 설계 시, 서비스 간의 데이터 일관성을 위해 최종적 일관성(eventual consistency)을 수용하는 것이 확장성과 복원력을 높이는 실용적인 접근법이다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.

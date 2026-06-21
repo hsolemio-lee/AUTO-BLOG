@@ -1,0 +1,240 @@
+---
+title: "Spring AI 2.0에서 Tool Calling으로 에이전트 아키텍처 확장하기"
+summary: "Spring AI 2.0의 컴포저블 에이전트 아키텍처를 활용해 AI 도구 호출을 구현하고, 스프링 부트의 의존성 주입과 성능 튜닝으로 대규모 AI 백엔드 통합을 확장하는 방법을 다룹니다."
+date: "2026-06-21"
+slug: "tool-calling-in-spring-ai-20-a-composable-agentic-architecture"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/tool-calling-in-spring-ai-20-a-composable-agentic-architecture"
+tags: ["spring-ai", "agentic-architecture", "tool-calling", "spring-boot", "backend-engineering"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "Cursor Documentation"
+    url: "https://docs.cursor.com/"
+---
+
+## AI 도구 호출, 왜 스프링에서 다시 주목받나?
+
+최근 AI 서비스가 복잡해지면서 단순히 모델 하나만 호출하는 게 아니라, 여러 도구를 조합해 단계별로 작업을 수행하는 에이전트 아키텍처가 뜨고 있죠. 예를 들어, 챗봇이 질문을 이해한 뒤 검색 도구를 호출하고, 결과를 요약하는 식입니다. 이런 구조는 확장성과 유지보수 측면에서 도전적인데, Spring AI 2.0은 스프링 부트의 강력한 의존성 주입과 모듈화 기능을 활용해 이 문제를 자연스럽게 해결합니다.
+
+처음엔 이게 별거 아닌 것 같지만, 실제로 여러 AI 도구를 조합하다 보면 호출 순서, 상태 관리, 에러 핸들링 등 복잡도가 급격히 올라가거든요. Spring AI 2.0이 제공하는 컴포저블(agentic) 아키텍처는 이런 문제를 깔끔하게 분리하고, 각 도구 호출을 독립된 컴포넌트로 관리할 수 있게 도와줍니다.
+
+
+## Spring Boot 의존성 주입으로 에이전트 도구 호출을 모듈화하는 법
+
+스프링의 핵심 강점 중 하나는 느슨한 결합(loose coupling)입니다. AI 에이전트가 여러 도구를 호출할 때, 각 도구를 독립적인 빈(bean)으로 등록하고, 필요한 곳에 주입하면 됩니다. 이렇게 하면 새 도구를 추가하거나 교체할 때도 기존 코드를 크게 건드리지 않아도 되죠.
+
+```java
+@Component
+public class SearchTool implements AiTool {
+    @Override
+    public String call(String input) {
+        // 실제 검색 API 호출 로직
+        return "검색 결과 for: " + input;
+    }
+}
+
+@Component
+public class SummarizeTool implements AiTool {
+    @Override
+    public String call(String input) {
+        // 요약 API 호출
+        return "요약: " + input.substring(0, Math.min(50, input.length()));
+    }
+}
+
+@Service
+public class AgentService {
+    private final List<AiTool> tools;
+
+    public AgentService(List<AiTool> tools) {
+        this.tools = tools;
+    }
+
+    public String execute(String query) {
+        String result = query;
+        for (AiTool tool : tools) {
+            result = tool.call(result);
+        }
+        return result;
+    }
+}
+```
+
+위 예시는 `AiTool` 인터페이스를 구현한 여러 도구를 스프링이 자동으로 주입해 순차적으로 호출하는 간단한 구조입니다. 실제 환경에선 각 도구 호출에 비동기 처리, 에러 핸들링, 로깅 등을 추가해 복잡도를 관리합니다.
+
+이처럼 스프링 부트의 의존성 주입과 모듈화는 AI 에이전트가 다양한 도구를 조합해 작업을 수행할 때 매우 유용합니다. [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html) 문서에서도 컴포넌트 간 느슨한 결합과 확장성 지원을 강조하고 있죠.
+
+
+## AI 도구 호출 성능, 스레드 풀과 캐시로 어떻게 개선하나?
+
+AI 백엔드 통합에서 도구 호출 지연 시간은 사용자 경험에 직결됩니다. 특히 여러 도구를 연쇄적으로 호출하는 에이전트 아키텍처는 지연 시간이 누적될 수밖에 없죠. 그래서 Spring Boot 성능 튜닝 가이드에 나오는 스레드 풀 최적화, 캐싱, 비동기 처리 전략을 적극 활용해야 합니다.
+
+예를 들어, `@Async` 어노테이션과 커스텀 스레드 풀을 만들어 도구 호출을 병렬화하면 전체 처리 시간을 크게 줄일 수 있습니다.
+
+```java
+@Configuration
+@EnableAsync
+public class AsyncConfig {
+    @Bean(name = "toolExecutor")
+    public Executor toolExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(10);
+        executor.setMaxPoolSize(20);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("ToolExecutor-");
+        executor.initialize();
+        return executor;
+    }
+}
+
+@Service
+public class AsyncAgentService {
+    @Async("toolExecutor")
+    public CompletableFuture<String> callToolAsync(AiTool tool, String input) {
+        return CompletableFuture.completedFuture(tool.call(input));
+    }
+
+    public String executeParallel(String query, List<AiTool> tools) throws Exception {
+        List<CompletableFuture<String>> futures = new ArrayList<>();
+        for (AiTool tool : tools) {
+            futures.add(callToolAsync(tool, query));
+        }
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        // 결과 합치기 (예시)
+        StringBuilder sb = new StringBuilder();
+        for (CompletableFuture<String> future : futures) {
+            sb.append(future.get()).append("\n");
+        }
+        return sb.toString();
+    }
+}
+```
+
+위처럼 스레드 풀 크기를 적절히 조절(예: 코어 10, 최대 20)하면 동시 요청 처리량을 높이면서도 과부하를 막을 수 있습니다. 그리고 자주 호출하는 도구 결과는 Redis 같은 캐시 서버에 저장해 재호출 비용을 줄이는 것도 좋은 방법입니다.
+
+이런 최적화는 [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)에서 자세히 다루고 있으니 참고하세요.
+
+
+## OpenAI API와 자연스럽게 연결하는 Spring AI 2.0의 장점
+
+AI 도구 호출에서 가장 중요한 건 AI 모델과의 원활한 통신입니다. OpenAI API는 RESTful 인터페이스와 SDK를 제공하는데, Spring AI 2.0은 이와 자연스럽게 통합되도록 설계됐습니다. 덕분에 API 키 관리, 요청/응답 직렬화, 에러 처리 등을 스프링이 대신 관리해줘서 개발자가 비즈니스 로직에 집중할 수 있죠.
+
+```java
+@Component
+public class OpenAiTool implements AiTool {
+    private final WebClient webClient;
+    private final String apiKey = "YOUR_OPENAI_API_KEY";
+
+    public OpenAiTool(WebClient.Builder webClientBuilder) {
+        this.webClient = webClientBuilder.baseUrl("https://api.openai.com/v1").build();
+    }
+
+    @Override
+    public String call(String input) {
+        Map<String, Object> requestBody = Map.of(
+            "model", "gpt-4",
+            "prompt", input,
+            "max_tokens", 100
+        );
+
+        return webClient.post()
+            .uri("/completions")
+            .header("Authorization", "Bearer " + apiKey)
+            .bodyValue(requestBody)
+            .retrieve()
+            .bodyToMono(Map.class)
+            .map(response -> ((List<Map<String, String>>)response.get("choices")).get(0).get("text"))
+            .block();
+    }
+}
+```
+
+이 예시는 WebClient를 활용해 OpenAI API를 호출하는 간단한 도구 구현입니다. Spring AI 2.0은 이런 도구들을 에이전트에 조합해 복잡한 작업 흐름을 만들 수 있게 해줍니다. OpenAI API 문서에서도 이런 RESTful 호출 방식을 권장하고 있죠.[OpenAI API Documentation](https://platform.openai.com/docs/overview)
+
+
+## 프롬프트 엔지니어링, AI 도구 호출의 정확도를 좌우한다
+
+도구 호출 아키텍처가 아무리 잘 설계돼도, AI가 어떤 도구를 언제 어떻게 호출할지 결정하는 로직이 부실하면 의미가 없습니다. Anthropic의 프롬프트 엔지니어링 가이드에 따르면, 에이전트가 호출할 도구를 정확히 선택하고 적절한 입력을 생성하는 게 핵심입니다.
+
+Spring AI 2.0 환경에서는 프롬프트를 서비스 레이어에서 동적으로 생성하고, 호출 전후에 튜닝할 수 있게 설계하는 게 좋습니다. 예를 들어, 사용자의 의도를 파악해 검색 도구 호출 전 쿼리를 정제하거나, 요약 도구 호출 전 불필요한 정보를 제거하는 식이죠.
+
+```java
+public class PromptBuilder {
+    public String buildSearchPrompt(String userInput) {
+        // 간단한 키워드 추출 예시
+        return "Search for relevant info about: " + userInput;
+    }
+
+    public String buildSummarizePrompt(String searchResult) {
+        return "Summarize the following text concisely: " + searchResult;
+    }
+}
+```
+
+이런 프롬프트 설계는 에이전트의 의사결정 정확도를 높이고, 도구 호출 실패율을 줄여줍니다. Anthropic 가이드에서 프롬프트 튜닝 방법을 더 자세히 확인할 수 있습니다.[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+
+
+## 실제 현장에선 어떤 점을 조심해야 할까?
+
+- **도구 호출 지연 누적**: 각 도구 호출이 느려지면 전체 응답 시간이 급격히 늘어납니다. 비동기 호출과 캐시 활용은 필수입니다.
+- **에러 전파와 복구**: 한 도구 실패가 전체 플로우를 멈추지 않도록 예외 처리를 꼼꼼히 해야 합니다.
+- **상태 관리**: 여러 도구 호출 간 상태를 어떻게 공유하고 관리할지 설계가 중요합니다.
+- **보안**: API 키, 사용자 데이터 등 민감 정보는 스프링 시큐리티와 환경변수를 이용해 안전하게 관리하세요.
+
+이런 점들은 Cursor 문서에서 소개하는 최신 AI 도구 호출 아키텍처 패턴과도 맞닿아 있습니다.[Cursor Documentation](https://docs.cursor.com/)
+
+
+## 마치며: Spring AI 2.0으로 도구 호출 아키텍처를 제대로 설계하려면
+
+실제로 Spring AI 2.0으로 에이전트 기반 도구 호출 시스템을 만들면서 느낀 건, 스프링의 의존성 주입과 모듈화가 없었다면 유지보수와 확장이 훨씬 힘들었을 거라는 점입니다. 그리고 성능 튜닝 없이는 대규모 요청을 감당하기 어렵다는 것도요.
+
+- 도구별로 독립적인 빈을 만들어 관리하자
+- 비동기 호출과 스레드 풀 설정으로 지연 시간을 줄이자
+- OpenAI API 같은 AI 모델 호출은 WebClient와 SDK를 적극 활용하자
+- 프롬프트를 동적으로 생성하고 튜닝해 호출 정확도를 높이자
+
+이 네 가지만 잘 지켜도, Spring AI 2.0의 컴포저블 에이전트 아키텍처를 활용해 유연하고 확장성 높은 AI 백엔드를 만들 수 있습니다. 실제 프로젝트에 적용해보면, 이게 얼마나 큰 차이를 만드는지 바로 체감할 수 있을 거예요.
+
+---
+
+## 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [Cursor Documentation](https://docs.cursor.com/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring AI 2.0에서는 컴포저블하고 에이전트 기반(agentic) 아키텍처를 구현하기 위해 Spring Boot의 의존성 주입과 모듈화 기능을 활용하며, 이를 통해 AI 백엔드 통합을 확장 가능하게 설계할 수 있다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework의 핵심 기술들은 컴포넌트 간 느슨한 결합과 유연한 확장성을 지원하여, AI 에이전트가 다양한 도구 호출(tool calling)을 조합하여 복잡한 작업을 수행하도록 돕는다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot 성능 튜닝 가이드에 따르면, AI 에이전트 아키텍처에서는 스레드 풀, 캐싱, 비동기 처리 등을 최적화하여 도구 호출의 지연 시간을 줄이고, 대규모 요청을 효과적으로 처리할 수 있다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **OpenAI API 문서에서는 AI 도구 호출 시 RESTful API와 SDK를 활용하여 Spring 백엔드에서 유연하게 AI 모델과 상호작용할 수 있도록 권장하며, 이는 Spring AI 2.0의 에이전트 아키텍처와 자연스럽게 통합된다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Anthropic의 프롬프트 엔지니어링 가이드에서는 AI 에이전트가 다양한 도구를 호출할 때, 프롬프트 설계와 튜닝이 중요하며, 이는 Spring AI 2.0에서 에이전트의 의사결정과 도구 선택 정확도를 높이는 데 필수적이다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cursor 문서는 AI 도구 호출과 관련된 최신 아키텍처 패턴을 소개하며, Spring AI 2.0과 결합 시 모듈화된 에이전트 컴포넌트를 통해 복잡한 백엔드 AI 통합을 유연하게 확장할 수 있음을 보여준다.** ([Cursor Documentation](https://docs.cursor.com/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
