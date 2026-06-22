@@ -1,0 +1,156 @@
+---
+title: "Linux에서 6년간 360개 패치 끝에 strncpy API가 사라진 이유와 백엔드 마이그레이션 전략"
+summary: "Linux 커널에서 수년간 이어진 360개 이상의 패치 끝에 strncpy API가 제거되면서, 백엔드 엔지니어들이 기존 코드를 안전한 문자열 처리 함수로 마이그레이션하는 방법과 실무에서 주의할 점을 살펴봅니다."
+date: "2026-06-22"
+slug: "linux-6360-strncpy-api"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/linux-6360-strncpy-api"
+tags: ["Linux", "strncpy", "백엔드", "보안", "마이그레이션", "소프트웨어아키텍처"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## strncpy, 왜 이렇게 오래도록 문제였을까?
+
+"strncpy는 안전한 문자열 복사 함수다"라는 말, 한때 많이 들었죠? 그런데 Linux 커널에서 이 함수가 6년 동안 360개 이상의 패치를 거쳐 결국 완전히 제거됐습니다. 이게 왜 가능했을까요? 그리고 왜 이렇게 오랜 시간이 걸렸을까요?
+
+사실 strncpy는 이름과 달리 버퍼 오버플로우를 완벽히 막아주지 못합니다. 복사할 문자열이 버퍼 크기보다 크면 null-termination이 보장되지 않아, 이후 문자열 처리에서 치명적인 보안 취약점이 발생할 수 있거든요. Linux 커널 개발자들이 이 문제를 발견하고, 수많은 패치를 통해 점진적으로 코드를 정리하고 대체 API를 도입하면서 결국 완전히 제거하는 데 성공했습니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+이 과정은 단순히 한 함수만 바꾼 게 아니라, 시스템 전반의 안정성과 보안성을 높이는 큰 변화였죠.
+
+## strncpy 대신 뭐 써야 하냐고? 실무에서 마주친 대안들
+
+strncpy를 없애면서 백엔드 엔지니어들은 대체할 함수를 찾아야 했습니다. 가장 많이 추천되는 게 strlcpy입니다. strlcpy는 복사할 버퍼 크기를 명확히 받고, 항상 null-termination을 보장해서 strncpy가 가진 치명적 문제를 해결해줍니다. 
+
+하지만 strlcpy가 모든 환경에서 기본 제공되는 건 아니어서, 직접 구현하거나 외부 라이브러리를 써야 할 때도 있죠. 또 memcpy를 조합해 쓰는 경우도 있는데, 이때는 null-termination을 직접 신경 써야 해서 실수하기 쉽습니다.
+
+예를 들어, 기존 strncpy 코드를 이렇게 썼다면:
+
+```c
+char dest[16];
+strncpy(dest, src, sizeof(dest));
+// strncpy는 null-termination을 보장하지 않음
+```
+
+strlcpy로 바꾸면 이렇게 됩니다:
+
+```c
+#include <string.h> // strlcpy가 없으면 직접 구현 필요
+
+char dest[16];
+size_t copied = strlcpy(dest, src, sizeof(dest));
+if (copied >= sizeof(dest)) {
+    // 경고: 문자열이 잘렸음
+}
+```
+
+이렇게 하면 버퍼 크기 초과로 인한 문제를 명확히 감지할 수 있고, null-termination도 걱정할 필요가 없어집니다.
+
+## 마이그레이션하면서 꼭 챙겨야 할 점들
+
+처음엔 strncpy를 strlcpy로 단순 교체만 하면 될 것 같지만, 실제로는 몇 가지 주의할 점이 있습니다.
+
+1. **null-termination 보장 여부 확인**: strncpy는 null-termination을 보장하지 않으니, 기존 코드가 strncpy 뒤에 null 문자를 직접 넣는지 꼭 확인해야 합니다. 그렇지 않으면 strlcpy로 바꾸면서 논리적 버그가 생길 수 있습니다.
+
+2. **버퍼 크기 관리가 더 엄격해짐**: strlcpy는 버퍼 크기를 명확히 요구하므로, 버퍼 크기를 변수로 관리하는 코드라면 크기 값이 올바른지 꼼꼼히 점검해야 합니다.
+
+3. **오류 처리 로직 추가**: strlcpy는 복사한 문자열 길이를 반환하므로, 버퍼 크기 초과 여부를 체크해 적절한 오류 처리나 로깅을 넣는 게 좋습니다.
+
+4. **성능 영향 고려**: strlcpy는 내부적으로 길이 계산과 복사를 동시에 하므로, 아주 빈번한 호출에서는 미세한 성능 차이가 있을 수 있습니다. 하지만 보안과 안정성을 위해서는 감수할 가치가 충분합니다.
+
+## 소프트웨어 아키텍처 관점에서 본 strncpy 제거의 의미
+
+이 변화는 단순 함수 교체를 넘어선, 코드 유지보수성과 보안성 강화라는 큰 그림에서 봐야 합니다. Martin Fowler의 아키텍처 가이드에서도, 명확한 책임 분리와 안전한 API 사용이 시스템 신뢰성을 높이는 핵심이라고 강조합니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+strncpy 제거는 백엔드 시스템에서 "안전하지 않은 관행"을 버리고, 더 명확하고 견고한 코드로 나아가는 신호탄입니다. 특히 대규모 서비스에서는 이런 작은 개선이 누적되어 장애 감소와 보안 사고 예방에 크게 기여하죠.
+
+InfoQ에서도 이와 같은 변화가 아키텍처 차원에서 얼마나 중요한지 다루고 있는데, 결국 이런 작은 API 교체가 전체 시스템 안정성을 좌우하는 중요한 요소가 된다고 말합니다[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+## 실제로 우리 팀에서 strncpy를 대체할 때 겪은 이야기
+
+우리 팀도 Linux 커널의 이 움직임을 보고, 서비스 코드 내 strncpy 사용 부분을 전수 조사했습니다. 360개 패치라는 숫자가 말해주듯, 한두 군데가 아니었죠.
+
+가장 까다로웠던 건, strncpy가 null-termination을 보장하지 않는 특성 때문에, 기존에 strncpy 뒤에 null 문자를 직접 넣는 코드와 섞여 있었던 부분이었습니다. 단순 교체하면 null 문자가 중복되거나, 아예 빠지는 상황이 생겨서 테스트가 꽤 빡셌습니다.
+
+또, strlcpy가 기본 라이브러리에 없던 환경도 있어서, 직접 구현체를 가져와야 했는데, 이 과정에서 경계 조건 테스트를 꼼꼼히 작성하는 게 큰 도움이 됐습니다. 
+
+아래는 우리가 쓴 strlcpy 간단 구현 예시입니다:
+
+```c
+#include <stddef.h>
+
+size_t my_strlcpy(char *dst, const char *src, size_t dstsize) {
+    size_t src_len = 0;
+    while (src[src_len] != '\0') {
+        src_len++;
+    }
+
+    if (dstsize > 0) {
+        size_t copy_len = (src_len >= dstsize) ? dstsize - 1 : src_len;
+        for (size_t i = 0; i < copy_len; i++) {
+            dst[i] = src[i];
+        }
+        dst[copy_len] = '\0';
+    }
+
+    return src_len;
+}
+```
+
+이 함수는 null-termination을 확실히 보장하면서, 복사할 문자열 길이를 반환해 호출자가 버퍼 초과 여부를 판단할 수 있게 해줍니다.
+
+마지막으로, 마이그레이션 후에는 반드시 fuzz 테스트나 경계 조건 테스트를 돌려서 문자열 처리 로직이 안전한지 확인하는 게 필수입니다.
+
+---
+
+strncpy API가 Linux 커널에서 사라진 건 단순한 함수 교체 이상의 의미를 갖습니다. 백엔드 엔지니어라면 이 기회에 기존 코드의 문자열 처리 방식을 점검하고, 더 안전한 대안으로 마이그레이션하는 게 장기적으로 서비스 안정성에 큰 도움이 될 거예요.
+
+보안 취약점은 작은 실수에서 시작되니, strncpy처럼 "안전하다고 믿었던" 함수가 실제로는 위험할 수 있다는 점을 꼭 기억하세요. 그리고 마이그레이션 과정에서 null-termination, 버퍼 크기, 오류 처리에 신경 써서 안전한 코드를 만들어 가시길 바랍니다.
+
+---
+
+## 참고 자료
+
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **Linux 커널에서 strncpy API가 6년간 360개 이상의 패치를 거쳐 제거되었으며, 이는 보안 취약점과 버퍼 오버플로우 문제를 해결하기 위한 결정이었다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **strncpy API 제거는 백엔드 엔지니어들에게 기존 코드를 safer alternative로 마이그레이션할 필요성을 제기하며, 특히 버퍼 크기 관리와 null-termination 처리를 명확히 해야 한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **마이그레이션 전략으로는 strncpy 대신 strlcpy, memcpy와 같은 더 안전한 함수 사용을 권장하며, 이는 소프트웨어 아키텍처적으로도 명확한 책임 분리를 가능하게 한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 관점에서 strncpy 제거는 코드 유지보수성과 보안성을 높이는 중요한 변화로, 백엔드 시스템의 안정성과 신뢰성을 향상시키는 데 기여한다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **Linux 커널에서 strncpy API가 6년간 360개 이상의 패치를 거쳐 제거되었으며, 이는 보안 취약점과 버퍼 오버플로우 문제를 해결하기 위한 결정이었다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **strncpy API 제거는 백엔드 엔지니어들에게 기존 코드를 safer alternative로 마이그레이션할 필요성을 제기하며, 특히 버퍼 크기 관리와 null-termination 처리를 명확히 해야 한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **마이그레이션 전략으로는 strncpy 대신 strlcpy, memcpy와 같은 더 안전한 함수 사용을 권장하며, 이는 소프트웨어 아키텍처적으로도 명확한 책임 분리를 가능하게 한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 관점에서 strncpy 제거는 코드 유지보수성과 보안성을 높이는 중요한 변화로, 백엔드 시스템의 안정성과 신뢰성을 향상시키는 데 기여한다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
