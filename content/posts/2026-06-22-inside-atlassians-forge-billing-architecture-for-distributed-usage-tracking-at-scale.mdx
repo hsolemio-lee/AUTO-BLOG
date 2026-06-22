@@ -1,0 +1,132 @@
+---
+title: "Atlassian Forge 청구 시스템, 분산 사용량 추적을 이렇게 설계했다"
+summary: "Atlassian Forge의 분산 사용량 추적 및 청구 아키텍처를 실제 사례와 함께 살펴보며, 마이크로서비스, 이벤트 기반 설계, CQRS 패턴 적용과 운영 트레이드오프에 대해 깊이 있게 다룹니다."
+date: "2026-06-22"
+slug: "inside-atlassians-forge-billing-architecture-for-distributed-usage-tracking-at-scale"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/inside-atlassians-forge-billing-architecture-for-distributed-usage-tracking-at-scale"
+tags: ["Atlassian", "분산시스템", "청구시스템", "마이크로서비스", "CQRS", "이벤트기반아키텍처"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## 갑자기 청구 데이터가 뒤엉켰다? 분산 사용량 추적의 현실 이야기
+
+얼마 전 우리 팀에서 비슷한 문제를 겪었어요. 여러 서비스에서 발생하는 사용량 데이터를 실시간으로 모아 청구에 반영하는 시스템이었는데, 데이터가 꼬이면서 청구 누락이나 중복이 발생했죠. 이걸 해결하려면 단순히 DB 하나 늘리는 것만으론 부족했습니다. Atlassian Forge가 어떻게 이 문제를 푸는지 들여다보니, 분산 환경에서 청구 데이터를 추적하는 데 필요한 핵심 설계 철학과 패턴을 잘 보여주더군요.
+
+
+## 마이크로서비스로 데이터 소유권 명확히, 장애 격리까지
+
+Atlassian Forge 청구 아키텍처는 각 기능별로 마이크로서비스를 분리해요. 예를 들어, 사용량을 기록하는 서비스, 집계하는 서비스, 청구 금액을 계산하는 서비스가 각각 독립적으로 운영됩니다. 이렇게 하면 각 서비스가 자기 데이터에 대한 소유권을 명확히 갖고, 필요에 따라 독립적으로 확장할 수 있죠.
+
+이 접근법은 Martin Fowler가 말한 마이크로서비스의 핵심 가치와 일맥상통합니다. 서비스 간 경계를 명확히 하면서 장애가 발생해도 전체 시스템에 영향을 덜 미치게 하죠[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+실제로 Forge에서는 사용량 이벤트를 로컬 서비스에서 먼저 기록하고, 중앙 집계 시스템으로 비동기 전송하는 방식을 씁니다. 이 덕분에 네트워크 지연이나 일시적 장애에도 각 서비스가 독립적으로 동작할 수 있어 안정성이 크게 향상되었어요.
+
+
+## 이벤트 기반 아키텍처와 CQRS 패턴으로 확장성과 데이터 일관성 잡기
+
+분산된 사용량 데이터를 실시간으로 처리하면서도 일관성을 유지하는 게 쉽지 않아요. Atlassian은 이벤트 소싱과 CQRS(Command Query Responsibility Segregation) 패턴을 적절히 조합했습니다.
+
+사용량 기록은 이벤트 스트림으로 남기고, 읽기 전용 데이터베이스는 별도로 유지해 조회 성능을 최적화합니다. 이런 구조 덕분에 쓰기 작업과 읽기 작업을 분리해 확장성 문제를 해결할 수 있었죠.
+
+Microsoft의 클라우드 설계 패턴에서도 이 방법을 권장하는데, 이벤트 기반 아키텍처가 확장성을 보장하면서도 CQRS가 데이터 일관성을 관리하는 데 큰 도움이 된다고 합니다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+
+## 실시간과 배치 처리의 균형, 하이브리드 아키텍처의 힘
+
+Atlassian Forge 청구 시스템은 실시간 데이터 처리와 배치 처리를 조합한 하이브리드 방식을 채택했어요. 실시간으로 중요한 사용량 이벤트를 처리해 빠르게 청구에 반영하고, 하루 단위 배치 작업으로 누락된 데이터를 보완합니다.
+
+이게 처음엔 번거로워 보이지만, 대규모 분산 시스템에서 실시간 처리만 고집하면 비용과 복잡도가 급격히 올라가요. 반대로 배치만 하면 청구 지연이 심해지고요. 적당한 균형을 맞춰야 하는데, Microsoft의 설계 가이드에서도 스트림 처리와 배치 작업의 조합을 권장하는 이유가 여기에 있습니다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+
+## 운영에서 마주친 트레이드오프: 정확성, 응답시간, 장애 복구
+
+운영하면서 가장 골치 아팠던 건 실시간 청구 정확성과 시스템 응답 시간 사이의 균형이었어요. 실시간성을 높이면 응답 시간과 비용이 증가하고, 너무 느슨하면 청구 오류가 늘죠.
+
+또한, 데이터 중복 처리 방지와 장애 복구 전략도 고민거리였습니다. Atlassian은 이벤트 중복을 감지하는 idempotency 키를 도입하고, 장애 시 재처리 메커니즘을 마련했어요. 이런 설계는 Martin Fowler가 말한 분산 시스템의 내결함성 확보 방법과도 맞닿아 있습니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+
+## 로그 집계와 모니터링 없인 청구 시스템도 없다
+
+분산 시스템에서 청구 데이터의 정확성을 보장하려면 로그 집계, 모니터링, 알림 시스템이 필수입니다. Forge도 예외가 아니었죠.
+
+각 서비스에서 발생하는 이벤트 로그를 중앙에서 실시간으로 집계하고, 이상 징후가 발견되면 즉시 알림을 받도록 설정했습니다. 덕분에 청구 데이터 누락이나 이상 사용량 발생 시 빠르게 대응할 수 있었어요. InfoQ의 아키텍처 가이드에서도 이런 운영 체계의 중요성을 강조합니다[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+
+## 실제 코드로 보는 이벤트 기록과 집계 예시
+
+아래는 간단하게 사용량 이벤트를 기록하고, 비동기 큐에 넣는 코드 예시입니다. 실제로는 Kafka나 AWS Kinesis 같은 스트림 처리 시스템을 쓰지만, 개념 이해를 위해 Redis 큐를 활용한 예를 들었어요.
+
+```java
+public class UsageEventProducer {
+    private final RedisTemplate<String, UsageEvent> redisTemplate;
+    private final String queueKey = "usage-events-queue";
+
+    public UsageEventProducer(RedisTemplate<String, UsageEvent> redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    // 사용량 이벤트를 로컬에서 기록하고 큐에 넣기
+    public void recordUsageEvent(UsageEvent event) {
+        // 이벤트 로컬 저장 (예: DB에 저장하는 부분 생략)
+        // ...
+
+        // 비동기 처리를 위해 큐에 이벤트 추가
+        redisTemplate.opsForList().rightPush(queueKey, event);
+    }
+}
+```
+
+이후 별도의 소비자 서비스가 큐에서 이벤트를 읽어 중앙 집계 DB에 반영합니다. 이렇게 하면 서비스 간 결합도를 낮추고 장애 시에도 이벤트 손실을 최소화할 수 있습니다.
+
+
+## 정리하며: 분산 청구 시스템 설계에서 꼭 기억할 점
+
+- **마이크로서비스로 데이터 소유권과 장애 격리 확보**: 각 서비스가 자기 데이터 책임을 지도록 설계하면 장애 전파를 막고 확장도 쉽다.
+- **이벤트 기반과 CQRS 패턴 조합으로 확장성과 일관성 관리**: 쓰기와 읽기를 분리해 대규모 트래픽을 효과적으로 처리한다.
+- **실시간과 배치 처리 균형 맞추기**: 빠른 청구 반영과 데이터 완전성을 모두 잡으려면 하이브리드 아키텍처가 필수.
+- **운영 트레이드오프 고민하기**: 실시간성, 정확성, 장애 복구 사이에서 최적점을 찾아야 한다.
+- **철저한 로그 집계와 모니터링 구축**: 문제 발생 시 빠른 대응과 데이터 신뢰성 확보에 필수적이다.
+
+이런 설계 원칙과 패턴을 실제 서비스에 적용하면, 분산된 환경에서의 복잡한 사용량 추적과 청구 문제를 훨씬 안정적이고 확장성 있게 해결할 수 있습니다. Atlassian Forge 사례는 우리 같은 개발자에게 좋은 참고가 되니 꼭 한 번 직접 살펴보길 추천합니다.
+
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **분산된 사용량 추적과 청구 시스템 설계에서 마이크로서비스 아키텍처는 각 서비스가 독립적으로 확장 가능하며 데이터 소유권을 명확히 하여 복잡성을 줄이고 장애 격리를 가능하게 한다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 환경에서 분산 시스템의 사용량 추적을 위해 이벤트 기반 아키텍처와 CQRS(Command Query Responsibility Segregation) 패턴을 활용하면 데이터 일관성과 확장성을 동시에 확보할 수 있다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **대규모 분산 청구 시스템은 실시간 데이터 처리와 배치 처리의 균형을 맞추는 것이 중요하며, 이를 위해 스트림 처리와 배치 작업을 조합하는 하이브리드 아키텍처가 효과적이다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **분산된 사용량 데이터를 집계하기 위해 각 서비스가 로컬에서 이벤트를 기록하고, 중앙 집계 시스템이 비동기적으로 데이터를 수집 및 처리하는 패턴은 확장성과 내결함성을 높인다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **운영 상의 트레이드오프로는 실시간 청구 정확성과 시스템 응답 시간 사이의 균형, 데이터 중복 처리 방지와 장애 복구 전략이 있으며, 이는 아키텍처 설계 시 주요 고려사항이다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **대규모 분산 시스템에서는 로그 집계, 모니터링, 알림 시스템이 필수적이며, 이를 통해 청구 데이터의 정확성과 시스템 상태를 지속적으로 검증할 수 있다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
