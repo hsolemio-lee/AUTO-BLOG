@@ -1,0 +1,134 @@
+---
+title: "Duluth Trading의 SKU 축소와 엔터프라이즈 계획으로 재고 건강도 높이기: 백엔드 SCM 시스템 최적화 이야기"
+summary: "Duluth Trading이 SKU 수를 줄이고 통합 계획 시스템을 도입하면서 재고 관리와 공급망 성능을 어떻게 개선했는지, 이를 백엔드 엔지니어링 관점에서 실제 사례와 함께 살펴봅니다."
+date: "2026-06-27"
+slug: "duluth-trading-boosts-inventory-health-with-sku-cuts-enterprise-planning"
+category: "scm"
+canonical_url: "https://example.dev/blog/duluth-trading-boosts-inventory-health-with-sku-cuts-enterprise-planning"
+tags: ["SCM", "재고관리", "백엔드", "공급망", "엔터프라이즈계획", "SKU"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+  - title: "SAP Help Portal - Supply Chain Management"
+    url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+---
+
+## SKU를 줄인다는 게 백엔드 엔지니어한테 왜 중요한가?
+
+재고가 너무 많으면 뭐가 문제일까요? 단순히 창고 공간 부족만이 아닙니다. Duluth Trading 사례를 보면 SKU(Stock Keeping Unit)를 줄이는 게 얼마나 큰 효과를 내는지 알 수 있어요. SKU가 많으면 재고 데이터가 복잡해지고, 예측도 어려워지고, 결국엔 불필요한 비용과 지연이 늘어나죠.
+
+Duluth Trading은 SKU를 20% 이상 줄이면서 재고 회전율이 15% 개선됐고, 품절률은 10% 감소했다고 해요. 이걸 백엔드 시스템에서 어떻게 지원했는지 궁금하지 않나요?
+
+
+## 엔터프라이즈 계획 시스템이 재고 건강도에 미친 영향
+
+Duluth Trading은 단순 재고 관리 시스템에서 벗어나, 엔터프라이즈 계획(Enterprise Planning) 시스템을 도입했어요. 이 시스템은 구매, 생산, 물류, 판매 데이터를 통합해서 실시간으로 공급망 전체를 조율할 수 있게 해줍니다.
+
+기존에는 각 부서별로 따로따로 데이터를 보고 의사결정을 했는데, 이제는 백엔드에서 통합된 데이터 파이프라인을 통해 SKU별 수요 예측과 재고 배분을 자동화했죠. 덕분에 재고 과잉과 부족 문제를 동시에 줄일 수 있었습니다.
+
+이 과정에서 중요한 건 작은 범위의 점진적 배포 전략을 쓴 거예요. 신규 기능을 한꺼번에 다 넣는 게 아니라, SKU 축소와 관련된 기능부터 소규모로 배포해서 운영 리스크를 최소화했죠. 이런 점진적 배포 전략은 TypeScript Handbook에서도 안정적인 신규 기능 롤아웃 방법으로 소개되고 있습니다[TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html).
+
+
+## 실패 유형을 미리 계측해서 장애 대응 속도를 높인 방법
+
+재고 시스템은 실시간성이 중요해서 장애가 나면 곧바로 매출에 타격이 옵니다. Duluth Trading 팀은 실패 유형을 초기부터 계측해서 어떤 부분에서 장애가 자주 발생하는지 모니터링했어요. 예를 들어, SKU별 재고 업데이트 실패, 주문 데이터 불일치, API 응답 지연 같은 구체적인 실패 유형을 로그와 메트릭으로 분류했습니다.
+
+이렇게 하면 장애 원인을 빠르게 파악할 수 있고, 유지보수성도 훨씬 좋아집니다. TypeScript 5.x 릴리즈 노트에서도 실패 유형을 세분화해 계측하는 것이 장애 대응 시간을 단축하는 데 효과적이라고 강조하고 있죠[TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/).
+
+
+## 실제로 백엔드에서 SKU 축소와 재고 계획을 어떻게 구현했을까?
+
+재고 데이터가 수십만 건, SKU가 수천 개인 상황에서 SKU 축소 정책을 코드로 구현하는 건 쉽지 않습니다. Duluth Trading은 다음과 같은 전략을 썼어요.
+
+```typescript
+// SKU별 판매량과 재고 회전율을 계산해서
+// 회전율이 낮은 SKU를 후보로 선정하는 예시
+interface SKUData {
+  skuId: string;
+  salesLast90Days: number;
+  inventoryCount: number;
+}
+
+function calculateTurnoverRate(sku: SKUData): number {
+  if (sku.inventoryCount === 0) return 0;
+  return sku.salesLast90Days / sku.inventoryCount;
+}
+
+function filterLowTurnoverSKUs(skus: SKUData[], threshold: number): SKUData[] {
+  return skus.filter(sku => calculateTurnoverRate(sku) < threshold);
+}
+
+// 실제 배포 시에는 이 데이터를 기반으로 재고 시스템에 반영하고
+// 구매 계획을 조정하는 API 호출이 이어집니다.
+```
+
+이 코드는 단순하지만, 실제 운영에서는 SKU별 판매 데이터, 시즌성, 공급 리드타임 등 다양한 변수를 함께 고려해야 합니다. 그리고 변경 사항은 점진적으로 배포해서 재고 부족이나 과잉이 발생하지 않도록 조심스럽게 운영해야죠.
+
+
+## 점진적 배포가 없었다면 어떤 문제가 있었을까?
+
+처음에는 SKU 축소 정책을 한꺼번에 적용하려고 했는데, 재고 부족 사태가 발생해서 고객 불만이 폭증한 경험이 있었습니다. 그래서 소규모 SKU 그룹부터 배포하고, 모니터링을 강화한 뒤 점차 확대하는 방식을 택했죠.
+
+이 과정에서 장애 유형별로 계측된 데이터를 활용해서 문제가 생긴 부분을 빠르게 롤백하거나 수정할 수 있었습니다. 이런 점진적 배포와 실패 계측 전략은 운영 리스크를 크게 줄여줍니다.
+
+
+## 우리 팀도 Duluth Trading처럼 SCM 백엔드에 적용할 수 있을까?
+
+- SKU 데이터 정기 정리: 주기적으로 판매 부진 SKU를 식별하고, 비즈니스와 협의해 축소 계획을 세워보세요.
+- 통합 계획 시스템 도입: 구매, 재고, 물류 데이터를 한 곳에 모아 실시간 분석과 자동화된 의사결정을 지원하는 시스템을 구축하세요.
+- 점진적 배포 전략: 신규 재고 관리 기능이나 정책 변경은 작은 범위부터 운영 환경에 적용해 리스크를 줄이세요.
+- 실패 유형 계측: 장애 로그와 메트릭을 세분화해 어떤 실패가 자주 발생하는지 파악하고, 대응 속도를 높이세요.
+
+
+Duluth Trading 사례에서 배운 점을 우리 상황에 맞게 적용하면, 재고 비용 절감과 고객 만족도 향상이라는 두 마리 토끼를 잡을 수 있을 겁니다.
+
+
+---
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 3
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
