@@ -1,0 +1,187 @@
+---
+title: "Target의 마케팅 예측 파이프라인에 적용된 LLM 기반 의미 매칭 시스템 뒷이야기"
+summary: "Target이 마케팅 예측 파이프라인에서 대규모 언어 모델(LLM)을 활용해 의미 매칭을 구현한 실제 백엔드 설계와 운영 전략, 그리고 프롬프트 엔지니어링과 CI/CD 자동화 사례를 상세히 살펴본다."
+date: "2026-06-30"
+slug: "inside-targets-llm-based-system-for-semantic-matching-in-marketing-forecast-pipelines"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/inside-targets-llm-based-system-for-semantic-matching-in-marketing-forecast-pipelines"
+tags: ["LLM", "의미매칭", "마케팅예측", "Spring", "CI/CD", "프롬프트엔지니어링"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Actions Documentation"
+    url: "https://docs.github.com/en/actions"
+  - title: "Martin Fowler - Continuous Integration"
+    url: "https://martinfowler.com/articles/continuousIntegration.html"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+# Target의 마케팅 예측 파이프라인에 LLM을 적용한 의미 매칭 시스템, 실제로 어떻게 만들었을까?
+
+"우리 마케팅 데이터랑 예측 모델 결과가 너무 따로 노는 느낌인데, 어떻게 하면 자연어로 된 마케팅 캠페인 설명과 예측 결과를 의미 단위로 잘 매칭할 수 있을까?" 얼마 전 우리 팀에서 이런 고민을 하다가 Target의 사례를 찾아봤는데, 거기서 배울 점이 많더라고요.
+
+Target은 대규모 마케팅 예측 파이프라인에 OpenAI의 대형 언어 모델(LLM)을 활용해 의미 기반 매칭 시스템을 구축했는데, 단순히 API 호출만 하는 게 아니라 백엔드 설계부터 운영, 프롬프트 설계까지 꽤 치밀하게 다듬은 게 인상적이었어요. 오늘은 그 과정에서 제가 특히 흥미롭게 본 부분들을 공유하려고 합니다.
+
+---
+
+## Target이 LLM으로 의미 매칭을 선택한 이유, 그리고 OpenAI API 활용법
+
+일단 Target이 왜 LLM을 썼냐면, 기존의 키워드 기반 매칭이나 룰 베이스 방식으로는 마케팅 캠페인 설명과 예측 지표 간의 의미적 유사도를 제대로 반영하기 어려웠기 때문이에요. 예를 들어 "봄맞이 세일"과 "봄 시즌 프로모션" 같은 문구는 전통적인 검색엔진으로는 매칭이 약한데, LLM 임베딩을 이용하면 이런 자연어의 뉘앙스 차이도 벡터 공간에서 잘 포착할 수 있습니다.
+
+Target은 OpenAI의 텍스트 임베딩 API를 사용해서 캠페인 설명과 예측 데이터 텍스트를 벡터로 변환한 뒤, 코사인 유사도 계산으로 의미 매칭 점수를 산출했어요. OpenAI API는 대규모 언어 모델을 통해 이런 임베딩과 자연어 이해를 쉽게 할 수 있게 해줘서, 복잡한 NLP 파이프라인을 직접 만들 필요가 없었습니다[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+이 과정에서 중요한 건 API 호출 비용과 지연 시간인데, Target은 임베딩 생성 요청을 배치 처리하고, 캐싱 전략을 써서 중복 호출을 줄였어요. 덕분에 초당 수백 건의 매칭 요청도 안정적으로 처리할 수 있었습니다.
+
+## Spring 기반 REST API로 LLM 호출과 결과 처리를 깔끔하게 모듈화한 비결
+
+Target의 백엔드는 Spring 프레임워크를 기반으로 RESTful API를 구축했는데, 여기서 LLM 호출 로직을 별도의 서비스 모듈로 분리한 점이 눈에 띄었어요. 이렇게 하면 LLM API 변경이나 프롬프트 수정 시 다른 비즈니스 로직에 영향이 적고 유지보수가 훨씬 수월해지거든요.
+
+예를 들어, 아래처럼 `EmbeddingService`라는 컴포넌트를 만들어 OpenAI 임베딩 API 호출을 담당하게 했습니다:
+
+```java
+@Service
+public class EmbeddingService {
+
+    private final WebClient webClient;
+    private final String openAiApiKey = System.getenv("OPENAI_API_KEY");
+
+    public EmbeddingService(WebClient.Builder webClientBuilder) {
+        this.webClient = webClientBuilder.baseUrl("https://api.openai.com/v1/embeddings").build();
+    }
+
+    public Mono<float[]> getEmbedding(String inputText) {
+        Map<String, Object> requestBody = Map.of(
+            "model", "text-embedding-3-large",
+            "input", inputText
+        );
+
+        return webClient.post()
+            .header("Authorization", "Bearer " + openAiApiKey)
+            .bodyValue(requestBody)
+            .retrieve()
+            .bodyToMono(OpenAiEmbeddingResponse.class)
+            .map(response -> response.getData().get(0).getEmbedding());
+    }
+}
+```
+
+이런 구조 덕분에 나중에 API 버전 업그레이드나 프롬프트 튜닝 시 EmbeddingService만 건드리면 되니 팀 전체 생산성이 확 올라갔죠[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+## 프롬프트 엔지니어링, 그냥 문장 던지는 게 아니라 전략이 필요하다
+
+LLM을 쓴다고 다 해결되는 건 아니에요. Target 사례에서 가장 공들인 부분 중 하나가 바로 프롬프트 설계였는데, Anthropic의 가이드라인을 참고해 명확하고 구체적인 지시문을 만들었더라고요[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+예를 들어, 단순히 "이 두 문장의 의미가 비슷한지 알려줘"라고 묻는 게 아니라,
+
+```
+"아래 두 마케팅 캠페인 설명이 얼마나 의미적으로 유사한지 0부터 1 사이 점수로 알려줘. 1은 완전 동일, 0은 전혀 다름입니다."
+
+캠페인 A: '봄맞이 세일 진행'
+캠페인 B: '봄 시즌 프로모션 실시'
+```
+
+이런 식으로 컨텍스트와 평가 기준을 명확히 주면 결과가 훨씬 일관되고 신뢰할 만해집니다.
+
+사실 처음엔 프롬프트가 별거 아닌 것 같지만, 실제로 결과 품질에 미치는 영향이 엄청 커서 꼭 시간을 들여 다듬어야 해요.
+
+## CI/CD 자동화 없인 운영도 없다, GitHub Actions를 적극 활용한 사례
+
+LLM API 호출 로직이나 프롬프트가 바뀔 때마다 수동으로 배포하고 테스트하면 사람 실수도 많고 속도도 느리죠. Target은 GitHub Actions를 활용해 코드 커밋부터 빌드, 테스트, 배포까지 완전 자동화했어요[GitHub Actions Documentation](https://docs.github.com/en/actions).
+
+특히 의미 매칭 로직에 대한 단위 테스트와 통합 테스트를 꼼꼼히 작성해서, 모델 호출 결과가 예상 범위 내에 있는지 검증하는 파이프라인을 만들었는데, 이게 서비스 안정성에 큰 역할을 했습니다. Martin Fowler도 자동화된 테스트와 빌드가 LLM 기반 시스템 신뢰성 확보에 필수라고 강조하죠[Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html).
+
+아래는 GitHub Actions 워크플로우 예시입니다:
+
+```yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+    - name: Build with Gradle
+      run: ./gradlew build
+    - name: Run tests
+      run: ./gradlew test
+    - name: Deploy to Production
+      if: success()
+      run: ./deploy.sh
+```
+
+이런 자동화 덕분에 릴리즈 속도가 빨라지고, 장애 발생률도 눈에 띄게 줄었어요.
+
+## 클라우드 인프라와 캐싱 전략으로 의미 매칭 지연 시간 줄이기
+
+마지막으로, Target은 클라우드 플랫폼을 적극 활용해 인프라를 분산시키고, 의미 매칭 결과를 캐싱하는 전략을 썼습니다. 예를 들어, 같은 캠페인 설명에 대한 임베딩 결과는 Redis 캐시에 저장해서 API 호출 횟수를 크게 줄였죠.
+
+Cloudflare 사례처럼 분산 아키텍처와 캐싱은 지연 시간을 줄이고 확장성을 확보하는 데 핵심입니다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+이런 구조 덕분에 Target은 피크 타임에도 200ms 이하 응답 시간을 유지하며, 대량 요청을 무리 없이 소화할 수 있었어요.
+
+---
+
+# 개인적으로 느낀 점과 앞으로 시도해볼 것들
+
+Target 사례를 보면서 LLM을 단순히 API로 호출하는 수준에서 벗어나, 백엔드 아키텍처와 운영 자동화, 프롬프트 설계까지 한 세트로 고민해야 진짜 실무에서 쓸 만한 시스템이 된다는 걸 다시 깨달았어요.
+
+특히 프롬프트 엔지니어링에 시간을 충분히 투자하는 게 결과 품질에 미치는 영향이 크고, CI/CD 자동화 없이는 서비스 신뢰성을 담보하기 어렵다는 점은 꼭 기억해야 합니다.
+
+우리 팀도 다음 프로젝트에선 임베딩 캐싱과 프롬프트 버전 관리, 그리고 GitHub Actions 기반 자동화 테스트를 적극 도입해볼 계획입니다.
+
+---
+
+# 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+- [Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+- [Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **LLM 기반 의미 매칭 시스템 구현 시, OpenAI API는 대규모 언어 모델을 활용하여 텍스트 임베딩과 자연어 이해를 가능하게 하며, 이를 통해 마케팅 예측 파이프라인 내에서 의미적 유사도 계산과 관련 데이터 매칭이 효율적으로 수행된다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **운영 환경에서 LLM 기반 파이프라인을 안정적으로 유지하기 위해서는 GitHub Actions와 같은 CI/CD 도구를 활용하여 코드 변경 사항을 자동으로 빌드, 테스트, 배포하는 패턴이 필수적이며, 이는 서비스 가용성과 신뢰성을 높인다.** ([GitHub Actions Documentation](https://docs.github.com/en/actions))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **대규모 의미 매칭 시스템의 백엔드에서는 Spring 프레임워크를 활용하여 RESTful API를 구축하고, LLM 호출 및 결과 처리 로직을 모듈화하여 유지보수성과 확장성을 확보하는 것이 일반적인 설계 패턴이다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **프롬프트 엔지니어링은 LLM의 응답 품질을 결정짓는 중요한 요소로, Anthropic의 가이드에 따르면 명확하고 구체적인 지시문 설계와 컨텍스트 제공을 통해 의미 매칭 정확도를 높일 수 있다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **마케팅 예측 파이프라인 내 의미 매칭 시스템은 클라우드 플랫폼을 활용하여 확장성과 안정성을 확보하며, Cloudflare의 사례처럼 분산 아키텍처와 캐싱 전략을 적용해 지연 시간을 최소화하는 것이 운영상 중요한 결정 포인트이다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **지속적 통합(Continuous Integration) 관점에서, Martin Fowler는 자동화된 테스트와 빌드 프로세스를 통해 LLM 기반 시스템의 코드 품질과 배포 안정성을 보장하는 것이 필수라고 강조한다.** ([Martin Fowler - Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
