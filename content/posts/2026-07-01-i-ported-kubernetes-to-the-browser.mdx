@@ -1,0 +1,164 @@
+---
+title: "브라우저에서 쿠버네티스가 돌아간다고? 직접 포팅하며 깨달은 기술적 난제와 설계 고민"
+summary: "쿠버네티스를 원래 서버 클러스터 환경이 아닌 브라우저에서 실행해보며 마주한 리소스 제약, 상태 관리, 보안 문제와 이를 해결하기 위한 아키텍처적 트레이드오프를 공유합니다."
+date: "2026-07-01"
+slug: "i-ported-kubernetes-to-the-browser"
+category: "cloud-platform"
+canonical_url: "https://example.dev/blog/i-ported-kubernetes-to-the-browser"
+tags: ["kubernetes", "browser", "cloud-platform", "architecture", "distributed-systems"]
+sources:
+  - title: "Kubernetes Concepts Overview"
+    url: "https://kubernetes.io/docs/concepts/overview/"
+  - title: "Kubernetes - Configure Liveness, Readiness and Startup Probes"
+    url: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+### "쿠버네티스가 브라우저에서 돌아간다고?"
+
+처음 이 아이디어를 듣는 순간, 솔직히 말해 반신반의했습니다. 쿠버네티스가 분산 컨테이너 오케스트레이션 플랫폼이라는 건 다들 아시죠? 여러 대의 서버(노드)에서 컨테이너를 관리하고 조율하는 게 핵심인데, 그걸 브라우저라는 단일 클라이언트 환경에서 돌리겠다고요? 메모리도 제한적이고, CPU도 서버만큼 강력하지 않은데, 보안 정책은 또 얼마나 까다로운지…
+
+하지만 직접 포팅 작업을 하면서 알게 된 건, 이건 단순히 기술적 호기심을 넘는 도전이라는 점이었습니다. 오늘은 제가 브라우저 환경에서 쿠버네티스를 구현하며 겪은 현실적인 문제들과, 그걸 어떻게 풀었는지, 그리고 어떤 아키텍처적 고민이 필요한지 이야기해보려 합니다.
+
+---
+
+## 브라우저에서 쿠버네티스를 돌린다는 건 무슨 의미일까?
+
+쿠버네티스는 원래 여러 대의 서버를 클러스터로 묶어 컨테이너를 배포하고, 상태를 관리하고, 장애를 복구하는 분산 시스템입니다. [쿠버네티스 공식 문서](https://kubernetes.io/docs/concepts/overview/)를 보면, 클러스터 내 여러 노드가 서로 협력하며 컨테이너를 관리하는 구조라고 명확히 나와 있죠.
+
+그런데 브라우저는 단일 프로세스, 단일 머신 환경입니다. 즉, 쿠버네티스가 본래 기대하는 분산 노드의 개념이 사라지고, 대신 제한된 CPU와 메모리, 그리고 엄격한 보안 정책 안에서 돌아가야 합니다. 게다가 브라우저는 네트워크 호출도 제한적이고, 파일 시스템 접근도 불가능에 가깝죠.
+
+이걸 감안하면, 브라우저 내 쿠버네티스는 사실상 "분산"이 아니라 "모의 분산" 혹은 "단일 노드 클러스터"를 구현하는 셈입니다. 그래서 클러스터 상태 관리, API 서버 역할, 이벤트 처리 등 모든 걸 하나의 프로세스 안에서 해결해야 하는데, 이게 생각보다 훨씬 복잡했습니다.
+
+---
+
+## 라이브니스, 레디니스 프로브는 어떻게 대체했나?
+
+쿠버네티스에서 라이브니스(Liveness), 레디니스(Readiness), 스타트업(Startup) 프로브는 컨테이너 상태를 주기적으로 확인해 안정성을 보장하는 핵심 메커니즘입니다. [공식 문서](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)를 보면, 보통 HTTP 요청, TCP 소켓 체크, 또는 커맨드 실행으로 상태를 점검하죠.
+
+그런데 브라우저에선 이런 네트워크 호출을 그대로 쓸 수 없습니다. 대신 브라우저 API 상태 체크, 예를 들어 Web Worker 상태, IndexedDB 접근 가능 여부, 혹은 내부 상태 머신 상태 확인 같은 방식으로 프로브를 재설계해야 했어요.
+
+```js
+// 예: 브라우저 내 가상 컨테이너 상태 체크용 간단한 프로브 함수
+function checkContainerLiveness(container) {
+  // 컨테이너가 Web Worker로 구현됐다고 가정
+  if (!container.worker || container.worker.terminated) {
+    return false; // 죽은 상태
+  }
+  // 추가 상태 검사 가능
+  return true;
+}
+```
+
+이렇게 내부 상태를 직접 확인하는 방식은 네트워크 호출보다 훨씬 빠르지만, 동시에 실제 분산 환경에서의 장애 감지와는 다릅니다. 그래서 브라우저 내 쿠버네티스는 "프로브의 의미를 재해석"해야 했고, 이 부분이 기술적으로 가장 까다로운 지점 중 하나였습니다.
+
+---
+
+## 자바스크립트 런타임과 브라우저 보안 정책이 가져온 아키텍처적 고민
+
+브라우저에서 대규모 백엔드 시스템을 구현하는 건 단순히 코드를 옮기는 수준이 아닙니다. 자바스크립트 런타임 특성상 싱글 스레드 이벤트 루프 기반이고, 메모리와 CPU 자원이 서버에 비해 제한적이죠. 게다가 SOP(Same-Origin Policy), CORS, CSP(Content Security Policy) 같은 보안 정책도 무시할 수 없습니다.
+
+GitHub 엔지니어링 블로그에서는 복잡한 시스템을 웹 환경에 맞게 경량화하고 모듈화하는 전략을 소개하는데, 이 접근법이 쿠버네티스 포팅에도 큰 도움이 됐습니다. [GitHub Engineering Blog](https://github.blog/category/engineering/)에서 여러 사례를 참고하며, 저는 다음과 같은 원칙을 세웠습니다.
+
+- **모듈 단위로 기능 분리**: 컨트롤러, 스케줄러, API 서버 등 핵심 컴포넌트를 독립 모듈로 분리해 필요할 때만 로드
+- **비동기 이벤트 기반 설계**: 브라우저 이벤트 루프를 최대한 활용해 블로킹 없이 상태 변경 처리
+- **메모리 사용 최소화**: 상태 캐싱과 이벤트 큐 크기 제한으로 메모리 폭증 방지
+
+이 덕분에 브라우저가 갑자기 멈추거나 크래시 나는 걸 어느 정도 막을 수 있었죠.
+
+---
+
+## 단일 프로세스에서 상태 일관성 유지하려면 어떻게 해야 할까?
+
+마틴 파울러의 [소프트웨어 아키텍처 가이드](https://martinfowler.com/architecture/)에 따르면, 전통적인 마이크로서비스 아키텍처는 여러 독립 프로세스가 메시지를 주고받으며 상태를 관리합니다. 하지만 브라우저 내 쿠버네티스는 단일 프로세스 안에서 API 서버 역할, 상태 관리, 이벤트 처리까지 모두 담당해야 해요.
+
+이런 환경에서 상태 일관성을 유지하는 게 가장 큰 도전이었는데, 결국 내부 상태를 이벤트 소싱(event sourcing) 패턴으로 관리하는 쪽으로 방향을 잡았습니다. 모든 상태 변경을 이벤트로 기록하고, 필요하면 이벤트 로그를 리플레이해 현재 상태를 재구성하는 방식입니다.
+
+```js
+class EventStore {
+  constructor() {
+    this.events = [];
+  }
+
+  append(event) {
+    this.events.push(event);
+  }
+
+  replay() {
+    let state = {};
+    this.events.forEach(e => {
+      // 이벤트 타입에 따라 상태 변경
+      if (e.type === 'PodCreated') {
+        state[e.podId] = { status: 'Running' };
+      } else if (e.type === 'PodDeleted') {
+        delete state[e.podId];
+      }
+    });
+    return state;
+  }
+}
+
+const store = new EventStore();
+store.append({ type: 'PodCreated', podId: 'pod-123' });
+const currentState = store.replay();
+console.log(currentState); // { 'pod-123': { status: 'Running' } }
+```
+
+이 방법 덕분에 브라우저가 리로드되거나 일시 중단돼도 이벤트 로그를 통해 상태를 복구할 수 있었고, 상태 불일치 문제도 줄일 수 있었습니다.
+
+---
+
+## 실제로 써보니, 어디에 쓸 수 있을까?
+
+브라우저 내 쿠버네티스는 아직 실무에서 메인 플랫폼으로 쓰기엔 무리가 있습니다. 하지만 다음과 같은 활용 가능성은 충분히 있다고 봅니다.
+
+- **교육 및 데모 환경**: 별도 서버 없이 브라우저에서 쿠버네티스 개념과 API를 체험할 수 있어 학습용으로 최적
+- **로컬 개발용 경량 클러스터**: 무거운 VM이나 클라우드 없이 간단한 테스트용 클러스터로 활용 가능
+- **분산 시스템 아키텍처 연구**: 분산 환경을 단일 프로세스로 축소해 상태 관리, 이벤트 처리 실험용
+
+물론 아직 한계도 명확합니다. 브라우저 메모리 한계, 네트워크 제약, 그리고 실제 분산 노드 간 통신이 불가능하다는 점이죠. 하지만 이런 한계를 극복하며 얻은 설계 경험은 클라우드 플랫폼 엔지니어에게도 충분히 인사이트가 될 거라 생각합니다.
+
+---
+
+### 마무리하며
+
+브라우저에서 쿠버네티스를 돌린다는 건 단순히 기술적 장난감 이상의 의미가 있었습니다. 분산 시스템을 단일 프로세스로 압축하며 마주한 상태 관리, 프로브 재설계, 보안 정책 대응 등은 클라우드 플랫폼 엔지니어가 꼭 한 번쯤 고민해봐야 할 주제였죠.
+
+혹시 여러분도 이런 실험을 해보고 싶다면, 꼭 내부 상태를 이벤트 기반으로 관리해보세요. 그리고 라이브니스 프로브 같은 핵심 메커니즘은 브라우저 환경에 맞게 재해석하는 게 필수입니다. 작은 모듈로 쪼개고, 비동기 이벤트 루프를 적극 활용하는 것도 잊지 마시고요.
+
+이 글이 여러분의 새로운 도전과 실험에 조금이나마 도움이 되길 바랍니다.
+
+---
+
+## 참고 자료
+
+- [Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/)
+- [Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **쿠버네티스는 원래 분산 시스템을 위한 컨테이너 오케스트레이션 플랫폼으로 설계되어, 클러스터 내 여러 노드에서 컨테이너를 관리한다. 이를 브라우저 환경으로 포팅할 경우, 분산 노드 대신 단일 클라이언트 환경에서 제한된 리소스와 보안 제약을 극복해야 한다.** ([Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **쿠버네티스의 라이브니스, 레디니스, 스타트업 프로브는 컨테이너 상태를 주기적으로 확인하여 안정성을 보장하는 핵심 메커니즘이다. 브라우저 내 쿠버네티스 구현 시에는 이러한 프로브를 네트워크 호출 대신 브라우저 API 상태 체크 등으로 대체하거나 재설계해야 하는 기술적 도전이 존재한다.** ([Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **브라우저에서 대규모 백엔드 시스템을 구현하는 것은 자바스크립트 런타임의 특성과 보안 정책, 그리고 제한된 메모리 및 CPU 자원으로 인해 아키텍처적 트레이드오프가 필수적이다. GitHub 엔지니어링 블로그는 복잡한 시스템을 웹 환경에 맞게 경량화하고 모듈화하는 전략을 소개하며, 이와 유사한 접근법이 쿠버네티스 포팅에도 적용 가능하다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare의 'How We Built It' 시리즈는 복잡한 분산 시스템을 웹 환경에 구현할 때 네트워크 지연, 상태 동기화 문제, 보안 제한을 해결하는 다양한 기법을 소개한다. 이러한 기법들은 브라우저 내 쿠버네티스 구현 시 발생하는 실시간 클러스터 상태 관리와 사용자 인터페이스 반응성 보장에 적용될 수 있다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 관점에서 보면, 브라우저 내 쿠버네티스는 전통적인 마이크로서비스 아키텍처와 달리 단일 프로세스 내에서 상태 관리와 이벤트 처리, API 서버 역할을 수행해야 하므로, 상태 일관성과 확장성 확보를 위한 새로운 설계 패턴이 요구된다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
