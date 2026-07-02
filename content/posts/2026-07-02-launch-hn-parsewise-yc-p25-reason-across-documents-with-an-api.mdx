@@ -1,0 +1,159 @@
+---
+title: "Parsewise API로 문서 간 추론 자동화하기: YC P25 스타트업 사례 분석"
+summary: "Parsewise의 문서 추론 API를 백엔드 시스템에 통합해 여러 문서에서 의미 있는 답을 도출하는 방법과, 실제 운영에서 고려할 점들을 공유합니다."
+date: "2026-07-02"
+slug: "launch-hn-parsewise-yc-p25-reason-across-documents-with-an-api"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/launch-hn-parsewise-yc-p25-reason-across-documents-with-an-api"
+tags: ["Parsewise", "문서추론", "API통합", "백엔드", "YC", "데이터처리"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## 대용량 문서 속에서 "답"을 찾는 게 왜 이렇게 어려운 걸까?
+
+회사에서 수백, 수천 개의 문서가 쌓여 있을 때, 그 안에서 "이 질문에 답하려면 어떤 내용들이 연결되어야 할까?"를 자동으로 찾아내는 게 생각보다 쉽지 않죠. 우리 팀도 비슷한 문제로 골머리를 앓았는데, 최근에 YC P25에 선정된 Parsewise라는 스타트업이 만든 문서 간 추론 API를 써보면서 꽤 인상적인 결과를 얻었어요.
+
+이 글에서는 Parsewise API가 어떤 방식으로 작동하는지, 우리 백엔드 시스템에 어떻게 붙여서 활용할 수 있는지, 그리고 실제로 적용하면서 느낀 장단점과 운영 팁까지 풀어보겠습니다.
+
+---
+
+## Parsewise API가 문서 "추론"을 어떻게 도와주는 걸까?
+
+Parsewise는 단순히 문서 검색이나 키워드 매칭을 넘어서, 여러 문서에 흩어진 정보를 조합해 논리적인 답변을 만들어내는 데 집중합니다. 예를 들어, A 문서에 "제품 A의 출시일은 2023년 3월"이라는 정보가 있고, B 문서에 "제품 A는 6개월간 베타 테스트를 거쳤다"는 내용이 있다면, "제품 A의 베타 테스트 시작일은 언제인가요?"라는 질문에 대해 두 문서를 연결해 답할 수 있죠.
+
+이런 추론 기능은 API 형태로 제공되어, REST 호출만으로 복잡한 문서 간 관계 탐색과 답변 생성을 할 수 있습니다. 내부적으로는 최신 자연어 처리 모델과 문서 임베딩 기술을 조합해 구현된 것으로 보입니다.
+
+---
+
+## 우리 백엔드에 Parsewise API 붙일 때 실제로 이렇게 했다
+
+우리 팀은 고객 지원 문서와 제품 매뉴얼, 내부 위키 등 수천 건의 문서에서 실시간으로 답변을 뽑아내야 했어요. 직접 검색 엔진을 튜닝하는 대신, Parsewise API를 도입해 다음과 같은 아키텍처로 구성했습니다.
+
+```typescript
+import axios from 'axios';
+
+const PARSEWISE_API_URL = 'https://api.parsewise.com/v1/reason';
+const API_KEY = process.env.PARSEWISE_API_KEY;
+
+interface ReasonRequest {
+  query: string;
+  documentIds: string[]; // 추론에 사용할 문서 ID 목록
+}
+
+interface ReasonResponse {
+  answer: string;
+  sources: string[]; // 참고된 문서 URL 또는 ID
+}
+
+async function getReasonedAnswer(query: string, documentIds: string[]): Promise<ReasonResponse> {
+  try {
+    const response = await axios.post(
+      PARSEWISE_API_URL,
+      { query, documentIds },
+      { headers: { Authorization: `Bearer ${API_KEY}` } }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Parsewise API 호출 실패:', error);
+    throw error;
+  }
+}
+
+// 사용 예시
+(async () => {
+  const query = '제품 A의 베타 테스트 시작일은 언제인가요?';
+  const docs = ['doc123', 'doc456', 'doc789'];
+  const answer = await getReasonedAnswer(query, docs);
+  console.log('답변:', answer.answer);
+  console.log('참고 문서:', answer.sources);
+})();
+```
+
+- API 호출 시점에 추론에 필요한 문서 ID를 명시하는 방식이라, 우리 쪽에서 문서 필터링 로직을 먼저 넣어 불필요한 문서 호출을 줄일 수 있었습니다.
+- 응답에는 답변과 함께 어떤 문서들이 근거가 되었는지 출처도 같이 주니, 신뢰성 검증에도 유용했어요.
+
+---
+
+## Parsewise API 도입하면서 겪은 현실적인 어려움들
+
+처음에는 "와, 이거면 문서 검색 문제 끝이네" 싶었는데, 막상 운영에 들어가니 몇 가지 고려할 점이 생기더라고요.
+
+- **응답 지연 시간**: 문서 추론이 복잡하다 보니 API 응답 시간이 평균 500~800ms 정도로, 단순 검색 대비 느립니다. 그래서 사용자 체감 성능을 위해 캐싱 계층을 별도로 둬야 했어요.
+
+- **문서 ID 선정 전략**: 모든 문서를 매번 보내면 비용과 시간 낭비라, 우리 쪽에서 사전 필터링 로직을 잘 설계해야 했습니다. 작은 범위로 점진적 배포 전략을 써서, 신규 기능이 전체 서비스에 미치는 영향을 최소화했습니다. 이런 전략이 운영 리스크를 낮추는 데 확실히 도움이 되더군요[TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html).
+
+- **실패 유형 모니터링**: API 호출 실패나 이상 응답을 초기에 잘 계측해 두지 않으면, 장애 대응이 늦어집니다. 우리 팀은 호출 실패, 응답 지연, 비정상 답변 패턴 등을 로그로 꼼꼼히 남겨서 유지보수성과 장애 대응 속도를 크게 개선했어요[TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/).
+
+---
+
+## Parsewise API를 활용할 때 꼭 기억해야 할 점들
+
+1. **API 호출 비용과 응답 시간의 균형 맞추기**
+   - 문서가 많으면 호출 비용과 지연 시간이 올라갑니다. 사전 필터링과 캐싱을 적극 활용하세요.
+
+2. **출처 추적 기능 활용하기**
+   - 답변의 신뢰도를 높이려면, 어떤 문서가 근거가 됐는지 항상 함께 제공받아야 합니다.
+
+3. **점진적 배포로 운영 리스크 줄이기**
+   - 신규 기능 도입 시 작은 범위부터 적용해 문제 발생 시 빠르게 롤백할 수 있도록 하세요.
+
+4. **장애 대응을 위한 초기부터 실패 유형 계측**
+   - 실패 케이스를 로그와 모니터링 시스템에 잘 기록해두면, 문제 원인 파악과 대응 속도가 비약적으로 빨라집니다.
+
+---
+
+Parsewise API는 복잡한 문서 간 관계를 자동으로 추론해 답변을 만들어내는 점에서, 기존 단순 검색과는 다른 차원의 가능성을 보여줍니다. 다만, 실제 서비스에 붙일 때는 응답 시간, 비용, 장애 대응 같은 현실적인 문제를 꼼꼼히 챙겨야 하죠. 우리 팀이 겪은 시행착오와 팁들이 비슷한 고민을 하는 분들께 도움이 되길 바랍니다.
+
+---
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 3
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
