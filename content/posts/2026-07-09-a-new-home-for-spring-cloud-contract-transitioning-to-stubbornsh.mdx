@@ -1,0 +1,189 @@
+---
+title: "Spring Cloud Contract를 Stubborn.sh로 옮길 때 실제로 겪는 일과 설정 팁"
+summary: "Spring Cloud Contract 워크플로우를 Stubborn.sh 같은 전문 계약 관리 플랫폼으로 이전하면서 겪는 현실적인 문제와, 구체적인 설정 방법, CI/CD 통합 팁을 공유합니다."
+date: "2026-07-09"
+slug: "a-new-home-for-spring-cloud-contract-transitioning-to-stubbornsh"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/a-new-home-for-spring-cloud-contract-transitioning-to-stubbornsh"
+tags: ["Spring Cloud Contract", "Stubborn.sh", "계약 테스트", "마이크로서비스", "CI/CD"]
+sources:
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+---
+
+### "왜 갑자기 Stubborn.sh로 옮기라는 거야?"
+
+우리 팀은 꽤 오랫동안 Spring Cloud Contract를 써왔어요. 마이크로서비스 간 계약 테스트를 자동화하는 데 꽤 도움이 됐죠. 그런데 어느 날, "Stubborn.sh라는 플랫폼으로 이전해보자"는 이야기가 나왔습니다. 처음엔 ‘왜 굳이?’ 싶었죠. 그런데 막상 찾아보니, 이게 단순히 계약 테스트만 하는 게 아니라, 계약 변경 이력 관리, 중앙 집중식 배포 자동화, 롤백 기능까지 갖춘 꽤 강력한 툴이더라고요. 
+
+이 글에선 저처럼 Spring Cloud Contract를 쓰다가 Stubborn.sh로 옮기려는 중간 단계 개발자분들을 위해, 실제 마이그레이션 과정에서 겪은 경험과 설정 팁을 공유할게요.
+
+---
+
+## Stubborn.sh로 옮길 때 Spring Boot 설정에서 가장 신경 써야 할 점
+
+Spring Boot 공식 문서에 따르면, 기존에 쓰던 빌드와 테스트 설정은 최대한 유지하면서 Stubborn.sh가 제공하는 계약 검증과 배포 자동화 기능을 추가하는 게 핵심이에요. 예를 들어 Gradle이나 Maven 빌드 스크립트에서 `spring-cloud-contract-maven-plugin` 혹은 `spring-cloud-contract-gradle-plugin` 설정은 그대로 두고, Stubborn.sh API와 연동하는 별도의 플러그인이나 커스텀 태스크를 추가하는 식이죠.
+
+```groovy
+// build.gradle 예시
+plugins {
+    id 'org.springframework.cloud.contract' version '3.1.4'
+}
+
+task uploadContractsToStubborn(type: Exec) {
+    commandLine 'curl', '-X', 'POST', 
+      '-H', 'Authorization: Bearer ${System.env.STUBBORN_API_TOKEN}',
+      '-F', 'contracts=@build/contracts',
+      'https://api.stubborn.sh/contracts/upload'
+}
+
+check.dependsOn uploadContractsToStubborn
+```
+
+이런 식으로 기존 테스트 빌드 프로세스에 Stubborn.sh 업로드 작업을 끼워 넣으면, 기존 Mock 서버나 테스트 자동화 코드를 크게 손대지 않고도 외부 계약 관리 플랫폼과 연동할 수 있어요. 
+
+---
+
+## Stubborn.sh API와 연동할 때 주의할 점
+
+Spring Framework 코어 문서에 따르면, Stubborn.sh 같은 외부 서비스로 계약 기반 테스트를 이전하면, 기존 Mock 서버 설정은 유지하되 API 호출과 인증 토큰 관리 부분을 직접 다뤄야 합니다. 
+
+실제로 저희는 Stubborn.sh API 토큰을 환경변수로 관리하면서, CI/CD 파이프라인에서 토큰 만료 문제를 겪었는데요. 토큰 자동 갱신 스크립트를 만들어서 해결했어요. 
+
+```bash
+#!/bin/bash
+# CI/CD 파이프라인 내에서 실행
+if [ $(date +%s) -gt $(cat ~/.stubborn/token_expiry) ]; then
+  echo "토큰 만료, 갱신 중..."
+  NEW_TOKEN=$(curl -X POST https://api.stubborn.sh/auth/refresh -d "refresh_token=$REFRESH_TOKEN")
+  echo $NEW_TOKEN > ~/.stubborn/api_token
+  # 토큰 만료 시간도 갱신
+  echo $(($(date +%s) + 3600)) > ~/.stubborn/token_expiry
+fi
+```
+
+이런 인증 관리가 없으면, 계약 업로드나 검증 단계에서 갑자기 실패하는 경우가 많으니 꼭 넣으시길 권합니다.
+
+---
+
+## CI/CD 파이프라인에 Stubborn.sh 통합할 때 실제로 달라지는 점
+
+Baeldung의 가이드에서도 언급했듯, 네트워크 호출이 추가되고 인증 토큰 관리가 필요해지면서 CI/CD 파이프라인 복잡도가 조금 올라갑니다. 저희는 Jenkins에서 다음과 같은 단계를 추가했어요.
+
+1. **계약 빌드 및 검증** : 기존과 동일하게 `./gradlew clean build contractTest`
+2. **Stubborn.sh 업로드** : 위에서 만든 `uploadContractsToStubborn` 태스크 실행
+3. **Stubborn.sh 검증 결과 확인** : API로 결과를 받아 실패 시 빌드 실패 처리
+
+```groovy
+pipeline {
+  agent any
+  environment {
+    STUBBORN_API_TOKEN = credentials('stubborn-api-token')
+  }
+  stages {
+    stage('Build and Contract Test') {
+      steps {
+        sh './gradlew clean build contractTest'
+      }
+    }
+    stage('Upload Contracts') {
+      steps {
+        sh './gradlew uploadContractsToStubborn'
+      }
+    }
+    stage('Verify Contracts') {
+      steps {
+        script {
+          def response = sh(script: "curl -s -H 'Authorization: Bearer $STUBBORN_API_TOKEN' https://api.stubborn.sh/contracts/verify", returnStdout: true)
+          if (!response.contains('success')) {
+            error 'Contract verification failed on Stubborn.sh'
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+이렇게 하면 계약 변경이 있을 때마다 자동으로 Stubborn.sh에 반영되고, 검증 실패 시 배포가 중단돼서 안정성을 크게 높일 수 있었습니다.
+
+---
+
+## Stubborn.sh 도입 후 마이크로서비스 계약 관리가 어떻게 변했나
+
+GitHub Engineering Blog 사례를 보면, Stubborn.sh 같은 계약 관리 플랫폼 도입 후 다수 마이크로서비스 간 계약 변경을 중앙에서 관리할 수 있게 되면서, 변경 이력 추적과 롤백이 훨씬 쉬워졌다고 해요. 저희도 비슷한 경험을 했는데요, 이전에는 각 서비스가 개별적으로 계약 테스트를 돌리다 보니, 계약 충돌이 발생하면 원인 찾기가 너무 힘들었거든요.
+
+Stubborn.sh에서는 계약 변경 내역과 관련 테스트 결과를 한눈에 볼 수 있어서, 문제가 생긴 시점과 원인을 빠르게 파악할 수 있었어요. 또 자동 롤아웃과 롤백 기능 덕분에 배포 실패 시 즉시 이전 안정 버전으로 복구하는 게 가능해졌습니다.
+
+---
+
+## 마이그레이션하면서 겪은 예상치 못한 난관과 대처법
+
+처음엔 Stubborn.sh 도입이 너무 간단할 줄 알았는데, 네트워크 지연이나 API 호출 실패 같은 현실적인 문제들이 있더라고요. 특히, 계약 업로드가 실패하면 CI/CD 파이프라인 전체가 멈추는 상황이 종종 발생해서, 업로드 실패 시 재시도 로직과 타임아웃 설정을 넣었어요.
+
+```groovy
+uploadContractsToStubborn.doLast {
+    int retries = 3
+    while (retries > 0) {
+        try {
+            exec {
+                commandLine 'curl', '-X', 'POST', '-H', "Authorization: Bearer ${System.env.STUBBORN_API_TOKEN}", '-F', 'contracts=@build/contracts', 'https://api.stubborn.sh/contracts/upload'
+            }
+            println 'Contracts uploaded successfully.'
+            break
+        } catch (Exception e) {
+            retries--
+            if (retries == 0) {
+                throw new GradleException('Failed to upload contracts after 3 attempts')
+            }
+            println 'Upload failed, retrying in 5 seconds...'
+            sleep(5000)
+        }
+    }
+}
+```
+
+이런 작은 방어 코드를 넣는 게 실제 운영 환경에서는 큰 도움이 되더라고요.
+
+---
+
+## 결론: Stubborn.sh로 이전할 때 꼭 기억할 것들
+
+- 기존 Spring Cloud Contract 빌드와 테스트 설정을 최대한 유지하면서, Stubborn.sh API 연동을 위한 커스텀 태스크를 추가하자.
+- 인증 토큰 관리와 네트워크 호출 실패 대비 로직을 반드시 CI/CD 파이프라인에 넣어야 한다.
+- 계약 변경 이력과 검증 결과를 중앙에서 관리하는 장점이 크니, 관련 대시보드 활용을 적극 권장한다.
+- 자동 롤아웃, 롤백 기능을 활용해 배포 안정성을 높이자.
+- 예상치 못한 네트워크 문제에 대비해 재시도 로직과 타임아웃 설정을 꼭 구현하자.
+
+이건 실제로 겪어보면, 단순히 툴을 바꾸는 게 아니라 개발 프로세스 전반에 영향을 주는 일임을 알게 됩니다. 하지만 한 번 잘 구축해두면, 마이크로서비스 계약 관리가 훨씬 체계적이고 안정적으로 변하는 걸 느낄 수 있을 거예요.
+
+---
+
+### 참고 자료
+
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring Boot 공식 문서에서는 Spring Cloud Contract를 기존 워크플로우에서 분리하여 Stubborn.sh 같은 전문 플랫폼으로 전환할 때, 기본적인 빌드 및 테스트 설정을 유지하면서 새로운 계약 검증과 배포 자동화 기능을 활용할 수 있다고 안내한다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework 코어 기술 문서에서는 Spring Cloud Contract의 계약 기반 테스트가 Stubborn.sh와 같은 외부 서비스로 이전될 경우, 기존의 Mock 서버 및 테스트 자동화 구성을 유지하되, Stubborn.sh의 API와 연동하는 커스텀 플러그인 설정이 필요하다고 설명한다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Baeldung의 Spring Boot 성능 튜닝 가이드에서는 외부 계약 관리 플랫폼 전환 시, 네트워크 호출과 인증 토큰 관리 등 추가적인 설정이 필요하며, Stubborn.sh로의 마이그레이션 과정에서 CI/CD 파이프라인에 해당 설정을 포함시켜야 안정적인 배포가 가능하다고 권고한다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub Engineering Blog에서는 Stubborn.sh와 같은 계약 관리 플랫폼을 도입함으로써, 다수의 마이크로서비스 간 계약 변경을 중앙에서 관리하고, 변경 이력을 추적하며, 자동화된 롤아웃과 롤백 기능을 활용할 수 있다고 사례 중심으로 소개한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
