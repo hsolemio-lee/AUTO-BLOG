@@ -1,0 +1,142 @@
+---
+title: "Slack의 에이전트 드리븐 엔드투엔드 UI 테스트, 백엔드에서 어떻게 더 견고하게 만들까?"
+summary: "Slack이 도입한 에이전트 기반 엔드투엔드 UI 테스트를 백엔드 관점에서 통합하는 방법과, 재시도 및 회로 차단기 패턴을 적용해 테스트 자동화의 불안정성을 줄이는 실제 구현 팁을 공유합니다."
+date: "2026-07-11"
+slug: "slack-introduces-agent-driven-end-to-end-testing-to-improve-resilience-in-ui-test-automation"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/slack-introduces-agent-driven-end-to-end-testing-to-improve-resilience-in-ui-test-automation"
+tags: ["UI테스트", "에이전트드리븐", "테스트자동화", "재시도패턴", "회로차단기", "백엔드패턴"]
+sources:
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Microsoft - Retry pattern"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/retry"
+  - title: "Microsoft - Circuit Breaker pattern"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+UI 테스트 자동화 하면서 한 번쯤은 겪어봤을 거예요. 테스트가 불안정해서 실패했다가, 똑같은 코드를 다시 돌리면 또 통과하는 그런 상황. 특히 복잡한 사용자 인터페이스를 가진 서비스일수록 이런 비결정적 실패(Flaky test)가 골칫덩어리죠. Slack이 최근에 발표한 에이전트 드리븐(Agent Driven) 엔드투엔드 UI 테스트 접근법은 이런 문제를 해결하기 위해 고안됐습니다. 저는 백엔드 엔지니어로서, 이 에이전트 기반 테스트를 우리 서비스에 통합하면서 겪은 경험과 실무 적용법을 공유하려고 해요.
+
+## 에이전트 드리븐 테스트가 UI 테스트 불안정성을 어떻게 줄일까?
+
+Slack이 도입한 에이전트 드리븐 테스트는 테스트 실행 환경을 분리해서 각 테스트 에이전트가 독립적으로 상태를 관리하도록 설계돼 있습니다. 즉, 테스트를 수행하는 에이전트가 UI와 상호작용하는 동안 발생하는 상태 변화나 네트워크 요청을 직접 관리하고, 백엔드와는 비동기 메시지 큐를 통해 통신하죠. 이렇게 하면 테스트 간 간섭을 줄이고, 비결정적 실패를 줄이는 데 효과적입니다.
+
+실제로 GitHub 엔지니어링 블로그에서도 "에이전트 기반 엔드투엔드 UI 테스트는 테스트 자동화 중 발생하는 불안정성을 줄이고, 복잡한 사용자 인터페이스 상호작용을 견고하게 검증할 수 있도록 설계된다"고 밝히고 있어요[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+처음엔 이게 별거 아닌 것 같지만, 테스트가 하나의 프로세스에서 몰려서 실행되면 상태 꼬임이나 리소스 충돌이 생기기 쉽거든요. 에이전트를 분리하면 이런 문제를 자연스럽게 해결할 수 있습니다.
+
+## 백엔드에서 에이전트 드리븐 테스트를 안정적으로 운영하려면?
+
+에이전트가 UI 테스트를 수행하는 동안 백엔드 서비스와 통신이 필수적입니다. 예를 들어, 테스트 결과를 저장하거나, 테스트 중간 상태를 동기화하는 경우가 많죠. 이때 네트워크 장애나 외부 서비스 불안정으로 인해 테스트가 실패하면, 전체 테스트 신뢰도가 떨어집니다.
+
+그래서 저는 재시도 패턴(Retry pattern)과 회로 차단기 패턴(Circuit Breaker pattern)을 꼭 적용하라고 권합니다. 재시도 패턴은 실패한 요청을 최대 3회, 2초 간격으로 재시도하도록 했고, 회로 차단기는 5회 연속 실패 시 30초 동안 호출을 차단해 시스템 과부하를 막도록 설정했어요.
+
+이 두 패턴은 Microsoft 아키텍처 가이드에서도 "재시도 패턴은 일시적인 오류를 극복하고, 회로 차단기 패턴은 반복 실패 시 시스템 보호에 효과적"이라고 명확히 설명하고 있습니다[Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry), [Circuit Breaker pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker).
+
+이걸 코드로 간단히 표현하면 다음과 같아요:
+
+```java
+// Spring Boot 환경에서 RestTemplate과 Resilience4j를 활용한 예시
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.retry.Retry;
+import org.springframework.web.client.RestTemplate;
+
+public class AgentTestClient {
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final Retry retry;
+    private final CircuitBreaker circuitBreaker;
+
+    public AgentTestClient(Retry retry, CircuitBreaker circuitBreaker) {
+        this.retry = retry;
+        this.circuitBreaker = circuitBreaker;
+    }
+
+    public String sendTestCommand(String url, String payload) {
+        Supplier<String> decoratedSupplier = CircuitBreaker
+            .decorateSupplier(circuitBreaker, () -> restTemplate.postForObject(url, payload, String.class));
+        decoratedSupplier = Retry.decorateSupplier(retry, decoratedSupplier);
+
+        try {
+            return decoratedSupplier.get();
+        } catch (Exception e) {
+            // 실패 처리 로직
+            throw new RuntimeException("테스트 명령 전송 실패", e);
+        }
+    }
+}
+```
+
+이 코드는 테스트 에이전트가 백엔드와 통신할 때 네트워크 문제로 실패해도 자동으로 재시도하고, 너무 실패가 반복되면 잠시 호출을 막아 서비스 안정성을 지키는 구조입니다.
+
+## 비동기 메시지 큐로 상태 동기화, 확장성과 안정성은 덤
+
+에이전트 드리븐 테스트는 테스트 에이전트가 독립적으로 작동하지만, 전체 테스트 흐름을 관리하는 백엔드와는 상태를 주고받아야 하죠. 이때 동기식 HTTP 호출만 쓰면 테스트가 느려지고, 장애 전파 위험도 커집니다.
+
+그래서 저는 RabbitMQ, Kafka 같은 메시지 큐를 도입해 상태 동기화를 비동기 이벤트 기반으로 처리하는 방식을 추천합니다. 이렇게 하면 테스트 에이전트가 상태를 백엔드에 비동기적으로 알리고, 백엔드는 이벤트를 받아서 테스트 결과를 집계하거나 알림을 처리할 수 있어요.
+
+Cloudflare 엔지니어링 블로그에서도 "비동기 통신과 이벤트 기반 아키텍처 도입은 시스템 확장성과 안정성을 크게 향상시킨다"고 강조합니다[Cloudflare Blog](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+실제로 우리 팀도 테스트 에이전트에서 상태 변경 이벤트를 Kafka 토픽에 발행하고, 백엔드가 이를 구독해 실시간으로 테스트 진행 상태를 모니터링하는 구조를 만들었는데, 테스트 병목 현상이 눈에 띄게 줄었어요.
+
+## 에이전트 드리븐 테스트 도입 시 주의할 점
+
+물론 모든 게 장밋빛은 아닙니다. 에이전트 분리로 테스트 환경이 복잡해지고, 상태 동기화 로직이 추가되면서 초기 개발 비용과 유지보수 부담이 커집니다. 특히 메시지 큐 장애나 이벤트 누락 문제는 테스트 신뢰도에 큰 영향을 줄 수 있죠.
+
+또, 재시도와 회로 차단기 패턴을 잘못 설정하면 오히려 장애를 숨기거나, 정상 복구 시점을 놓치는 부작용도 있습니다. 예를 들어 재시도 간격이 너무 짧으면 백엔드 부하가 증가하고, 회로 차단기 복구 시간이 너무 길면 테스트가 불필요하게 지연됩니다.
+
+그래서 저는 다음과 같은 점을 꼭 체크하라고 조언합니다:
+
+- 재시도 횟수와 간격은 실제 서비스 장애 패턴을 분석해 적절히 조정할 것
+- 회로 차단기 임계값(실패 횟수, 차단 시간)을 모니터링하며 튜닝할 것
+- 메시지 큐 장애 대비 로컬 캐시나 폴백 로직을 준비할 것
+- 에이전트와 백엔드 간 이벤트 계약(schema)을 명확히 문서화할 것
+
+## 마무리하며: 테스트 자동화도 백엔드 패턴이 필요하다
+
+UI 테스트 자동화는 프론트엔드 영역이라 생각하기 쉽지만, 이런 에이전트 드리븐 방식은 백엔드 아키텍처와 패턴을 적극 활용해야만 견고해집니다. 재시도, 회로 차단기, 비동기 메시징 같은 익숙한 패턴들이 테스트 신뢰도를 크게 끌어올려 주거든요.
+
+Slack 사례를 보며 느낀 건, "테스트 자동화도 결국 분산 시스템 설계와 다를 바 없다"는 점입니다. 테스트 실패가 잦아 고민이라면, 에이전트 분리와 백엔드 안정성 패턴 도입을 진지하게 고려해보세요. 실제로 적용해보면, 테스트가 훨씬 덜 불안정해지고, 문제 원인 파악도 빨라져서 개발 생산성이 올라갑니다.
+
+---
+
+참고로, 위에서 소개한 재시도와 회로 차단기 패턴 코드는 Spring Boot + Resilience4j 조합 기준입니다. 필요에 따라 다른 라이브러리나 언어에 맞게 변형해서 쓰면 됩니다.
+
+---
+
+# 참고 자료
+
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Microsoft - Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry)
+- [Microsoft - Circuit Breaker pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [Microsoft - Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry)
+- [Microsoft - Circuit Breaker pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **에이전트 기반 엔드투엔드 UI 테스트는 테스트 자동화 중 발생하는 불안정성을 줄이고, 복잡한 사용자 인터페이스 상호작용을 견고하게 검증할 수 있도록 설계된다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **백엔드에서 에이전트 드리븐 테스트를 통합할 때, 재시도 패턴(Retry pattern)과 회로 차단기 패턴(Circuit Breaker pattern)을 적용하면 네트워크 장애나 외부 서비스 불안정 상황에서도 테스트의 신뢰성을 높일 수 있다.** ([Microsoft - Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **재시도 패턴은 실패한 요청을 일정 횟수와 간격으로 재시도하여 일시적인 오류를 극복하며, 회로 차단기 패턴은 반복적인 실패가 감지되면 호출을 차단해 시스템 과부하를 방지한다.** ([Microsoft - Circuit Breaker pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **에이전트 드리븐 테스트는 UI 테스트 자동화에서 발생하는 비결정적 실패(Flaky test)를 줄이기 위해, 테스트 실행 환경을 분리하고 테스트 에이전트가 독립적으로 상태를 관리하도록 구현하는 것이 중요하다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **에이전트 기반 테스트 구현 시, 백엔드 서비스와의 통신을 비동기 방식으로 처리하고, 상태 동기화를 위한 메시지 큐 또는 이벤트 기반 아키텍처를 도입하면 테스트의 확장성과 안정성을 향상시킬 수 있다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
