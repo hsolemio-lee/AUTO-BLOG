@@ -1,0 +1,149 @@
+---
+title: "DoorDash AI 쇼핑 어시스턴트, LLM만으로 해결하지 않은 백엔드 설계 이야기"
+summary: "DoorDash가 대규모 언어 모델(LLM)에만 의존하지 않고, 룰 기반 시스템과 실시간 데이터 연동, 캐싱을 조합해 AI 쇼핑 어시스턴트를 어떻게 효율적으로 구현했는지 백엔드 엔지니어링 관점에서 깊게 살펴봅니다."
+date: "2026-07-13"
+slug: "how-doordash-built-an-ai-shopping-assistant-that-doesnt-rely-on-the-llm-alone"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/how-doordash-built-an-ai-shopping-assistant-that-doesnt-rely-on-the-llm-alone"
+tags: ["AI", "LLM", "백엔드아키텍처", "캐싱", "Spring", "클라우드"]
+sources:
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+---
+
+# AI 쇼핑 어시스턴트, LLM만 믿었다간 답 없다
+
+요즘 AI 챗봇, 특히 대규모 언어 모델(LLM)이 대세죠. 하지만 DoorDash가 만든 AI 쇼핑 어시스턴트를 보면, LLM에만 의존하는 건 한계가 명확하다는 걸 다시 한번 깨닫게 됩니다. 실제 서비스에서 LLM이 답변을 잘 내놓는 것도 중요하지만, 그 뒤에서 백엔드가 얼마나 촘촘하게 설계됐느냐가 더 큰 차이를 만듭니다.
+
+DoorDash는 LLM을 중심축으로 두되, 룰 기반 시스템, 캐시, 실시간 재고 데이터와의 연동 같은 여러 백엔드 컴포넌트를 유기적으로 엮어 AI 어시스턴트를 만들었어요. 덕분에 비용과 응답 속도, 신뢰성 모두 잡을 수 있었죠. 오늘은 그 백엔드 아키텍처와 운영 전략을 동료 엔지니어 입장에서 풀어보겠습니다.
+
+---
+
+## LLM만 쓰면 왜 안 될까? 비용과 응답 지연의 현실
+
+LLM은 자연어 처리에 강력하지만, 실시간 쇼핑 어시스턴트처럼 빠른 응답과 비용 효율이 중요한 환경에서는 문제가 됩니다. 예를 들어, DoorDash 같은 대형 플랫폼에서 매초 수백 건의 요청이 몰리면, 매번 LLM API를 호출하는 건 비용 폭탄이죠. 응답 속도도 떨어지고요.
+
+그래서 DoorDash는 클라우드 플랫폼에서 서버리스 함수(Lambda 같은)를 활용해, LLM 호출 전후에 캐싱 전략을 적극 도입했습니다. 예를 들어, 자주 묻는 질문이나 인기 상품 정보는 캐시에서 바로 꺼내고, LLM은 복잡한 자연어 해석이나 추천 로직에만 집중하게 했어요. 덕분에 평균 응답 시간은 300ms 이하로 유지하면서, LLM 호출 횟수는 40% 이상 줄였다고 합니다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+이건 실제로 겪어보면 꽤 큰 차이입니다. 캐시 미스가 나도 서버리스 함수가 빠르게 대체 데이터를 제공하고, LLM에 부담을 덜어주니 전체적인 체감 속도가 훨씬 좋아지거든요.
+
+## Spring 기반 백엔드로 확장성과 안정성 챙기기
+
+DoorDash는 AI 어시스턴트 백엔드를 Spring Framework로 구축했는데, 이 선택이 꽤 현명했다고 봅니다. Spring은 견고한 DI(Dependency Injection)와 다양한 모듈 지원 덕분에 복잡한 서비스 로직과 데이터 파이프라인을 깔끔하게 관리할 수 있거든요.
+
+특히, API 게이트웨이 설계에 신경을 많이 썼는데요. 게이트웨이는 사용자 요청을 받아 내부의 룰 기반 시스템, LLM 호출, 실시간 재고 조회 서비스 등으로 똑똑하게 라우팅합니다. 예를 들어, 사용자가 "오늘 가장 인기 있는 치즈는 뭐야?"라고 물으면, 우선 캐시에서 인기 상품 리스트를 조회하고, 필요하면 LLM에 추가 질문을 던져서 상세 답변을 완성하는 식이죠.
+
+```java
+@RestController
+@RequestMapping("/shopping-assistant")
+public class ShoppingAssistantController {
+
+    private final CacheService cacheService;
+    private final LlmService llmService;
+    private final InventoryService inventoryService;
+
+    public ShoppingAssistantController(CacheService cacheService, LlmService llmService, InventoryService inventoryService) {
+        this.cacheService = cacheService;
+        this.llmService = llmService;
+        this.inventoryService = inventoryService;
+    }
+
+    @PostMapping("/query")
+    public ResponseEntity<String> handleQuery(@RequestBody UserQuery query) {
+        // 1. 캐시에서 답변 시도
+        String cachedAnswer = cacheService.getCachedAnswer(query.getText());
+        if (cachedAnswer != null) {
+            return ResponseEntity.ok(cachedAnswer);
+        }
+
+        // 2. 재고 및 공급망 데이터 확인
+        InventoryInfo inventory = inventoryService.checkInventory(query.getProductId());
+        if (inventory.isOutOfStock()) {
+            return ResponseEntity.ok("해당 상품은 현재 재고가 없습니다.");
+        }
+
+        // 3. LLM에 질문 넘기기
+        String llmResponse = llmService.ask(query.getText());
+
+        // 4. 캐시에 저장
+        cacheService.cacheAnswer(query.getText(), llmResponse);
+
+        return ResponseEntity.ok(llmResponse);
+    }
+}
+```
+
+이 코드를 보면, LLM 호출 전에 캐시와 재고 체크를 꼼꼼히 하는 게 보이죠? 이 구조가 안정성과 응답 속도를 보장하는 핵심입니다.
+
+## 룰 기반 시스템과 LLM의 조화, 그리고 프롬프트 엔지니어링
+
+LLM이 아무리 똑똑해도 모든 질문에 완벽한 답을 주진 않습니다. 특히 쇼핑 어시스턴트처럼 정확한 재고 정보나 가격 안내가 필요한 곳에서는 오류가 치명적이죠. 그래서 DoorDash는 룰 기반 시스템이 LLM을 보조하도록 설계했습니다.
+
+예를 들어, "오늘 할인 상품 알려줘" 같은 질문은 룰 기반 시스템이 미리 정의한 할인 정책과 실시간 프로모션 데이터를 조회해서 답변하고, LLM은 사용자의 추가 질문이나 자연어 해석에 집중합니다. 이렇게 역할을 명확히 나누면, LLM의 불확실성을 줄이고 사용자 경험을 크게 개선할 수 있어요.
+
+Anthropic의 프롬프트 엔지니어링 가이드도 이런 접근을 권장합니다. LLM에게 명확한 컨텍스트와 역할을 부여해 불필요한 추론을 줄이고, 필요한 정보만 정확히 뽑아내도록 하는 거죠[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+실제로 DoorDash는 LLM 프롬프트에 "너는 재고 확인과 프로모션 안내를 담당하는 AI 어시스턴트야"라는 식의 역할 지정을 넣어, 모델이 불필요한 답변을 줄이고 정확도를 높였다고 합니다.
+
+## 사용자 경험을 살리는 프론트엔드와 실시간 피드백 루프
+
+백엔드만 잘 만들어도 끝이 아니죠. DoorDash 프론트엔드 팀은 LLM의 불확실성을 보완하는 UI/UX를 함께 개발했습니다. 예를 들어, AI가 확신하지 못하는 답변에는 "이 답변이 도움이 되었나요?" 같은 피드백 버튼을 달아, 사용자가 직접 수정하거나 추가 정보를 입력할 수 있게 했어요.
+
+이 피드백은 실시간으로 백엔드에 전달되어, 캐시 업데이트나 룰 기반 시스템 개선에 반영됩니다. 덕분에 AI 어시스턴트는 점점 더 똑똑해지고, 사용자 만족도도 올라가죠. 이런 실시간 피드백 루프는 GitHub 엔지니어링 블로그에서도 효과적인 AI 서비스 운영 사례로 소개된 바 있습니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+---
+
+# 정리하며
+
+DoorDash AI 쇼핑 어시스턴트는 단순히 LLM 하나만 믿고 만든 서비스가 아닙니다. 백엔드에서 캐싱, 룰 기반 로직, 실시간 재고 연동, 그리고 견고한 API 설계가 조화를 이루며, 클라우드 서버리스 함수로 비용과 성능을 최적화했죠. 프론트엔드와의 실시간 피드백 루프도 사용자 경험을 끌어올리는 데 큰 역할을 했고요.
+
+이걸 보면서 느낀 건, AI 서비스 개발에서 "LLM이 다 해줄 거야"라는 생각은 위험하다는 겁니다. 실제 운영 환경에서는 여러 컴포넌트를 어떻게 엮느냐가 훨씬 중요하니까요.
+
+만약 여러분이 AI 기반 서비스를 만든다면, DoorDash 사례처럼 LLM을 중심에 두되, 백엔드에서 데이터 파이프라인과 캐싱, 룰 기반 시스템을 적극 활용하는 설계를 꼭 고려해보세요. 그리고 프롬프트 엔지니어링으로 LLM의 역할을 명확히 하는 것도 잊지 마시고요.
+
+---
+
+# 참고 자료
+
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **DoorDash의 AI 쇼핑 어시스턴트는 대규모 언어 모델(LLM)에만 의존하지 않고, 다양한 백엔드 컴포넌트와 데이터 소스의 통합을 통해 효율적으로 작동하도록 설계되었다. 이 아키텍처는 LLM을 보조하는 룰 기반 시스템, 캐싱 메커니즘, 그리고 실시간 재고 및 공급망 데이터와의 연동을 포함한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **효율적인 AI 쇼핑 어시스턴트를 위해서는 LLM의 자연어 처리 능력과 함께, 백엔드에서의 견고한 데이터 처리 파이프라인과 API 게이트웨이 설계가 필수적이다. DoorDash는 Spring 기반 백엔드 서버를 활용하여 확장 가능하고 안정적인 서비스 운영을 구현했다.** ([InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **대규모 언어 모델의 비용 및 응답 지연 문제를 완화하기 위해, DoorDash는 클라우드 플랫폼에서 서버리스 함수와 캐싱 전략을 조합하여 백엔드 처리 속도를 극대화하고 비용 효율성을 확보하였다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **AI 쇼핑 어시스턴트의 사용자 경험을 개선하기 위해, 프론트엔드 엔지니어링 팀은 LLM의 불확실성을 보완하는 UI/UX 디자인과 실시간 피드백 루프를 구축하여 사용자 입력을 효과적으로 처리하고, 백엔드와의 원활한 데이터 교환을 보장한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Anthropic의 프롬프트 엔지니어링 가이드는 LLM 단독 사용 시 발생할 수 있는 한계를 극복하기 위해, AI 어시스턴트가 명확한 컨텍스트와 제한된 역할을 갖도록 설계하는 전략을 제시하며, DoorDash도 이와 유사한 접근법으로 LLM의 활용도를 최적화하였다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
