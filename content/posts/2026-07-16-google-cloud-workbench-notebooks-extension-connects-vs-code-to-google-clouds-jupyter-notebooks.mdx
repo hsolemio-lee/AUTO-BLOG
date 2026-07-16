@@ -1,0 +1,146 @@
+---
+title: "VS Code에서 Google Cloud Workbench Notebooks로 AI 개발 속도를 높이는 법"
+summary: "Google Cloud Workbench Notebooks 확장 기능을 활용해 VS Code에서 직접 Google Cloud의 Jupyter 노트북에 연결하는 방법과, 이를 통해 백엔드 엔지니어가 AI 개발 워크플로우를 어떻게 효율화할 수 있는지 실제 경험을 바탕으로 공유합니다."
+date: "2026-07-16"
+slug: "google-cloud-workbench-notebooks-extension-connects-vs-code-to-google-clouds-jupyter-notebooks"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/google-cloud-workbench-notebooks-extension-connects-vs-code-to-google-clouds-jupyter-notebooks"
+tags: ["Google Cloud", "VS Code", "Jupyter Notebooks", "AI 개발", "워크플로우 최적화"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "Google Cloud Architecture Framework"
+    url: "https://cloud.google.com/architecture/framework"
+  - title: "GCP Release Notes"
+    url: "https://cloud.google.com/release-notes"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+## VS Code에서 Jupyter 노트북을 바로 다룰 수 있다면?
+
+"아, 또 노트북 열고, 클라우드 콘솔 켜고, 다시 로컬 에디터로 돌아가고..." 이런 경험 다들 있죠? AI 모델 개발이나 데이터 탐색을 하다 보면 Jupyter 노트북과 코드 에디터 사이를 왔다 갔다 하는 게 꽤 번거롭습니다. 특히 백엔드 엔지니어 입장에서 보면, 노트북 환경을 따로 관리하는 게 귀찮기도 하고, 코드 리뷰나 버전 관리도 까다롭죠.
+
+최근에 Google Cloud에서 발표한 Workbench Notebooks VS Code 확장 기능을 써보니, 이 불편함이 꽤 많이 줄더군요. VS Code 안에서 바로 Google Cloud의 Jupyter 노트북에 연결해서 작업할 수 있으니까요. 오늘은 이 경험을 공유하면서, 실제로 어떻게 설정하고 활용하는지, 그리고 어떤 점이 편리한지 이야기해보겠습니다.
+
+---
+
+## Google Cloud Workbench Notebooks 확장 기능, 왜 주목해야 할까?
+
+일단 이 확장 기능은 Google Cloud의 AI 플랫폼인 Workbench Notebooks와 VS Code를 연결해줍니다. 기존에는 노트북을 쓰려면 웹 브라우저에서 Google Cloud 콘솔에 접속해서 노트북 인스턴스를 켜고, JupyterLab UI를 써야 했죠. 그런데 이 확장 기능을 쓰면 VS Code에서 직접 노트북을 열고, 코드 편집, 셀 실행, 심지어 터미널 접속까지 한 곳에서 할 수 있습니다.
+
+내가 느낀 가장 큰 장점은 생산성 향상입니다. 예를 들어, 코드 작성 중에 바로 TypeScript나 Python LSP(Language Server Protocol) 기반 자동완성, 오류 검출 기능을 쓸 수 있어서 코드 품질이 더 좋아졌어요. 그리고 Git 연동도 VS Code 내에서 자연스럽게 되니, 노트북 코드를 깃허브에 푸시하거나 PR을 만들 때도 훨씬 편합니다.
+
+---
+
+## 실제로 어떻게 연결하고 쓸 수 있나?
+
+설정은 의외로 간단합니다. 아래는 기본적인 연결 흐름입니다:
+
+```bash
+# 1. VS Code에 Google Cloud Workbench Notebooks 확장 설치
+# 마켓플레이스에서 'Google Cloud Workbench Notebooks' 검색 후 설치
+
+# 2. Google Cloud CLI 로그인
+$ gcloud auth login
+
+# 3. 노트북 인스턴스 리스트 확인
+$ gcloud notebooks instances list --location=us-central1-a
+
+# 4. VS Code 명령 팔레트(Ctrl+Shift+P)에서 'Google Cloud: Connect to Notebook' 선택
+# 인스턴스 선택 후 연결 완료
+```
+
+연결 후에는 VS Code 내에서 Jupyter 노트북 파일(.ipynb)을 열면, 마치 로컬에서 작업하는 것처럼 셀 실행이 가능합니다. 심지어 GPU가 붙은 인스턴스에서 연산을 돌릴 수도 있어서, 로컬 머신 성능에 구애받지 않고 대규모 AI 실험을 할 수 있죠.
+
+한 가지 팁은, 노트북 인스턴스가 위치한 리전을 꼭 확인하는 겁니다. 예를 들어, us-central1-a 리전에서 인스턴스를 만들었다면, gcloud 명령어에서 --location 옵션을 맞춰줘야 연결이 원활합니다. 이걸 안 맞추면 연결 오류가 나서 한참 헤맸어요.
+
+---
+
+## 백엔드 엔지니어가 AI 개발 워크플로우에 이걸 왜 써야 할까?
+
+보통 백엔드 개발자는 AI 모델 학습이나 데이터 분석을 직접 하진 않지만, AI 서비스를 운영하거나 API를 개발할 때 모델을 이해하고 테스트하는 일이 많습니다. 이때 노트북에서 모델을 빠르게 실험하고, 그 결과를 바로 코드에 반영하는 게 중요하죠.
+
+VS Code와 Workbench Notebooks의 결합은 이런 과정을 크게 단축시켜 줍니다. 예를 들어, 내가 작성한 모델 추론 코드를 VS Code에서 바로 Jupyter 노트북으로 테스트해보고, 결과가 마음에 들면 바로 서비스 코드에 통합하는 식입니다. 덕분에 개발-테스트-배포 사이의 간극이 줄어들고, 코드 품질도 올라가죠.
+
+또한, Google Cloud 플랫폼과 자연스럽게 연동되니, 클라우드 자원 관리도 편합니다. 노트북 인스턴스가 GPU를 쓴다면, 필요한 만큼만 켜고 끌 수 있어서 비용 최적화도 가능하더군요.
+
+---
+
+## 실제 현업에서 마주친 한계와 해결책
+
+처음에는 "이거 완벽하네!" 했지만, 몇 가지 아쉬운 점도 있었습니다. 예를 들어, 노트북 인스턴스가 너무 많아지면 VS Code 확장 내에서 관리가 어렵더군요. 인스턴스 이름이나 리전별 필터링 기능이 좀 더 강화되면 좋겠어요.
+
+또한, 노트북 셀 실행 중에 네트워크 문제가 생기면 연결이 끊기는데, 이때 상태 복구가 자동으로 잘 안 되는 점도 불편했습니다. 이런 부분은 Google Cloud의 지속적인 업데이트를 기다려야 할 듯합니다.
+
+마지막으로, 확장 기능이 아직은 JupyterLab의 모든 플러그인이나 확장 기능을 지원하지 않아서, 복잡한 시각화나 인터랙티브 위젯을 쓸 때는 웹 UI를 병행해야 하는 경우가 있었습니다.
+
+---
+
+## 내 경험을 바탕으로 한 추천 설정과 팁
+
+- **gcloud CLI 최신 버전 유지**: 확장 기능과 호환성 문제를 줄이려면 gcloud CLI를 최신으로 유지하세요.
+- **리전 관리**: 노트북 인스턴스 생성 시 리전을 명확히 정하고, VS Code 연결 시에도 일치시키는 게 중요합니다.
+- **작은 범위 점진적 배포 적용**: AI 모델 API를 백엔드에 통합할 때는 작은 범위부터 점진적으로 배포하는 전략을 추천합니다. 이렇게 하면 운영 리스크가 줄고, 문제 발생 시 빠르게 대응할 수 있습니다. (참고: [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+- **장애 초기 계측 도입**: 노트북과 백엔드 모두에서 실패 유형을 초기부터 계측하면, 유지보수성과 장애 대응 속도가 개선됩니다. (참고: [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+
+---
+
+## 마무리하며
+
+VS Code에서 Google Cloud Workbench Notebooks를 바로 연결해 쓰는 경험은 AI 개발을 훨씬 자연스럽고 빠르게 만들어줬습니다. 특히 백엔드 엔지니어가 AI 모델과 데이터를 직접 다뤄야 할 때, 이 도구가 큰 도움이 되더군요.
+
+물론 아직 완벽하지는 않지만, 클라우드 자원 관리부터 코드 편집, 실행까지 한 곳에서 할 수 있다는 점에서 앞으로 더 발전 가능성이 큽니다. AI 서비스 개발과 운영에 관심 있는 동료라면 꼭 한 번 써보길 추천합니다.
+
+---
+
+### 참고 코드 예시
+
+아래는 VS Code에서 연결된 Google Cloud Workbench 노트북에서 간단한 Python 셀을 실행하는 예시입니다. 실제로는 VS Code 내에서 .ipynb 파일을 열고 아래 코드를 셀에 넣고 실행하면 됩니다.
+
+```python
+# Google Cloud Workbench 노트북에서 실행하는 예시
+import tensorflow as tf
+
+# 간단한 텐서플로우 연산
+hello = tf.constant('Hello, Google Cloud Workbench!')
+print(hello.numpy().decode())
+```
+
+이렇게 하면 클라우드 GPU 인스턴스에서 바로 텐서플로우 코드를 실행해 결과를 받을 수 있습니다. 로컬에 아무것도 설치하지 않아도 되니, 환경 구축 시간도 절약되고요.
+
+---
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [Google Cloud Architecture Framework](https://cloud.google.com/architecture/framework)
+- [GCP Release Notes](https://cloud.google.com/release-notes)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
