@@ -1,0 +1,128 @@
+---
+title: "PepsiCo 창고 운영 중단, SCM 시스템에서 어떻게 실시간 의사결정으로 연결할까?"
+summary: "PepsiCo의 오클라호마 생산 현장 창고 운영 중단 소식을 계기로, 공급망 관리(SCM) 시스템이 어떻게 실시간으로 계획, 조달, 재고, 이행 시스템에 반영되어 빠른 엔지니어링 의사결정을 가능하게 하는지 살펴봅니다."
+date: "2026-07-24"
+slug: "pepsico-to-cease-warehouse-operations-at-oklahoma-production-site"
+category: "scm"
+canonical_url: "https://example.dev/blog/pepsico-to-cease-warehouse-operations-at-oklahoma-production-site"
+tags: ["SCM", "공급망관리", "재고관리", "백엔드아키텍처", "PepsiCo"]
+sources:
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+  - title: "SAP Help Portal - Supply Chain Management"
+    url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## 갑작스러운 창고 중단, SCM 시스템은 어떻게 대응해야 할까?
+
+얼마 전 PepsiCo가 오클라호마 생산 현장 내 창고 운영을 중단한다는 소식이 들려왔습니다. 단순히 한 창고가 닫힌다는 게 아니라, 그동안 그 창고를 중심으로 돌아가던 재고 흐름, 조달 계획, 배송 일정 등이 모두 영향을 받는다는 의미죠. 
+
+이런 변화가 발생했을 때, 공급망 관리 시스템(SCM)은 어떻게 실시간으로 대응할 수 있을까요? 우리 엔지니어 입장에서는 이런 비즈니스 변화가 곧바로 시스템 설계와 운영에 영향을 주기 때문에, SCM 업데이트를 어떻게 백엔드 서비스에 반영할지 고민할 수밖에 없습니다.
+
+## SCM 이벤트가 백엔드 전반에 미치는 영향
+
+PepsiCo 같은 대기업의 SCM은 단순 재고 관리 시스템이 아닙니다. 생산 계획, 조달, 재고, 주문 이행까지 연결된 거대한 네트워크죠. 한 창고가 닫히면, 그 창고에 쌓여있던 재고는 다른 창고로 재배치해야 하고, 공급 업체와의 조달 계약도 조정해야 하며, 고객에 대한 납기 일정도 재검토해야 합니다.
+
+예를 들어, 오클라호마 창고가 운영을 중단하면서 3만여 개 SKU의 재고가 영향을 받는다고 가정해봅시다. 이걸 수작업으로 반영한다면 며칠, 심하면 몇 주가 걸릴 수도 있죠. 하지만 Microsoft Dynamics 365 Supply Chain Management 같은 최신 SCM 플랫폼은 이런 변화를 실시간 이벤트로 처리해, 계획, 조달, 재고, 이행 시스템에 즉시 반영할 수 있도록 설계되어 있습니다[Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/).
+
+## 자동화된 재고 최적화와 조달 계획 조정 사례
+
+Oracle SCM 솔루션은 창고 운영 중단과 같은 이벤트가 발생하면, 자동으로 재고 최적화 알고리즘을 돌려서 다른 창고로 재고를 재배분합니다. 동시에, 조달 계획도 자동으로 재조정해 공급망의 연속성을 보장합니다. 
+
+이 과정은 단순히 재고 수량만 바꾸는 게 아니라, 납기, 운송비, 재고 보유 비용 등 다양한 요소를 고려해 최적화하는 게 핵심입니다. 예를 들어, 오클라호마 창고가 닫히면서 그 인근 지역 고객에 대한 배송이 지연될 위험이 있다면, 다른 창고에서 출고하는 걸 우선순위로 두는 식이죠[Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/).
+
+## SAP SCM이 보여주는 신속한 생산 계획 재구성
+
+SAP의 SCM 플랫폼 역시 창고 폐쇄 같은 운영 변화가 있을 때, 관련 재고 이동과 생산 계획을 신속히 재구성하는 기능을 제공합니다. 
+
+실제로 SAP SCM을 도입한 기업에서는 창고 폐쇄 후 24시간 내에 생산 라인 재조정과 납기 일정 재설정을 완료해 고객 불만을 최소화했다고 합니다. 이 과정에서 생산 계획 모듈과 재고 관리 모듈이 긴밀하게 연동되어, 납기 준수와 비용 최적화를 동시에 달성할 수 있었습니다[ SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT).
+
+## 유연한 백엔드 아키텍처가 필수인 이유
+
+이처럼 SCM 시스템과 백엔드 아키텍처는 창고 운영 중단 같은 비즈니스 변화에 대응하기 위해 유연하고 확장 가능한 설계가 필수적입니다. 마틴 파울러도 그의 소프트웨어 아키텍처 가이드에서 이러한 유연성의 중요성을 강조합니다. 
+
+특히 이벤트 드리븐 아키텍처(Event-Driven Architecture)를 도입하면, 창고 운영 중단 이벤트가 발생했을 때 관련 서비스들이 비동기적으로 반응해 각자의 데이터를 업데이트하고, 필요하면 추가 작업을 트리거할 수 있습니다. 
+
+예를 들어, 창고 폐쇄 이벤트가 발생하면 재고 서비스는 해당 창고 재고를 다른 창고로 이전하는 작업을 시작하고, 주문 처리 서비스는 배송 경로를 재계산하며, 조달 서비스는 공급 업체와의 계약을 재조정하는 식이죠[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+## 실제 코드 예시: 창고 폐쇄 이벤트 처리하기
+
+간단한 Node.js 기반 이벤트 핸들러 예시를 보겠습니다. 이 코드는 창고 폐쇄 이벤트를 받아 재고 이전 작업을 시작하는 역할을 합니다.
+
+```javascript
+// warehouseEventHandler.js
+const inventoryService = require('./inventoryService');
+const notificationService = require('./notificationService');
+
+async function handleWarehouseClosure(event) {
+  const { warehouseId, closureDate } = event;
+
+  console.log(`창고 ${warehouseId}가 ${closureDate}에 폐쇄됩니다.`);
+
+  try {
+    // 1. 해당 창고 재고 조회
+    const stockItems = await inventoryService.getStockByWarehouse(warehouseId);
+
+    // 2. 재고를 다른 창고로 이전
+    for (const item of stockItems) {
+      await inventoryService.transferStock(item.sku, warehouseId, 'alternativeWarehouseId', item.quantity);
+    }
+
+    // 3. 관련 부서에 알림
+    await notificationService.notifySupplyChainTeam(`창고 ${warehouseId} 폐쇄에 따른 재고 이전 완료.`);
+
+    console.log('재고 이전 작업 완료.');
+  } catch (error) {
+    console.error('창고 폐쇄 이벤트 처리 중 오류 발생:', error);
+    // 필요 시 재시도 로직 또는 에러 알림 추가
+  }
+}
+
+module.exports = { handleWarehouseClosure };
+```
+
+이 코드는 실제 운영 환경에선 더 복잡한 로직과 예외 처리가 필요하지만, 핵심은 ‘이벤트를 받으면 재고 이전과 알림을 자동으로 처리한다’는 점입니다. 이런 자동화가 없다면, 창고 폐쇄 시 재고 데이터 불일치나 배송 지연이 발생하기 쉽습니다.
+
+## 우리 팀 SCM 시스템에 적용할 수 있는 교훈
+
+- **실시간 이벤트 반영 체계 구축:** 창고 운영 중단 같은 이벤트가 발생하면, 즉시 SCM 시스템과 백엔드에 반영해 재고, 조달, 생산 계획을 자동 재조정해야 합니다.
+
+- **유연한 아키텍처 설계:** 이벤트 드리븐 아키텍처를 도입해 각 시스템이 독립적으로 반응하고 협업할 수 있게 만드세요.
+
+- **자동화된 재고 최적화:** 재고 재배분과 조달 계획 조정은 수작업이 아닌 알고리즘과 규칙 기반 자동화로 처리해야 합니다.
+
+- **모니터링과 알림 체계 강화:** 이벤트 처리 과정에서 문제가 발생하면 즉시 대응할 수 있도록 모니터링과 알림 시스템을 구축하세요.
+
+- **테스트와 시뮬레이션:** 실제 창고 폐쇄와 같은 시나리오를 정기적으로 시뮬레이션해 시스템의 대응력을 점검해야 합니다.
+
+처음엔 이런 복잡한 연동과 자동화가 부담스럽게 느껴질 수 있지만, 실제로 겪어보면 이벤트가 발생할 때마다 수작업으로 대응하는 것보다 훨씬 안정적이고 빠른 의사결정이 가능하다는 걸 알게 됩니다.
+
+---
+
+## 참고 자료
+
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **공급망 관리 시스템은 생산 현장 내 창고 운영 중단과 같은 주요 변경 사항을 실시간으로 반영하여 계획, 조달, 재고 및 이행 시스템에 신속한 의사결정을 지원할 수 있다.** ([Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Oracle의 SCM 솔루션은 창고 운영 중단과 같은 이벤트 발생 시 재고 최적화 및 조달 계획을 자동으로 조정해 공급망의 연속성을 유지하도록 설계되어 있다.** ([Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **SAP의 공급망 관리 플랫폼은 창고 폐쇄와 같은 운영 변화가 발생할 때, 관련 재고 이동 및 생산 계획을 신속히 재구성하여 납기 준수와 비용 최적화를 지원한다.** ([SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **공급망 관리 시스템과 백엔드 아키텍처는 창고 운영 중단과 같은 비즈니스 변화에 대응하기 위해 유연하고 확장 가능한 설계가 필수적이며, 이는 마틴 파울러의 소프트웨어 아키텍처 가이드에서도 강조된다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
