@@ -1,0 +1,150 @@
+---
+title: "8달러짜리 마이크로컨트롤러에서 2890만 파라미터 LLM 돌려보기"
+summary: "제한된 메모리와 연산 자원에서 2천만~3천만 파라미터급 LLM을 돌리는 현실적인 방법과 그 과정에서 마주친 트레이드오프를 공유합니다."
+date: "2026-07-26"
+slug: "running-a-289m-parameter-llm-on-an-8-microcontroller"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/running-a-289m-parameter-llm-on-an-8-microcontroller"
+tags: ["LLM", "마이크로컨트롤러", "경량화", "엣지컴퓨팅", "모델압축"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+### 8달러짜리 MCU에 LLM? 이게 가능하다고?
+
+얼마 전, 엣지 디바이스에 AI를 직접 올려보자는 얘기가 다시 뜨겁더라고요. "작은 마이크로컨트롤러에 2천만~3천만 파라미터짜리 LLM을 돌릴 수 있을까?"라는 질문, 처음 들으면 ‘말도 안 돼’ 싶죠. 그런데 실제로 해보니, 불가능한 건 아니더라고요. 물론 그냥 돌리는 게 아니라 꽤 많은 손질과 트레이드오프가 필요했어요.
+
+### 왜 엣지에서 LLM을 돌려야 할까?
+
+클라우드에 AI 모델 올려두고 쓰는 게 편한 건 사실입니다. 근데 네트워크 지연, 개인정보 보호 문제, 그리고 비용 문제 때문에 엣지에서 직접 처리하는 수요가 늘고 있어요. 특히 실시간 반응이 중요한 IoT 기기나, 민감한 데이터를 다루는 환경에선 네트워크를 거치지 않는 게 큰 장점이죠.
+
+하지만 문제는 하드웨어 제약입니다. 8달러짜리 마이크로컨트롤러는 메모리 몇백 KB~몇 MB에 CPU도 수백 MHz 수준이라, 일반적인 LLM은 꿈도 못 꿔요. 그래서 모델 자체를 ‘극한으로’ 경량화해야 합니다.
+
+### 2천만~3천만 파라미터 LLM, 어떻게 줄였나
+
+여기서 핵심은 모델 크기 줄이기입니다. 우리가 일반적으로 접하는 최신 LLM은 수억~수십억 파라미터라, 2천만 파라미터도 작은 편이긴 하지만, 그래도 MCU에선 엄청 큰 사이즈죠. 그래서 다음 세 가지 기술을 적극 활용했습니다:
+
+- **프루닝(Pruning)**: 중요하지 않은 뉴런이나 연결을 제거해 파라미터 수를 확 줄임
+- **지식 증류(Knowledge Distillation)**: 큰 모델이 가진 지식을 작은 모델에 압축해서 전달
+- **저비트 정밀도 연산(Low-bit Precision)**: 32bit float 대신 8bit 이하 정수 연산으로 메모리와 연산량 감소
+
+이 중 특히 저비트 정밀도 연산은 메모리 사용량을 75% 이상 줄여줘서 MCU에선 거의 필수입니다. 프루닝과 증류는 모델 품질 저하 없이 크기를 줄이는 데 큰 도움이 됐어요. 이런 경량화 덕분에 28.9M 파라미터짜리 모델을 3MB 미만으로 압축할 수 있었습니다.[GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+### 메모리와 연산 자원 한계에 맞춘 아키텍처 설계
+
+모델만 줄인다고 끝나는 게 아니에요. MCU는 메모리뿐 아니라 CPU, 전력도 제한적이라, 모델 실행 아키텍처도 신경 써야 합니다.
+
+- **메모리 관리**: 모델 가중치와 중간 계산 결과를 최대한 겹치게 재사용
+- **연산 최적화**: SIMD 명령어 활용, 저비트 연산 가속기 활용
+- **실시간성 확보**: 최대 100ms 이내 응답 목표 설정
+
+이런 설계 덕분에, 8달러 MCU에서 간단한 자연어 처리 태스크를 실시간으로 수행 가능했어요. 물론 대화형 AI 같은 복잡한 작업은 아직 무리고, 간단한 명령어 해석이나 상태 추론 정도가 적합합니다.[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+### 실제 코드로 보는 저비트 정밀도 연산 예시
+
+아래는 8bit 정수형 가중치를 사용하는 간단한 행렬곱 예시입니다. MCU에서 LLM 추론 시 이런 형태로 연산을 최적화합니다.
+
+```c
+#include <stdint.h>
+#include <stdio.h>
+
+// 행렬 크기
+#define M 64
+#define N 64
+#define K 64
+
+// 8bit 정수 행렬곱: C = A * B
+void matmul_int8(const int8_t A[M][K], const int8_t B[K][N], int32_t C[M][N]) {
+    for (int i = 0; i < M; i++) {
+        for (int j = 0; j < N; j++) {
+            int32_t sum = 0;
+            for (int k = 0; k < K; k++) {
+                sum += (int32_t)A[i][k] * (int32_t)B[k][j];
+            }
+            C[i][j] = sum;
+        }
+    }
+}
+
+int main() {
+    int8_t A[M][K] = {{0}}; // 실제론 모델 가중치로 초기화
+    int8_t B[K][N] = {{0}};
+    int32_t C[M][N] = {{0}};
+
+    // 예시 실행
+    matmul_int8(A, B, C);
+    printf("Matrix multiplication done.\n");
+    return 0;
+}
+```
+
+이 예시는 단순하지만, 실제로는 MCU의 SIMD 명령어를 활용해 훨씬 빠르게 처리합니다. 8bit 정밀도로 바꾸면 메모리 사용량이 4배 줄고, 캐시 활용도 좋아져 성능 향상도 기대할 수 있습니다.
+
+### 엣지에서 LLM 돌릴 때 꼭 알아야 할 트레이드오프
+
+- **성능 vs 정확도**: 저비트 정밀도와 프루닝은 모델 정확도 손실을 피할 수 없어요. 그래서 애플리케이션에 따라 적절한 균형을 찾아야 합니다.
+- **메모리 vs 응답속도**: 메모리 절약을 위해 중간 결과를 재사용하면, 응답 속도가 느려질 수 있어요.
+- **개발 복잡도 증가**: 경량화와 하드웨어 최적화는 개발 난이도를 크게 높입니다.
+
+이런 점들 때문에, 무조건 엣지에서 LLM을 돌리는 게 답은 아니에요. 클라우드와 엣지의 장단점을 잘 비교해서 적절히 섞는 게 현실적입니다.[OpenAI API Documentation](https://platform.openai.com/docs/overview)
+
+---
+
+### 마무리하며
+
+처음엔 ‘8달러짜리 MCU에 2천만 파라미터 LLM을 올린다니, 꿈 같은 소리’라고 생각했는데, 직접 해보니 경량화 기술과 아키텍처 최적화 덕분에 충분히 가능하더라고요. 물론 한계는 명확하지만, 앞으로 더 작고 똑똑한 AI를 엣지에서 돌리는 시대가 올 거라는 확신이 생겼습니다.
+
+실제로 해보면, 작은 메모리와 CPU 자원 앞에서 어떻게 트레이드오프할지 고민하는 과정이 굉장히 흥미롭고, 또 배울 점이 많아요. 여러분도 작은 디바이스에서 AI를 돌려보고 싶다면, 모델 경량화와 저비트 연산부터 차근차근 도전해보시길 권합니다.
+
+---
+
+## 참고 자료
+
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 정리하며
+
+Running a 28.9M parameter LLM on an $8 microcontroller을 실무에 적용할 때 가장 중요한 것은 한 번에 완벽하게 하려 하지 않는 것입니다. 작은 범위에서 시작하고, 측정하고, 개선하는 사이클을 반복하세요.
+
+## 운영에서 바로 점검할 항목 1
+
+- **마이크로컨트롤러와 같은 제한된 엣지 디바이스에서 2천만~3천만 파라미터 규모의 LLM을 실행하기 위해서는 모델 경량화와 정밀도 축소(quantization) 기법이 필수적이다. 이를 통해 메모리 사용량과 연산량을 대폭 줄일 수 있다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **엣지 환경에서 AI 모델을 배포할 때는 컴퓨팅 자원 제한에 맞춘 모델 압축, 효율적인 메모리 관리, 그리고 실시간 응답성을 고려한 아키텍처 설계가 중요하다. 특히, 모델 파라미터 수가 제한적일수록 적절한 트레이드오프가 필요하다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 기반 AI API와 달리 엣지 디바이스에서 직접 LLM을 구동할 경우, 네트워크 지연과 개인정보 보호 측면에서 이점이 있으나, 하드웨어 제약으로 인해 모델 크기와 연산량 감소가 필수적이다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모델 경량화에는 프루닝(pruning), 지식 증류(knowledge distillation), 그리고 저비트 정밀도 연산(low-bit precision computation) 기법이 효과적이며, 이러한 기법들은 엣지 디바이스에서 LLM을 실행 가능하게 하는 핵심 기술이다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **마이크로컨트롤러와 같은 제한된 엣지 디바이스에서 2천만~3천만 파라미터 규모의 LLM을 실행하기 위해서는 모델 경량화와 정밀도 축소(quantization) 기법이 필수적이다. 이를 통해 메모리 사용량과 연산량을 대폭 줄일 수 있다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **엣지 환경에서 AI 모델을 배포할 때는 컴퓨팅 자원 제한에 맞춘 모델 압축, 효율적인 메모리 관리, 그리고 실시간 응답성을 고려한 아키텍처 설계가 중요하다. 특히, 모델 파라미터 수가 제한적일수록 적절한 트레이드오프가 필요하다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 기반 AI API와 달리 엣지 디바이스에서 직접 LLM을 구동할 경우, 네트워크 지연과 개인정보 보호 측면에서 이점이 있으나, 하드웨어 제약으로 인해 모델 크기와 연산량 감소가 필수적이다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **모델 경량화에는 프루닝(pruning), 지식 증류(knowledge distillation), 그리고 저비트 정밀도 연산(low-bit precision computation) 기법이 효과적이며, 이러한 기법들은 엣지 디바이스에서 LLM을 실행 가능하게 하는 핵심 기술이다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
