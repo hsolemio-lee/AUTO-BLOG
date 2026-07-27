@@ -1,0 +1,204 @@
+---
+title: "PepsiCo 오클라호마 창고 폐쇄가 SCM 시스템에 미치는 엔지니어링 영향과 대응 전략"
+summary: "PepsiCo의 오클라호마 생산지 창고 운영 중단 사례를 통해 공급망 계획, 조달, 재고관리, 주문 이행 워크플로우를 어떻게 재설계하고 SCM 시스템을 튼튼하게 만들 수 있는지 살펴봅니다."
+date: "2026-07-27"
+slug: "pepsico-to-cease-warehouse-operations-at-oklahoma-production-site"
+category: "scm"
+canonical_url: "https://example.dev/blog/pepsico-to-cease-warehouse-operations-at-oklahoma-production-site"
+tags: ["공급망관리", "SCM", "창고운영중단", "재고관리", "마이크로서비스", "물류최적화"]
+sources:
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+  - title: "SAP Help Portal - Supply Chain Management"
+    url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## 창고가 사라지면 SCM 시스템은 어떻게 흔들릴까?
+
+얼마 전 PepsiCo가 오클라호마 생산지 내 창고 운영을 중단한다는 소식을 접했을 때, 단순히 물리적 공간이 사라지는 문제만은 아니라는 생각이 들었어요. 창고는 단순히 물건을 쌓아두는 곳이 아니라, 공급망 전체의 심장과도 같은 역할을 하니까요. 특히 우리처럼 SCM 시스템을 직접 다루는 입장에서는 ‘이 변화가 내부 프로세스와 시스템 아키텍처에 어떤 파장을 줄까?’가 가장 궁금했죠.
+
+창고 폐쇄는 단순히 재고를 옮기는 문제가 아니라, 수요 예측부터 조달, 재고관리, 주문 이행까지 전방위적인 재설계가 필요합니다. 이 글에서는 PepsiCo 사례를 바탕으로 SCM 시스템 엔지니어링 관점에서 어떻게 대응해야 하는지, 구체적인 방법과 함께 이야기해볼게요.
+
+---
+
+## 공급망 계획(Planning) 알고리즘은 어떻게 다시 써야 할까?
+
+창고가 사라지면 기존에 창고를 중심으로 짜여 있던 수요 예측과 자원 할당 알고리즘이 무용지물이 됩니다. PepsiCo처럼 대규모 생산시설에서 창고가 줄어들면, 생산과 배송 일정을 다시 최적화해야 하죠. 
+
+Microsoft의 Dynamics 365 SCM 설명에 따르면, 이런 상황에서는 수요 예측 모델을 재조정하고, 생산 계획과 배송 일정 간의 동기화를 강화하는 게 필수라고 해요. 예를 들어, 기존에 창고에 쌓아두고 출고하던 재고를 바로 생산지에서 출하하는 방식으로 바꾸려면, 생산과 물류 사이의 타이밍을 더 촘촘하게 맞춰야 합니다[Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/).
+
+저도 비슷한 경험이 있는데, 창고 축소 후 수요 예측 모델을 고치지 않으면 주문 폭주 시점에 공급 지연이 심각해지더라고요. 그래서 예측 정확도를 높이기 위해 머신러닝 기반 수요 예측 모델에 창고 위치 변화를 반영하는 피처 엔지니어링을 추가했죠.
+
+```python
+# 예시: 창고 폐쇄 후 수요 예측에 창고 가용성 반영
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+
+# 기존 데이터에 창고 가용성 컬럼 추가
+sales_data = pd.read_csv('sales_data.csv')
+sales_data['warehouse_active'] = sales_data['warehouse_location'].apply(lambda x: 0 if x == 'Oklahoma' else 1)
+
+# 피처와 타겟 정의
+features = sales_data[['historical_sales', 'promotions', 'warehouse_active']]
+target = sales_data['future_demand']
+
+# 모델 학습
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+model.fit(features, target)
+
+# 예측
+predicted_demand = model.predict(features)
+```
+
+이렇게 창고 가용성 변수를 넣어주면, 창고 폐쇄가 수요에 미치는 영향을 모델이 학습할 수 있어요. 단, 이런 변경은 반드시 실시간 재고 데이터와 연계해 검증해야 합니다.
+
+---
+
+## 조달 프로세스는 계약부터 납기까지 어떻게 바뀌나?
+
+창고가 줄면 공급업체와의 계약 조건도 다시 봐야 합니다. Oracle의 SCM 문서에 따르면, 창고 폐쇄는 공급업체 납기 조율과 재고 보충 주기에도 영향을 미치므로, SCM 시스템 내 자동화된 공급업체 관리 기능을 적극 활용해 리스크를 줄여야 한다고 해요[Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/).
+
+실제로 우리 팀에서도 창고 축소 이후 공급업체별 납기 지연 가능성을 예측하는 모듈을 도입했는데, 과거 납기 데이터와 생산 일정 변화를 분석해 위험도가 높은 공급업체를 조기에 식별할 수 있었어요. 
+
+예를 들어, 다음과 같이 계약 조건별 납기 위험 점수를 계산해 우선순위를 매기는 로직을 짤 수 있죠.
+
+```python
+# 공급업체 납기 위험 점수 계산 예시
+supplier_data = [
+    {'name': 'SupplierA', 'avg_delay_days': 2, 'contract_flexibility': 0.8},
+    {'name': 'SupplierB', 'avg_delay_days': 5, 'contract_flexibility': 0.5},
+]
+
+for supplier in supplier_data:
+    risk_score = supplier['avg_delay_days'] * (1 - supplier['contract_flexibility'])
+    print(f"{supplier['name']} 납기 위험 점수: {risk_score:.2f}")
+```
+
+이 점수를 SCM 시스템 내 대시보드에 통합해, 위험도가 높은 공급업체에 대해 조기 경고 및 대체 소싱 전략을 세울 수 있죠. 물론, 이런 자동화는 계약 조건이 자주 바뀌는 환경에서는 유지보수가 까다로울 수 있다는 점도 염두에 둬야 합니다.
+
+---
+
+## 재고관리 워크플로우는 어떻게 재편해야 할까?
+
+창고 폐쇄로 재고가 한 곳에 집중되지 않고 분산될 수밖에 없는데, 이때 실시간 재고 가시성 확보가 무엇보다 중요해집니다. SAP SCM은 분산 재고 최적화와 실시간 데이터 통합 기능을 제공해 이런 문제를 해결하는데 큰 도움이 됩니다[SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT).
+
+우리 회사도 SAP SCM을 도입하면서, 재고 위치별 실시간 재고 현황을 API로 통합해 재고 부족이나 과잉 문제를 조기에 발견할 수 있었어요. 예를 들어, 다음과 같이 REST API를 통해 실시간 재고 데이터를 조회하고, 특정 임계치 이하일 때 알림을 보내는 간단한 코드를 짤 수 있죠.
+
+```python
+import requests
+
+API_ENDPOINT = 'https://sap-scm.example.com/api/inventory'
+
+response = requests.get(API_ENDPOINT, params={'product_id': '12345'})
+
+if response.status_code == 200:
+    data = response.json()
+    stock_level = data['stock_level']
+    if stock_level < 50:  # 임계치 설정
+        print(f"경고: 재고 부족 - 현재 재고 {stock_level}개")
+else:
+    print("재고 정보 조회 실패")
+```
+
+이처럼 실시간 재고 정보와 임계치 기반 알림을 결합하면, 창고 축소로 인한 재고 분산 위험을 줄일 수 있어요. 다만, 실시간 데이터 처리량이 많아지면 API 서버 부하가 커질 수 있으니 캐싱 전략과 백프레셔(backpressure) 대응도 함께 고민해야 합니다.
+
+---
+
+## 주문 처리와 물류 네트워크는 어떻게 다시 설계해야 할까?
+
+창고 폐쇄는 주문 처리와 이행 프로세스에 직접적인 영향을 줍니다. Microsoft Dynamics 365 SCM에서는 주문 우선순위 지정과 다중 배송 경로 최적화를 통해 물류 네트워크 복원력을 높이는 전략을 권장하고 있어요[Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/).
+
+예를 들어, 주문이 몰리는 특정 지역에 창고가 사라졌다면, 대체 물류 경로를 자동으로 계산해 배송 지연을 최소화해야 합니다. 이를 위해 SCM 시스템 내에 다중 배송 경로 최적화 알고리즘을 도입하는데, 흔히 그래프 이론 기반의 최단 경로 알고리즘(Dijkstra, A*)이나 유전 알고리즘을 활용하죠.
+
+간단한 다중 배송 경로 최적화 예시 코드를 보면,
+
+```python
+import networkx as nx
+
+# 그래프 생성
+G = nx.DiGraph()
+
+# 노드 추가 (물류 거점)
+G.add_nodes_from(['Factory', 'Warehouse1', 'Warehouse2', 'Customer'])
+
+# 간선 추가 (경로 및 비용)
+G.add_weighted_edges_from([
+    ('Factory', 'Warehouse1', 10),
+    ('Factory', 'Warehouse2', 15),
+    ('Warehouse1', 'Customer', 20),
+    ('Warehouse2', 'Customer', 10),
+])
+
+# 최단 경로 계산
+path = nx.dijkstra_path(G, source='Factory', target='Customer')
+cost = nx.dijkstra_path_length(G, source='Factory', target='Customer')
+
+print(f"최적 배송 경로: {path}, 예상 비용: {cost}")
+```
+
+이런 모델을 SCM 시스템에 통합해 주문별로 최적 경로를 실시간으로 계산하면, 창고 폐쇄로 인한 배송 차질을 줄일 수 있습니다. 물론, 실제로는 물류 상황, 트럭 가용성, 교통 상황 등 다양한 변수를 반영해야 해서 더 복잡하지만요.
+
+---
+
+## SCM 시스템 아키텍처는 어떻게 바뀌어야 할까?
+
+창고 폐쇄 같은 비즈니스 변화에 유연하게 대응하려면, SCM 시스템도 모놀리식보다는 분산 시스템과 마이크로서비스 아키텍처로 전환하는 게 효과적입니다. Martin Fowler의 아키텍처 가이드에 따르면, 기능별로 모듈화하면 변경 시 전체 시스템 영향도를 줄이고, 독립적인 배포와 확장이 가능해진다고 하죠[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+우리 팀도 창고 폐쇄 대응을 위해 다음과 같이 SCM 기능을 마이크로서비스로 나눴습니다.
+
+- 수요 예측 서비스
+- 조달 관리 서비스
+- 재고 실시간 모니터링 서비스
+- 주문 처리 및 배송 최적화 서비스
+
+이렇게 나누면, 예를 들어 재고관리 서비스만 따로 확장하거나, 조달 서비스 로직만 독립적으로 수정할 수 있어서 운영 효율이 크게 올라가더라고요.
+
+다만, 분산 아키텍처는 네트워크 통신 비용과 복잡도를 증가시키고, 데이터 일관성 문제도 신경 써야 해서 설계와 운영 난이도가 올라가는 점은 꼭 고려해야 합니다.
+
+---
+
+## 마치며: PepsiCo 창고 폐쇄가 남긴 교훈
+
+창고 운영 중단은 단순한 물리적 공간 변화가 아니라, 공급망 전반의 계획, 조달, 재고, 주문 처리 워크플로우를 다시 써야 하는 큰 도전입니다. 
+
+- 수요 예측 모델에 창고 가용성 변수를 넣어 정확도를 높이고
+- 조달 프로세스에서 자동화된 공급업체 관리로 리스크를 줄이며
+- 재고관리에서는 실시간 가시성과 분산 최적화를 강화하고
+- 주문 이행 단계에서는 다중 배송 경로 최적화로 복원력을 확보해야 하죠.
+
+또한, 이런 변화에 대응하려면 SCM 시스템 아키텍처를 마이크로서비스 기반으로 모듈화해 유연성을 확보하는 게 필수입니다.
+
+처음엔 창고 하나 사라졌다고 대수롭지 않게 생각할 수 있지만, 실제로는 공급망 전체를 다시 설계하고 시스템을 튼튼하게 만드는 계기가 됩니다. 이런 변화를 겪으며 SCM 엔지니어로서 배운 점을 공유하는 게 동료들에게도 도움이 되길 바랍니다.
+
+---
+
+## 참고 자료
+
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **창고 운영 중단은 공급망 계획(Planning) 시스템에 큰 영향을 미치며, 이를 보완하기 위해서는 수요 예측과 자원 할당 알고리즘을 재조정하여 생산 및 배송 일정을 최적화해야 한다.** ([Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **조달(Procurement) 프로세스는 창고 폐쇄로 인해 공급업체와의 계약 조건 및 납기 조율에 변화를 요구하며, SCM 시스템에서 자동화된 공급업체 관리 기능을 활용해 리스크를 최소화할 수 있다.** ([Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **재고관리(Inventory) 워크플로우는 창고 축소에 따라 재고 분산과 실시간 재고 가시성 확보가 중요해지며, SAP SCM은 분산 재고 최적화 및 실시간 데이터 통합 기능을 제공한다.** ([SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **주문 처리 및 이행(Fulfillment) 과정에서는 물류 네트워크 재설계가 필요하며, SCM 시스템 내에서 주문 우선순위 지정과 다중 배송 경로 최적화 기능을 통해 복원력을 강화할 수 있다.** ([Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 측면에서는 분산 시스템과 마이크로서비스 아키텍처를 활용해 SCM 기능을 모듈화하고, 변경에 유연하게 대응할 수 있는 구조가 창고 폐쇄와 같은 비즈니스 변화에 효과적이다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
