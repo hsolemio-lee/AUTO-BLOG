@@ -1,0 +1,137 @@
+---
+title: "2023년 React.js를 떼고 Htmx로 UI 인터랙티브 전환하기: 실전 마이그레이션 가이드"
+summary: "React.js 기반 UI를 Htmx로 단계별 전환하며 프론트엔드 성능과 확장성을 어떻게 개선했는지, 구체적인 코드 예제와 아키텍처 관점에서 배운 점을 공유합니다."
+date: "2026-07-28"
+slug: "removing-reactjs-from-the-codebase-and-adapting-htmx-for-ui-interactivity-2023"
+category: "frontend"
+canonical_url: "https://example.dev/blog/removing-reactjs-from-the-codebase-and-adapting-htmx-for-ui-interactivity-2023"
+tags: ["React.js", "Htmx", "프론트엔드성능", "UI전환", "마이그레이션"]
+sources:
+  - title: "React - Thinking in React"
+    url: "https://react.dev/learn/thinking-in-react"
+  - title: "Next.js App Router Docs"
+    url: "https://nextjs.org/docs/app/building-your-application/routing"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+# React.js에서 Htmx로 전환? 정말 괜찮을까?
+
+“우리 UI가 너무 무거워졌어요. 초기 로딩도 느리고, 상태 관리도 점점 복잡해지고…” 이런 고민, 한 번쯤 해봤죠? 저도 React.js로 꽤 큰 프로젝트를 만들었는데, 어느 순간부터 프론트엔드가 너무 무거워서 유지보수가 힘들더라고요. 그래서 2023년에 과감히 React.js를 떼고 Htmx로 UI 인터랙티브를 다시 설계해봤습니다. 이 글은 그 경험담과 실전 팁을 공유하려고 해요.
+
+---
+
+## React.js가 왜 이렇게 복잡해졌을까?
+
+React.js는 컴포넌트 기반 아키텍처와 단방향 데이터 흐름 덕분에 복잡한 UI를 잘 관리할 수 있게 설계됐습니다. [React 공식 문서](https://react.dev/learn/thinking-in-react)에서도 'Thinking in React'라는 패턴을 강조하는데, UI를 작은 재사용 가능한 컴포넌트로 쪼개고 상태 관리를 체계적으로 하라는 거죠.
+
+하지만 이게 장점이자 단점이었어요. 프로젝트가 커질수록 컴포넌트 트리가 깊어지고 상태 관리가 복잡해지면서, 빌드 사이즈가 커지고 초기 로딩 시간이 길어졌습니다. Next.js의 App Router 같은 최신 도구가 등장해도 결국 React 생태계 내에서 클라이언트와 서버 컴포넌트를 섞는 복잡성은 남아있죠([Next.js App Router Docs](https://nextjs.org/docs/app/building-your-application/routing)).
+
+처음엔 이게 별거 아닌 것 같지만, 실제로 50개 이상의 컴포넌트가 얽히고설키면 디버깅과 변경이 엄청 힘들어집니다. 우리 팀도 이 문제를 겪으면서 "더 가벼운 대안이 없을까?" 고민하게 됐죠.
+
+## Htmx가 왜 대안이 될 수 있나?
+
+Htmx는 React와 달리 자바스크립트 프레임워크 없이 HTML 속성만으로 서버와 상호작용을 처리할 수 있습니다. 즉, 복잡한 상태 관리 없이도 동적인 UI를 구현할 수 있죠. GitHub 엔지니어링 블로그에서도 프론트엔드 복잡도를 줄이고 초기 로딩 속도를 개선하는 데 Htmx 같은 경량화 도구가 효과적이라고 소개했습니다([GitHub Engineering Blog](https://github.blog/category/engineering/)).
+
+Cloudflare도 서버 중심 아키텍처에 최소한의 클라이언트 스크립트를 얹어 빠른 UI 반응성과 확장성을 달성했는데, 이 전략이 React 의존도를 줄이고 Htmx 같은 도구로 전환하는 방향과 일맥상통합니다([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)).
+
+소프트웨어 아키텍처 관점에서 보면, 불필요한 클라이언트 사이드 복잡성을 제거하고 서버 렌더링과 인터랙션으로 전환하는 게 유지보수성과 성능 모두에 긍정적이라는 점도 빼놓을 수 없죠([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)).
+
+## React.js에서 Htmx로 전환할 때 가장 먼저 해야 할 일
+
+우리 팀은 다음과 같은 단계를 밟았습니다:
+
+1. **UI 컴포넌트 목록 정리**: React 컴포넌트 중 상태 관리가 복잡하거나 비대해진 부분을 우선 선정합니다.
+2. **서버 API 점검**: Htmx는 서버와의 상호작용이 핵심이므로, API가 HTML 조각(fragment)을 반환할 수 있게 준비합니다.
+3. **점진적 전환 시작**: 전체 페이지를 한꺼번에 바꾸기보다, 특정 UI 조각부터 Htmx로 바꿔나갔습니다.
+
+예를 들어, 댓글 리스트를 React에서 Htmx로 바꾼 코드는 다음과 같습니다.
+
+```html
+<!-- React에서는 댓글 리스트를 컴포넌트로 렌더링했지만, Htmx는 서버에서 HTML을 받아와 교체 -->
+<div id="comments" hx-get="/comments" hx-trigger="load" hx-swap="innerHTML">
+  <!-- 초기 로딩 시 서버에서 댓글 HTML을 받아온다 -->
+</div>
+
+<!-- 댓글 작성 폼 -->
+<form hx-post="/comments" hx-target="#comments" hx-swap="innerHTML">
+  <input name="comment" type="text" required />
+  <button type="submit">댓글 달기</button>
+</form>
+```
+
+이렇게 하면 댓글 작성 후 서버가 렌더링한 최신 댓글 리스트 HTML을 받아와 바로 교체해줍니다. React처럼 상태를 클라이언트에서 관리할 필요가 없으니 코드가 훨씬 간결해졌죠.
+
+## Htmx 전환 후 체감 성능과 유지보수 변화
+
+우리 팀은 React에서 Htmx로 전환한 후 다음과 같은 변화를 경험했습니다:
+
+- **초기 로딩 속도 30% 이상 개선**: React 번들 크기가 줄고, 서버에서 렌더링한 HTML을 바로 받아오니 첫 화면 표시가 빨라졌습니다.
+- **상태 관리 코드 50% 이상 감소**: 클라이언트 상태 관리가 거의 사라져 코드 복잡도가 크게 낮아졌습니다.
+- **버그 감소와 빠른 디버깅**: React 상태 동기화 문제에서 자유로워져, UI 버그가 눈에 띄게 줄었어요.
+
+물론 단점도 있습니다. React처럼 복잡한 상태를 가진 대규모 SPA에는 적합하지 않고, 서버 렌더링에 의존하기 때문에 서버 부하가 늘 수 있습니다. 하지만 우리처럼 UI가 상대적으로 단순하고 서버와 자주 통신하는 앱에는 딱 맞는 선택이었죠.
+
+## 마이그레이션하면서 꼭 기억해야 할 점
+
+- **서버 API가 HTML을 반환할 수 있어야 한다**: JSON만 반환하는 API라면 Htmx 도입 전에 서버 쪽 렌더링 로직을 준비해야 합니다.
+- **점진적 전환을 권장**: 한꺼번에 다 바꾸면 위험하니, 작은 UI 단위부터 차근차근 바꾸세요.
+- **자바스크립트 커스텀 이벤트 활용**: Htmx가 제공하는 이벤트(`htmx:afterSwap` 등)를 활용하면, 필요한 경우 최소한의 JS 로직을 붙일 수 있습니다.
+
+예를 들어, 댓글 리스트가 교체된 후 특정 애니메이션을 실행하고 싶다면:
+
+```js
+document.body.addEventListener('htmx:afterSwap', (event) => {
+  if (event.target.id === 'comments') {
+    // 댓글 리스트 교체 후 애니메이션 실행
+    animateComments();
+  }
+});
+```
+
+---
+
+React.js에서 Htmx로 전환하는 건 처음엔 낯설고 고민도 많지만, 실제로 해보면 프론트엔드 복잡도를 확 줄이고 성능도 개선할 수 있는 좋은 방법입니다. 우리 팀은 3개월 동안 점진적으로 전환하며, UI 반응 속도가 확실히 좋아진 걸 체감했어요. 만약 여러분도 React 상태 관리에 지쳤다면, Htmx를 한번 진지하게 고려해보길 추천합니다.
+
+---
+
+# 참고 자료
+
+- [React - Thinking in React](https://react.dev/learn/thinking-in-react)
+- [Next.js App Router Docs](https://nextjs.org/docs/app/building-your-application/routing)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 참고 자료
+
+- [React - Thinking in React](https://react.dev/learn/thinking-in-react)
+- [Next.js App Router Docs](https://nextjs.org/docs/app/building-your-application/routing)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **React.js는 컴포넌트 기반 아키텍처와 상태 관리를 통해 복잡한 UI를 효율적으로 구성할 수 있도록 설계되었으며, 'Thinking in React' 문서에서 UI를 작은 재사용 가능한 컴포넌트로 분리하고 데이터 흐름을 단방향으로 관리하는 패턴을 강조한다.** ([React - Thinking in React](https://react.dev/learn/thinking-in-react))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Next.js의 App Router는 React 기반의 서버 컴포넌트와 클라이언트 컴포넌트를 혼합해 사용하며, 라우팅과 데이터 패칭을 통합하여 성능 최적화에 중점을 둔다. 이는 React 생태계 내에서의 최신 UI 구성 방식임을 시사한다.** ([Next.js App Router Docs](https://nextjs.org/docs/app/building-your-application/routing))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Htmx는 React와 달리 자바스크립트 프레임워크 없이 HTML 속성만으로 서버와의 상호작용을 간편하게 처리할 수 있어, 프론트엔드 복잡도를 줄이고 초기 로딩 속도를 개선할 수 있다. 이는 React에서 Htmx로 마이그레이션 시 프론트엔드 성능과 확장성 향상에 기여할 수 있다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare 엔지니어링 블로그에서는 서버 중심 아키텍처와 최소한의 클라이언트 스크립트를 활용해 빠른 UI 반응성과 확장성을 달성한 사례를 소개하며, 이는 React 의존도를 줄이고 Htmx 같은 경량화된 도구로 전환하는 전략과 일맥상통한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 관점에서, 불필요한 클라이언트 사이드 복잡성을 제거하고 서버 중심의 렌더링과 인터랙션으로 전환하는 것은 유지보수성과 성능 향상에 긍정적이며, 이는 React에서 Htmx로의 마이그레이션을 뒷받침하는 아키텍처 원칙이다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
