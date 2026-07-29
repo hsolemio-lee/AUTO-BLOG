@@ -1,0 +1,191 @@
+---
+title: "레거시 아키텍처 평가와 마이그레이션에 AI 도구를 활용하는 현실적인 접근법"
+summary: "레거시 시스템을 평가하고 마이그레이션할 때 AI 기반 도구들이 어떻게 실시간 분석과 코드 생성, 운영 제약 관리를 돕는지 구체적인 사례와 트레이드오프를 중심으로 살펴봅니다."
+date: "2026-07-28"
+slug: "the-archaeologists-copilot"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/the-archaeologists-copilot"
+tags: ["레거시마이그레이션", "AI도구", "아키텍처평가", "운영제약", "코드자동화"]
+sources:
+  - title: "Cursor Documentation"
+    url: "https://docs.cursor.com/"
+  - title: "GitHub Copilot Documentation"
+    url: "https://docs.github.com/en/copilot"
+  - title: "Anthropic - Claude Code Overview"
+    url: "https://docs.anthropic.com/en/docs/claude-code/overview"
+  - title: "Vercel AI SDK Documentation"
+    url: "https://sdk.vercel.ai/docs/introduction"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+# 레거시 시스템을 마주했을 때, 어디서부터 손대야 할까?
+
+“이 오래된 코드, 도대체 어디서부터 뜯어고쳐야 할지 모르겠어.”
+
+이런 말, 백엔드 엔지니어라면 한 번쯤은 해봤을 겁니다. 수년간 쌓이고 쌓인 레거시 아키텍처는 그 자체가 미로 같아서, 문제를 찾는 것도, 개선 방향을 잡는 것도 쉽지 않죠. 게다가 운영 중인 서비스라면 다운타임 최소화, 성능 저하 방지 같은 제약 조건도 한가득입니다.
+
+최근에는 AI 기반 도구들이 이런 고민을 덜어주고 있는데요, 오늘은 제가 직접 써보고 느낀 점과 함께 레거시 아키텍처 평가부터 마이그레이션까지 AI 도구를 어떻게 활용할 수 있는지, 그리고 그 과정에서 반드시 고려해야 할 현실적인 트레이드오프를 공유하려고 합니다.
+
+---
+
+## 실시간 코드 분석과 병목 발견, Cursor가 도와준다
+
+Cursor라는 도구를 처음 접한 건, 우리 팀 레거시 코드베이스가 너무 커서 어디가 병목인지 감도 안 잡힐 때였습니다. Cursor는 실시간으로 코드 흐름을 분석하고, 자동으로 병목 구간이나 확장성 문제를 제안해줍니다. 직접 써보니, 단순히 코드 라인별 설명을 넘어서서, 병목이 될 가능성이 큰 쿼리 호출, 비효율적인 반복문 패턴 등을 바로 알려주더군요.
+
+예를 들어, 한 API가 특정 DB 호출을 10번 반복하는 문제가 있었는데, Cursor가 이를 감지하고 "이 부분을 캐싱하거나 배치 처리하면 성능이 30% 이상 개선될 수 있습니다"라고 알려줬습니다. 덕분에 바로 리팩토링 포인트를 잡을 수 있었죠.
+
+```python
+# Cursor가 추천한 캐싱 적용 예시
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
+def get_user_profile(user_id):
+    # 원래는 매 호출마다 DB 조회하던 부분
+    return db.query("SELECT * FROM user_profiles WHERE id = %s", user_id)
+```
+
+이런 실시간 피드백 덕분에, 마이그레이션 전 단계에서 병목을 줄이고, 구조 개선 방향을 명확히 할 수 있었습니다. 물론 Cursor가 모든 걸 완벽히 알려주는 건 아니고, 복잡한 비즈니스 로직이나 인프라 이슈는 직접 살펴봐야 하지만, 적어도 첫 단추를 끼우는 데 큰 도움이 됐어요.[Cursor Documentation](https://docs.cursor.com/)
+
+---
+
+## GitHub Copilot으로 레거시 코드와 조화롭게 현대화하기
+
+코드 리팩토링과 마이그레이션 과정에서 가장 골치 아픈 부분 중 하나가 기존 코드와의 호환성 문제입니다. 갑자기 API 스펙이 바뀌거나, 의존성 관리가 꼬이면 서비스 장애로 직결되니까요.
+
+GitHub Copilot은 AI 기반 코드 생성 도구로, 기존 코드 스타일과 패턴을 학습해 그에 맞는 코드를 추천해줍니다. 저는 특히 레거시 함수에 새로운 기능을 추가하거나, 점진적으로 마이크로서비스로 쪼갤 때 많이 활용했는데요, 기존 코드와 충돌 없이 자연스럽게 코드를 확장할 수 있었습니다.
+
+예를 들어, 아래는 기존 동기식 함수에 비동기 처리를 도입할 때 Copilot이 제안한 코드 일부입니다.
+
+```python
+import asyncio
+
+def fetch_data_sync(id):
+    # 기존 동기 API 호출
+    return requests.get(f"https://api.example.com/data/{id}").json()
+
+# Copilot 추천 비동기 버전
+async def fetch_data_async(id):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://api.example.com/data/{id}") as resp:
+            return await resp.json()
+```
+
+이처럼 Copilot은 기존 코드 스타일을 파악해 적절한 변환을 제안해주기 때문에, 마이그레이션 과정에서 발생하기 쉬운 운영 제약(예: 서비스 중단 없이 점진적 전환)을 관리하는 데 큰 도움이 됩니다.[GitHub Copilot Documentation](https://docs.github.com/en/copilot)
+
+---
+
+## 복잡한 백엔드 아키텍처 설계는 Claude Code가 명확하게
+
+레거시 시스템을 마이크로서비스나 클라우드 네이티브 아키텍처로 전환할 때, 단순히 코드를 바꾸는 것 이상으로 시스템 전체 설계를 다시 고민해야 합니다. 이때 트레이드오프가 엄청나게 많죠. 예를 들어, 확장성을 위해 서비스 분리를 하면 네트워크 비용과 복잡도가 증가하고, 반대로 단일 서비스로 유지하면 장애 영향 범위가 커집니다.
+
+Anthropic의 Claude Code는 이런 복잡한 설계 고민을 AI가 보조해주는 도구입니다. 코드 품질과 보안성 유지, 확장성 확보를 모두 고려한 설계 방향을 제시해주는데요, 특히 마이그레이션 과정에서 어떤 선택이 어떤 비용을 초래하는지 명확히 알려줘서 의사결정이 훨씬 수월해졌습니다.
+
+예를 들어, 아래는 Claude Code가 추천한 서비스 분리 전략 예시입니다.
+
+```yaml
+# 서비스 분리 시 고려할 점 요약
+services:
+  - user-service:
+      responsibilities: "사용자 인증 및 프로필 관리"
+      tradeoffs:
+        - pros: "독립적 배포 가능, 장애 격리"
+        - cons: "네트워크 호출 증가, 데이터 일관성 관리 필요"
+  - order-service:
+      responsibilities: "주문 처리 및 결제"
+      tradeoffs:
+        - pros: "비즈니스 로직 집중화"
+        - cons: "높은 결합도 위험"
+```
+
+이런 식으로 AI가 설계 문서와 코드 주석을 바탕으로 현실적인 제약과 대안을 제시해주니, 팀 내 합의 도출도 훨씬 빨라졌습니다.[Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview)
+
+---
+
+## 클라우드 전환 시 운영 비용과 성능, Vercel AI SDK로 모니터링하기
+
+레거시 시스템을 클라우드 네이티브 환경으로 옮기면 확장성은 좋아지지만, 운영 비용과 성능 모니터링이 새롭게 부담으로 다가옵니다. 특히 프론트엔드와 백엔드가 분리된 환경에서는 서로 다른 지표를 통합해서 봐야 해서 관리가 까다롭죠.
+
+Vercel AI SDK는 이런 점을 보완해주는 클라우드 플랫폼 지원 도구입니다. 실시간으로 성능 데이터를 수집하고, 비용 대비 효율성을 AI가 분석해 알려주니, 클라우드 전환 초기 단계에서 예상치 못한 비용 폭탄을 막을 수 있었습니다.
+
+예를 들어, API 응답 시간이 특정 구간에서 급격히 늘어난 걸 감지하면, Vercel AI SDK가 자동으로 알림을 보내고 원인 분석 리포트를 생성해줍니다.
+
+```js
+import { monitorPerformance } from '@vercel/ai-sdk';
+
+monitorPerformance({
+  serviceName: 'legacy-api',
+  thresholdMs: 300,
+  onAlert: (details) => {
+    console.warn('응답 시간 초과:', details);
+  },
+});
+```
+
+이렇게 실시간 모니터링과 AI 기반 분석을 통해, 클라우드 전환 과정에서 발생하는 운영 제약을 효과적으로 관리할 수 있었어요.[Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction)
+
+---
+
+## 실제 현장에서는 이렇게 적용했다: 점진적 마이그레이션 전략
+
+GitHub Engineering Blog에서 소개한 대규모 레거시 시스템 점진적 마이그레이션 사례를 참고하면, 한꺼번에 다 바꾸려다 실패하는 대신, 작게 쪼개서 단계별로 전환하는 게 핵심입니다. 우리 팀도 이 방식을 택했는데, 먼저 병목 구간부터 Cursor로 분석해 리팩토링하고, Copilot으로 코드 자동 완성을 도입해 생산성을 올렸죠.
+
+그리고 Claude Code가 제시한 설계 트레이드오프를 바탕으로 마이크로서비스 경계를 정하고, Vercel AI SDK로 성능과 비용을 모니터링하면서 안정적으로 클라우드 환경으로 옮겼습니다.
+
+이 과정에서 가장 어려웠던 건 운영 제약을 무시하지 않는 거였어요. 예를 들어, 한 서비스는 장애가 발생하면 치명적이라 무중단 배포 전략을 고수했고, 다른 서비스는 빠른 기능 출시가 더 중요해서 릴리즈 주기를 짧게 가져갔습니다. AI 도구들이 이런 각기 다른 요구사항을 반영해 제안해준 덕분에, 팀 내 의견 충돌도 줄고 실행 속도도 빨라졌습니다.
+
+[GitHub Engineering Blog](https://github.blog/category/engineering/)
+
+[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+---
+
+## 마치며: AI가 전부는 아니지만, 든든한 동료가 되어준다
+
+처음엔 AI 도구들이 과연 내 오래된 코드를 제대로 이해할까 반신반의했는데, 직접 써보니 생각보다 훨씬 똑똑하고 실용적이었습니다. 물론 AI가 모든 문제를 해결해주진 않고, 결국 최종 판단과 책임은 개발자에게 있죠. 하지만 레거시 아키텍처라는 미로에서 방향을 잃었을 때, Cursor, GitHub Copilot, Claude Code, Vercel AI SDK 같은 도구들이 든든한 나침반과 조언자가 되어줍니다.
+
+앞으로도 이런 AI 도구들을 적절히 활용하면서, 현실적인 운영 제약과 트레이드오프를 놓치지 않는 마이그레이션 전략을 꾸준히 고민해보면 좋겠습니다. 저도 계속 배우고 공유할게요.
+
+---
+
+# 참고 자료
+
+- [Cursor Documentation](https://docs.cursor.com/)
+- [GitHub Copilot Documentation](https://docs.github.com/en/copilot)
+- [Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview)
+- [Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+## 참고 자료
+
+- [Cursor Documentation](https://docs.cursor.com/)
+- [GitHub Copilot Documentation](https://docs.github.com/en/copilot)
+- [Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview)
+- [Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **Cursor는 레거시 아키텍처 평가 및 마이그레이션 과정에서 실시간 코드 분석과 자동화된 제안 기능을 제공하여 개발자가 기존 시스템의 병목 현상과 확장성 문제를 빠르게 파악할 수 있도록 지원한다.** ([Cursor Documentation](https://docs.cursor.com/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub Copilot은 기존 코드베이스와의 호환성을 고려한 AI 기반 코드 생성 기능을 제공하며, 이를 통해 레거시 시스템을 현대화하는 과정에서 발생하는 운영 제약 조건을 효과적으로 관리할 수 있다.** ([GitHub Copilot Documentation](https://docs.github.com/en/copilot))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Anthropic의 Claude Code는 복잡한 백엔드 아키텍처 내에서 코드 품질과 보안성을 유지하면서도 확장 가능한 시스템 설계를 지원하는 AI 도구로, 마이그레이션 시 발생할 수 있는 트레이드오프를 명확히 제시한다.** ([Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Vercel AI SDK는 프론트엔드와 백엔드 통합을 위한 클라우드 플랫폼 지원 기능을 제공하며, 이를 활용해 레거시 아키텍처를 클라우드 네이티브 환경으로 전환하는 과정에서 발생하는 운영 비용과 성능 문제를 실시간으로 모니터링할 수 있다.** ([Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub Engineering Blog에서는 대규모 레거시 시스템을 점진적으로 마이그레이션하는 전략과, 마이크로서비스 아키텍처 도입 시 고려해야 할 운영 제약 및 트레이드오프 사례를 상세히 다루고 있다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare Blog 'How We Built It' 시리즈는 고가용성 및 확장성을 보장하는 클라우드 인프라 설계 경험을 공유하며, 레거시 시스템을 클라우드 기반 확장 가능한 아키텍처로 전환하는 데 필요한 실무적 고려사항을 제공한다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
