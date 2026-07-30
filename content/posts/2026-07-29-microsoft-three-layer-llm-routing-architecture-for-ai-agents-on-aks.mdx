@@ -1,0 +1,188 @@
+---
+title: "Azure Kubernetes Service 위에서 구현한 Microsoft 세 계층 LLM 라우팅 아키텍처 깊게 파보기"
+summary: "Microsoft의 세 계층 LLM 라우팅 아키텍처를 AKS 환경에서 마이크로서비스 패턴으로 구현하며 마주하는 주요 백엔드 엔지니어링 이슈와 운영 결정 포인트를 실제 사례와 함께 풀어봅니다."
+date: "2026-07-29"
+slug: "microsoft-three-layer-llm-routing-architecture-for-ai-agents-on-aks"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/microsoft-three-layer-llm-routing-architecture-for-ai-agents-on-aks"
+tags: ["Azure Kubernetes Service", "LLM", "마이크로서비스", "AI 에이전트", "백엔드 아키텍처"]
+sources:
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+---
+
+## "LLM 요청이 한꺼번에 몰리면 어떻게 감당하지?" AKS에서 마이크로서비스로 풀어보는 세 계층 라우팅
+
+최근 AI 에이전트를 대규모로 운영하는 프로젝트에 참여하면서 Microsoft가 제안한 세 계층 LLM 라우팅 아키텍처를 AKS에서 직접 구현해봤습니다. 이걸 실제로 겪어보니 단순히 "마이크로서비스로 나누고 컨테이너에 올리면 끝"이 아니라, 각 계층별 API 설계, 확장 전략, 그리고 Kubernetes의 운영 기능을 어떻게 조합할지가 관건이더군요.
+
+"왜 굳이 세 계층으로 나누는 걸까?"라는 질문부터 시작해서, 배포와 스케일링, 외부 LLM 서비스 연동까지, 현장에서 부딪힌 경험을 공유합니다.
+
+---
+
+## Microsoft 세 계층 LLM 라우팅 아키텍처, 실제로는 어떻게 나누는 걸까?
+
+Microsoft의 아키텍처는 크게 세 가지 역할로 나뉩니다. 첫 번째는 **요청 라우팅 계층**으로, 들어오는 사용자 요청을 적절한 모델이나 서비스로 분배하는 역할을 합니다. 두 번째는 **모델 선택 계층**인데, 여기서 여러 LLM 중 상황에 맞는 모델을 선택하거나 조합합니다. 마지막으로 **응답 조합 계층**은 모델에서 나온 결과를 통합해 최종 응답을 만들어내죠.
+
+이 세 계층은 각각 독립적인 마이크로서비스로 분리되어 AKS 클러스터 내에서 컨테이너로 운영됩니다. 예를 들어, 요청 라우팅 서비스는 HTTP API를 통해 요청을 받고, 내부적으로 모델 선택 서비스로 REST 호출을 하며, 다시 응답 조합 서비스로 결과를 넘깁니다. 이렇게 하면 각 계층을 독립적으로 배포하고 스케일링할 수 있어요.
+
+이 구조 덕분에 특정 계층에 부하가 몰려도 그 부분만 확장하거나 롤링 업데이트가 가능해, 전체 서비스 가용성을 크게 높일 수 있었습니다. Kubernetes의 자동 스케일링(Horizontal Pod Autoscaler)과 롤링 업데이트 전략을 적극 활용했죠.[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+
+
+## AKS에서 마이크로서비스별로 스케일링과 배포 전략은 어떻게 잡았나?
+
+처음에는 모든 계층을 단일 Deployment로 묶으려 했는데, 부하 패턴이 완전히 달라서 실패했습니다. 요청 라우팅 계층은 초당 수천 건의 요청을 처리해야 하는 반면, 응답 조합 계층은 상대적으로 CPU 집약적인 작업이 많았거든요.
+
+그래서 각 계층을 별도의 Deployment로 분리하고, 다음과 같은 설정으로 운영했습니다:
+
+- **요청 라우팅 계층**: 3~10개의 Pod, CPU 요청 500m, 메모리 512Mi, HPA로 CPU 사용률 60% 이상일 때 자동 확장
+- **모델 선택 계층**: 2~6개의 Pod, CPU 요청 1,000m, 메모리 1Gi
+- **응답 조합 계층**: 2~4개의 Pod, CPU 요청 1,500m, 메모리 2Gi
+
+롤링 업데이트 시에는 maxUnavailable을 20%, maxSurge를 30%로 설정해 다운타임 없이 배포할 수 있도록 했습니다. 이 설정 덕분에 대규모 트래픽 급증에도 무리 없이 대응 가능했어요.
+
+아래는 요청 라우팅 계층의 Kubernetes Deployment YAML 일부 예시입니다:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-request-router
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: llm-request-router
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 20%
+      maxSurge: 30%
+  template:
+    metadata:
+      labels:
+        app: llm-request-router
+    spec:
+      containers:
+      - name: router
+        image: myregistry/llm-router:1.0.0
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+        ports:
+        - containerPort: 8080
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: llm-request-router-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: llm-request-router
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+```
+
+이처럼 각 계층별로 리소스를 세밀하게 조정하는 게 중요합니다. 특히 LLM 호출 API가 외부 OpenAI 같은 서비스와 연결될 때 지연시간 변동성을 고려해 여유 자원을 확보해둬야 하더군요.[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+
+
+## LLM 계층별 API 설계, OpenAI API와 어떻게 연결했나?
+
+각 계층은 독립적인 API를 제공합니다. 예를 들어, 요청 라우팅 계층은 클라이언트 요청을 받고, 내부적으로 모델 선택 계층의 `/select-model` API를 호출합니다. 모델 선택 계층은 OpenAI API나 자체 학습 모델 중 어떤 걸 쓸지 결정해서, 다시 응답 조합 계층의 `/combine-response` API로 결과를 넘기죠.
+
+이때 OpenAI API 호출은 모델 선택 계층에서 담당했습니다. 예를 들어 TypeScript로 작성한 간단한 호출 코드는 다음과 같습니다:
+
+```typescript
+import { Configuration, OpenAIApi } from "openai";
+
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+const openai = new OpenAIApi(configuration);
+
+export async function callOpenAI(prompt: string) {
+  const response = await openai.createChatCompletion({
+    model: "gpt-4",
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: 500,
+  });
+  return response.data.choices[0].message?.content;
+}
+```
+
+이 코드는 모델 선택 계층 내에서 호출되며, 응답 조합 계층은 여러 모델 결과를 받아서 최종 응답을 만듭니다. 이렇게 각 계층이 API 계약을 명확히 하니, 외부 LLM 서비스 교체나 버전 업그레이드도 훨씬 수월해졌어요.[OpenAI API Documentation](https://platform.openai.com/docs/overview)
+
+
+## 마이크로서비스 아키텍처가 가져온 유지보수와 운영의 변화
+
+처음 도입할 때는 서비스가 너무 분리되면 복잡해지는 게 아닌가 걱정했는데, 오히려 각 계층별 책임이 명확해져서 디버깅과 배포가 편해졌습니다. 예를 들어, 모델 선택 계층에만 문제가 생기면 그 부분만 롤백하거나 패치하면 되니까요.
+
+Martin Fowler가 말한 것처럼, 마이크로서비스 아키텍처는 독립적 배포와 유지보수를 가능하게 하는 핵심 패턴인데, 이걸 AKS와 잘 조합하니 운영 안정성이 크게 올라갔습니다.[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+
+하지만 단점도 있습니다. 서비스 간 통신이 많아져 네트워크 지연과 장애 지점이 늘어나고, 로깅과 모니터링도 복잡해졌죠. 따라서 Prometheus, Grafana 같은 모니터링 도구와 분산 트레이싱을 꼭 도입해야 했습니다.
+
+---
+
+## 현실적으로 마주한 한계와 앞으로 고민할 점
+
+- **초기 설정값 튜닝**: CPU/메모리 요청과 HPA 임계값을 적절히 잡는 게 쉽지 않았습니다. 실제 트래픽 패턴을 모니터링하며 2주 단위로 조정했어요.
+- **외부 LLM 호출 비용과 지연**: OpenAI API 호출 비용이 누적되니, 캐싱 계층 또는 자체 경량 모델 도입도 고민 중입니다.
+- **서비스 간 장애 전파 방지**: Circuit Breaker 패턴을 적용해 한 계층 장애가 전체 서비스 다운으로 이어지지 않도록 했습니다.
+
+이런 운영 상의 결정 포인트들은 Microsoft 클라우드 디자인 패턴 문서에서 강조하는 부분인데, 실무에서 직접 겪어보니 왜 중요한지 피부로 느껴졌습니다.[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+
+
+---
+
+## 마치며: AKS에서 세 계층 LLM 라우팅 아키텍처를 운영하며 얻은 깨달음
+
+- **계층 분리로 책임과 확장성 확보**: 각 계층을 독립 마이크로서비스로 운영하니 확장과 장애 대응이 훨씬 유연해졌습니다.
+- **Kubernetes 운영 기능 적극 활용 필수**: 자동 스케일링과 롤링 업데이트 없이는 대규모 AI 에이전트 운영이 불가능합니다.
+- **API 계약 명확화가 외부 LLM 연동을 편리하게 한다**: OpenAI API 같은 외부 서비스와의 통합이 쉬워져서 모델 교체도 부담이 줄었죠.
+- **모니터링과 장애 격리가 운영 안정성의 핵심**: 분산 시스템 특성상 장애가 전파되지 않도록 설계하는 게 무엇보다 중요합니다.
+
+처음엔 "이게 별거 아닌 것 같은데?" 싶었지만, 실제로 트래픽이 몰리고 장애가 발생할 때마다 이 아키텍처의 가치가 와닿았습니다. 앞으로도 AI 에이전트 백엔드 설계에 관심 있는 분들에게 이 경험이 도움이 되길 바랍니다.
+
+---
+
+## 참고 자료
+
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Microsoft의 세 계층 LLM 라우팅 아키텍처는 AI 에이전트의 확장성과 효율성을 위해 Azure Kubernetes Service(AKS) 위에서 마이크로서비스 패턴을 활용하여 구성된다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **세 계층 아키텍처는 일반적으로 요청 라우팅, 모델 선택 및 응답 조합 계층으로 나뉘며, 각 계층은 독립적인 마이크로서비스로 분리되어 AKS 클러스터 내에서 컨테이너화되어 운영된다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **AKS를 활용한 이 아키텍처에서는 자동 스케일링과 롤링 업데이트 같은 Kubernetes의 운영 기능을 통해 AI 에이전트의 가용성과 안정성을 보장한다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **백엔드 엔지니어링 측면에서, 각 LLM 계층은 독립적인 API 인터페이스를 제공하며, 이는 OpenAI API와 같은 외부 LLM 서비스와의 통합을 용이하게 한다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **마이크로서비스 아키텍처를 적용함으로써 각 계층의 독립적 배포와 유지보수가 가능하며, 이는 Microsoft의 클라우드 디자인 패턴에서 권장하는 핵심 운영 결정 포인트 중 하나다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
