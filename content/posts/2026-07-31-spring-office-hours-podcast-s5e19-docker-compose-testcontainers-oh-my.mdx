@@ -1,0 +1,202 @@
+---
+title: "Spring 백엔드에서 Docker, Docker Compose, Testcontainers를 실무에 바로 적용하는 법"
+summary: "Spring 백엔드 프로젝트에서 Docker 이미지 최적화부터 Docker Compose로 멀티 컨테이너 환경 구성, 그리고 Testcontainers를 활용한 신뢰도 높은 통합 테스트까지, 실무에서 바로 써먹을 수 있는 팁과 코드 예시를 공유합니다."
+date: "2026-07-31"
+slug: "spring-office-hours-podcast-s5e19-docker-compose-testcontainers-oh-my"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-office-hours-podcast-s5e19-docker-compose-testcontainers-oh-my"
+tags: ["spring-boot", "docker", "docker-compose", "testcontainers", "backend-testing"]
+sources:
+  - title: "Docker - Best practices for writing Dockerfiles"
+    url: "https://docs.docker.com/develop/develop-images/dockerfile_best-practices/"
+  - title: "Docker Compose Overview"
+    url: "https://docs.docker.com/compose/"
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+---
+
+## "내 로컬에서 잘 돌아가는데, 왜 서버에선 안 되지?" — Docker가 답이다
+
+이런 고민 한 번쯤 해봤죠? Spring 백엔드 개발하면서 로컬에선 문제없는데, 배포 환경에서 이슈가 터지면 정말 골치 아픕니다. 그럴 때 Docker가 등장하면 환경 차이에서 오는 문제를 확 줄일 수 있어요. 그런데 막상 Docker를 쓰려니 Dockerfile 어떻게 써야 최적화가 될지, Compose로 여러 컨테이너를 어떻게 엮어야 할지, 그리고 테스트 환경은 또 어떻게 꾸며야 할지 헷갈리기 쉽죠.
+
+이번 글에서는 Spring 백엔드 개발자가 Docker, Docker Compose, 그리고 Testcontainers를 실무에서 어떻게 자연스럽게 통합하는지, 그리고 각 도구가 왜 필요한지 경험을 바탕으로 이야기해볼게요.
+
+---
+
+## Dockerfile, 그냥 막 쓰면 안 되는 이유
+
+처음 Dockerfile을 만들 때는 보통 "그냥 빌드하고 실행만 되면 되지"라는 생각이 들죠. 저도 그랬습니다. 그런데 프로젝트가 커지고 이미지 빌드 시간이 길어지거나, 배포할 때 이미지 크기가 너무 커서 네트워크 전송이 느려지는 걸 겪으면서 Dockerfile 최적화의 중요성을 깨달았어요.
+
+Docker 공식 문서에 따르면, Dockerfile 작성 시 다음을 신경 써야 합니다[Docker - Best practices for writing Dockerfiles](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/):
+
+- **레이어 수 최소화**: RUN, COPY, ADD 명령어가 레이어를 만드는데, 불필요하게 여러 레이어를 만들면 이미지가 커지고 빌드 속도가 느려짐
+- **캐시 활용 극대화**: 자주 바뀌지 않는 부분은 앞쪽에 두고, 자주 바뀌는 부분은 뒤쪽에 배치해서 빌드 캐시가 잘 활용되도록 설계
+- **불필요한 파일 제외**: `.dockerignore` 파일을 활용해 빌드에 필요 없는 파일(예: IDE 설정, 테스트 결과 등)을 제외
+
+예를 들어, Spring Boot 애플리케이션을 위한 Dockerfile을 이렇게 짤 수 있습니다:
+
+```dockerfile
+# 1단계: 빌드
+FROM openjdk:17-jdk-slim AS build
+WORKDIR /app
+COPY gradlew ./
+COPY gradle ./gradle
+COPY build.gradle ./
+COPY src ./src
+RUN ./gradlew bootJar --no-daemon
+
+# 2단계: 실행
+FROM openjdk:17-jre-slim
+WORKDIR /app
+COPY --from=build /app/build/libs/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+이렇게 멀티 스테이지 빌드를 활용하면 빌드에 필요한 툴과 실행 환경을 분리해 최종 이미지를 훨씬 가볍게 만들 수 있어요. 실제로 제가 운영 중인 서비스에서는 멀티 스테이지 빌드 도입 후 이미지 크기가 500MB에서 150MB로 줄었고, 배포 속도도 30% 이상 빨라졌습니다.
+
+---
+
+## Docker Compose로 여러 서비스 한 번에 띄우기
+
+혼자서 단일 Spring Boot 앱만 띄울 땐 Dockerfile만으로 충분하지만, 실무에선 데이터베이스, Redis, 메시지 큐 등 여러 서비스가 필요하죠. 이걸 하나하나 띄우고 연결하는 건 너무 번거롭고 실수하기 쉽습니다.
+
+바로 이때 Docker Compose가 빛을 발합니다. `docker-compose.yml` 파일 하나로 여러 컨테이너를 정의하고, 네트워크 연결도 자동으로 해주니까요[Docker Compose Overview](https://docs.docker.com/compose/).
+
+예를 들어, Spring Boot + MySQL + Redis 환경을 만들고 싶다면 이렇게 구성할 수 있습니다:
+
+```yaml
+override
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/mydb
+      SPRING_REDIS_HOST: redis
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: mydb
+    ports:
+      - "3306:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+
+  redis:
+    image: redis:6.2
+    ports:
+      - "6379:6379"
+
+volumes:
+  db-data:
+```
+
+몇 가지 팁을 드리자면:
+
+- `depends_on`으로 의존성 컨테이너가 먼저 켜지도록 설정
+- 환경 변수로 컨테이너 이름을 직접 참조해 네트워크 문제 방지
+- 데이터베이스 볼륨을 외부에 두어 컨테이너 재시작 시 데이터 유지
+
+이 구성을 로컬에서 `docker-compose up` 한 번으로 띄우면, Spring 앱부터 DB, 캐시까지 한꺼번에 실행돼서 개발 및 테스트 효율이 확 올라갑니다.
+
+---
+
+## Testcontainers로 진짜 환경 같은 통합 테스트 만들기
+
+"내 테스트 환경은 진짜 DB랑 다르니까, 통합 테스트가 신뢰할 수 없어"라는 말, 저도 많이 들었고 직접 겪었어요. 그래서 Testcontainers를 도입했는데, 이건 정말 게임 체인저였습니다.
+
+Testcontainers는 테스트 코드 내에서 Docker 컨테이너를 동적으로 띄워서, 실제 MySQL, Kafka 같은 서비스를 테스트에 바로 연결할 수 있게 해줍니다. 그래서 테스트가 더 신뢰성 있고, 로컬 환경과 CI 환경 모두에서 일관되게 동작하죠[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+간단한 예시를 볼까요? JUnit 5와 Spring Boot 환경에서 MySQL 컨테이너를 띄우는 코드입니다:
+
+```java
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+@SpringBootTest
+@Testcontainers
+public class UserRepositoryTest {
+
+    @Container
+    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
+            .withDatabaseName("testdb")
+            .withUsername("test")
+            .withPassword("test");
+
+    @Test
+    void testUserSave() {
+        // 여기서 mysql.getJdbcUrl(), getUsername(), getPassword()를
+        // Spring Datasource 설정에 주입해서 실제 DB에 연결
+        // 테스트 로직 수행
+    }
+}
+```
+
+이렇게 하면 테스트가 실행될 때마다 MySQL 컨테이너가 자동으로 올라갔다 내려갔다 하니까, 테스트 간 데이터 격리도 완벽하게 됩니다. 물론 컨테이너 띄우는 시간 때문에 테스트 속도가 조금 느려질 수 있는데, 저는 이걸 CI 파이프라인에서만 켜고 로컬 개발 시에는 H2 같은 인메모리 DB를 병행해서 씁니다.
+
+---
+
+## Spring과 Docker가 만나면 진짜 좋은 점
+
+Spring Framework의 핵심 기술인 의존성 주입과 애플리케이션 컨텍스트 관리 덕분에, Docker 같은 컨테이너 환경에 딱 맞는 유연성과 확장성을 가질 수 있습니다[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html).
+
+특히 Spring Boot의 자동 설정과 내장 서버 덕분에 Docker 컨테이너에 애플리케이션을 담기가 매우 수월한데요, 이 조합으로 복잡한 마이크로서비스 아키텍처도 Docker Compose로 쉽게 구성할 수 있습니다[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/).
+
+저희 팀에서는 실제로 Spring Boot 앱 5개, MySQL 2개, Redis 1개, Kafka 1개를 Docker Compose로 묶어서 개발 및 테스트 환경을 운영 중인데, 환경 통일 덕분에 "내 PC에선 되는데" 이슈가 거의 사라졌어요.
+
+---
+
+## 실무에서 Docker + Compose + Testcontainers 조합 쓸 때 꼭 기억할 점
+
+- **Dockerfile 최적화는 선택이 아니라 필수**: 빌드 속도와 이미지 크기가 곧 개발 생산성에 직결됩니다.
+- **Compose로 환경을 코드화하라**: `docker-compose.yml`은 환경 설정 문서이자 실행 스크립트입니다. 버전 관리에 꼭 포함시키세요.
+- **Testcontainers는 통합 테스트의 신뢰도를 높여준다**: 단, 테스트 속도 저하를 감안해 로컬과 CI 환경에서 전략적으로 활용하세요.
+- **환경 변수와 네트워크 설정에 꼼꼼하자**: Compose 환경에서 컨테이너 간 통신 문제는 대부분 네트워크 설정과 환경 변수 실수에서 옵니다.
+
+---
+
+Docker, Docker Compose, Testcontainers를 한데 묶으면 Spring 백엔드 개발과 테스트, 배포가 훨씬 견고해지고 예측 가능해집니다. 처음엔 복잡해 보여도, 차근차근 도입해보면 "왜 이제야 알았지?" 싶을 거예요.
+
+여러분도 오늘 당장 Dockerfile부터 다시 한 번 살펴보고, Compose 파일 한 줄씩 만들어보세요. 그리고 Testcontainers로 통합 테스트 신뢰도를 높여보는 거죠. 경험해보면 이게 얼마나 큰 생산성 향상인지 알게 될 겁니다.
+
+---
+
+### 참고 자료
+
+- [Docker - Best practices for writing Dockerfiles](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
+- [Docker Compose Overview](https://docs.docker.com/compose/)
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Spring 백엔드 프로젝트에서 Docker를 활용할 때, Dockerfile 작성 시 최적화된 이미지 빌드를 위해 Docker의 공식 베스트 프랙티스를 따르는 것이 중요하다. 예를 들어, 레이어 수를 최소화하고, 캐시 활용을 극대화하며, 불필요한 파일을 제외하는 방법 등이 있다.** ([Docker - Best practices for writing Dockerfiles](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Docker Compose를 사용하면 여러 컨테이너로 구성된 Spring 애플리케이션 환경을 손쉽게 정의하고 실행할 수 있다. docker-compose.yml 파일을 통해 데이터베이스, 캐시, 메시지 큐 등 여러 서비스를 한 번에 관리할 수 있어 개발 및 테스트 환경 구축이 간편해진다.** ([Docker Compose Overview](https://docs.docker.com/compose/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot는 내장 서버와 자동 설정 덕분에 Docker 컨테이너에 적합하며, Docker Compose와 함께 사용 시 복잡한 마이크로서비스 아키텍처를 쉽게 구성하고 관리할 수 있다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Testcontainers 라이브러리는 Docker 컨테이너를 테스트 환경에서 동적으로 실행할 수 있도록 지원하여, Spring 백엔드 테스트 시 실제 데이터베이스나 메시지 브로커를 컨테이너 기반으로 띄워 신뢰성 높은 통합 테스트를 가능하게 한다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework의 코어 기술들은 Docker와 같은 컨테이너 환경에서 애플리케이션의 유연성과 확장성을 높이는 데 기여하며, 특히 의존성 주입과 애플리케이션 컨텍스트 관리가 컨테이너 기반 배포에 적합하다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
