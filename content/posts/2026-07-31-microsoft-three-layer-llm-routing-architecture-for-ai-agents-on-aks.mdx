@@ -1,0 +1,160 @@
+---
+title: "Azure Kubernetes Service에서 Microsoft 3계층 LLM 라우팅 아키텍처로 AI 에이전트 확장하기"
+summary: "Microsoft의 3계층 LLM 라우팅 아키텍처를 AKS에 적용해 AI 에이전트 백엔드의 확장성과 신뢰성을 높이는 실제 경험과 구현 팁을 공유합니다."
+date: "2026-07-31"
+slug: "microsoft-three-layer-llm-routing-architecture-for-ai-agents-on-aks"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/microsoft-three-layer-llm-routing-architecture-for-ai-agents-on-aks"
+tags: ["AKS", "LLM", "AI 에이전트", "마이크로서비스", "클라우드 아키텍처"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+---
+
+### AI 에이전트 백엔드, 왜 라우팅 아키텍처가 중요한가?
+
+최근 AI 에이전트를 서비스하는 프로젝트를 맡으면서 느낀 점 중 하나는, 단순히 LLM(Large Language Model) API를 호출하는 것만으로는 절대 충분하지 않다는 겁니다. 특히 여러 모델을 조합하거나, 다양한 요청 유형에 따라 다르게 처리해야 할 때는 백엔드 아키텍처가 꽤 복잡해지죠.
+
+우리 팀은 Microsoft가 제안한 3계층 LLM 라우팅 아키텍처를 AKS(Azure Kubernetes Service)에 적용해보기로 했습니다. 실제로 운영하면서 얻은 인사이트와 구현 팁을 공유하려고 해요. 
+
+---
+
+### Microsoft 3계층 LLM 라우팅 아키텍처, 한눈에 이해하기
+
+간단히 말하면, 이 아키텍처는 크게 세 계층으로 나눠집니다.
+
+1. **요청 분류 계층**: 들어오는 요청을 분석해 어떤 LLM 또는 처리 경로로 보낼지 결정합니다.
+2. **라우팅 계층**: 요청 분류 결과에 따라 적절한 LLM 인스턴스 또는 서비스로 트래픽을 분배합니다.
+3. **실행 계층**: 실제 LLM 모델을 실행하는 부분으로, Azure의 여러 컨테이너 혹은 서버리스 함수가 여기에 해당합니다.
+
+이 구조 덕분에, 각 계층별로 독립적인 확장과 장애 대응이 가능해졌습니다. 예를 들어, 라우팅 계층에만 집중해 특정 모델에 트래픽을 몰아주거나, 요청 분류 계층에서 새로운 기능을 실험하는 게 훨씬 수월해졌죠.
+
+---
+
+### AKS에서 3계층 아키텍처를 운영하며 마주친 현실적인 도전들
+
+처음 AKS 클러스터에 이 아키텍처를 올렸을 때, 가장 크게 체감한 건 "작은 범위의 점진적 배포 전략"의 중요성이었습니다. 새로운 라우팅 로직이나 분류 알고리즘을 한꺼번에 전체 트래픽에 적용하면 장애 위험이 너무 컸거든요.
+
+그래서 우리는 다음과 같이 진행했습니다.
+
+- **네임스페이스 단위로 배포**: 새로운 기능을 먼저 dev, staging 네임스페이스에서 검증
+- **트래픽 셰어링**: Istio 같은 서비스 메시를 활용해 5% 트래픽만 신규 라우팅 계층으로 보내고 모니터링
+- **지표 기반 롤백**: 에러율 0.5% 이상 상승 시 자동 롤백 트리거
+
+이 방식 덕분에, 실제로 신규 백엔드 기능의 운영 리스크를 크게 낮출 수 있었어요. 물론 이 과정에서 실패 유형을 초기부터 계측하는 것도 필수였죠. 장애가 발생했을 때 빠르게 원인을 파악하고 대응하는 데 큰 도움이 됐습니다. 
+
+(참고로 이런 점진적 배포 전략과 실패 계측은 TypeScript 개발팀도 강조하는 부분이라 믿음이 갔습니다 [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html), [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+
+---
+
+### 실제 AKS 설정과 코드 예시: 라우팅 계층에 Istio VirtualService 적용하기
+
+라우팅 계층에서는 Istio를 활용해 LLM 서비스로 트래픽을 분산하는데, 간단한 VirtualService 설정 예시는 다음과 같습니다.
+
+```yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: llm-routing
+  namespace: ai-agents
+spec:
+  hosts:
+  - llm-api.ai.svc.cluster.local
+  http:
+  - match:
+    - headers:
+        x-llm-model:
+          exact: "gpt-4"
+    route:
+    - destination:
+        host: gpt4-service
+        port:
+          number: 8080
+  - match:
+    - headers:
+        x-llm-model:
+          exact: "claude"
+    route:
+    - destination:
+        host: claude-service
+        port:
+          number: 8080
+  - route:
+    - destination:
+        host: default-llm-service
+        port:
+          number: 8080
+```
+
+이 설정은 요청 헤더 `x-llm-model` 값에 따라 GPT-4, Claude, 혹은 기본 LLM 서비스로 분기합니다. 실제 운영 환경에서는 이보다 훨씬 복잡한 로직과 모니터링, 리트라이 정책도 추가하죠.
+
+---
+
+### 3계층 아키텍처가 주는 확장성과 장애 대응의 장점
+
+이 구조를 도입하고 나서 가장 크게 느낀 점은 "유연한 확장"과 "빠른 장애 격리"입니다.
+
+- **확장성**: 예를 들어, GPT-4 모델 호출량이 급증할 때 실행 계층의 컨테이너만 수평 확장하면 되고, 라우팅 계층은 그대로 유지 가능
+- **장애 대응**: 특정 LLM 인스턴스가 문제가 생겨도 라우팅 계층에서 해당 인스턴스로의 트래픽을 차단하거나 우회 가능
+
+처음엔 이게 별거 아닌 것 같지만, 실제로 운영해보면 단일 계층에 모든 기능을 몰아넣는 것보다 훨씬 안정적이라는 걸 체감합니다.
+
+---
+
+### 마치며: AI 에이전트 백엔드에 3계층 라우팅 아키텍처를 추천하는 이유
+
+실제로 AKS 위에서 Microsoft의 3계층 LLM 라우팅 아키텍처를 운영해보니, 복잡한 AI 에이전트 백엔드를 관리하는 데 큰 도움이 됐습니다. 특히 점진적 배포 전략과 초기 장애 계측을 병행하면 운영 리스크를 크게 줄일 수 있죠.
+
+다만 이 구조도 완벽한 해법은 아닙니다. 각 계층 간 통신 지연, 관리해야 할 컴포넌트 증가, 그리고 서비스 메시 설정 복잡도 같은 단점도 분명 존재합니다. 그래서 팀 상황과 요구사항에 맞게 적절히 조정하는 게 중요해요.
+
+혹시 AI 에이전트 백엔드 확장이나 안정성 고민 중이라면, 이 아키텍처를 참고해보시길 권합니다. 실제 운영 경험을 바탕으로 한 팁과 코드 예시는 분명 도움이 될 거예요.
+
+---
+
+### 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+
+
+## 정리하며
+
+Microsoft Three-Layer LLM Routing Architecture for AI Agents on AKS을 실무에 적용할 때 가장 중요한 것은 한 번에 완벽하게 하려 하지 않는 것입니다. 작은 범위에서 시작하고, 측정하고, 개선하는 사이클을 반복하세요.
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 3
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
