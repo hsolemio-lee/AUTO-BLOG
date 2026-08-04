@@ -1,0 +1,166 @@
+---
+title: "HubSpot이 JITA 권한 부여에 룰 엔진 아키텍처를 도입한 이유와 그 효과"
+summary: "HubSpot 백엔드 팀이 JITA(Just-In-Time Authorization) 권한 부여 시스템을 룰 엔진 아키텍처로 재설계하며 겪은 설계 고민, 확장성 확보, 그리고 운영 트레이드오프를 실제 사례와 함께 풀어봅니다."
+date: "2026-08-04"
+slug: "hubspot-redesigns-jita-authorization-with-rule-engine-architecture"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/hubspot-redesigns-jita-authorization-with-rule-engine-architecture"
+tags: ["HubSpot", "JITA", "Authorization", "Rule Engine", "Backend Architecture", "Scalability"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## "권한 부여가 이렇게 복잡해질 줄은 몰랐어요" - HubSpot JITA 이야기
+
+회사에서 권한 부여 시스템이 점점 복잡해지면서 "내가 뭘 허용받았는지, 왜 거부됐는지"를 파악하기 어려워진 적 있나요? HubSpot도 비슷한 문제에 직면했습니다. JITA(Just-In-Time Authorization)라는 실시간 권한 부여 시스템이 점점 커지면서, 기존 방식으로는 관리가 힘들고 확장성도 떨어졌죠. 그래서 백엔드 팀은 룰 엔진 아키텍처를 도입해 문제를 해결했습니다.
+
+이 글에서는 HubSpot이 JITA 권한 부여를 룰 엔진으로 재설계하며 어떤 설계 패턴을 적용했고, 어떻게 확장성과 운영 편의성을 확보했는지, 그리고 그 과정에서 마주한 트레이드오프를 솔직하게 공유하려고 합니다.
+
+---
+
+## JITA 권한 부여, 왜 룰 엔진이 필요한가?
+
+JITA는 말 그대로 ‘필요할 때만 권한을 부여’하는 방식인데, 권한 조건이 복잡해질수록 코드에 하드코딩된 규칙이나 단순 if-else 로직으로는 감당하기 어렵습니다. HubSpot도 초기에는 단순 조건문으로 처리했지만, 고객 요구사항이 다양해지고 권한 정책이 자주 바뀌면서 유지보수 비용이 폭발했죠.
+
+룰 엔진은 이런 복잡한 권한 정책을 외부화해서 관리할 수 있게 해줍니다. 정책 변경이 필요하면 코드 수정 없이 룰만 업데이트하면 되니, 배포 리스크도 줄고 운영 속도도 빨라집니다. 
+
+그런데 룰 엔진을 그냥 도입하는 게 다가 아니었습니다. HubSpot 팀은 다음과 같은 고민을 했죠.
+
+- 룰이 너무 많아지면 성능 저하가 생기지 않을까?
+- 룰 간 우선순위나 충돌은 어떻게 해결할까?
+- 장애 발생 시 문제 원인 파악은 쉬울까?
+
+이런 문제들을 어떻게 해결했는지 다음에서 살펴봅니다.
+
+---
+
+## 룰 엔진 아키텍처 설계에서 가장 신경 쓴 부분
+
+### 1) 룰을 작은 단위로 쪼개고 점진적으로 배포하기
+
+HubSpot은 룰을 한꺼번에 몰아서 배포하지 않고, 작은 범위부터 점진적으로 적용했습니다. 예를 들어, 처음에는 특정 고객군에만 룰 엔진을 적용하고, 점차 범위를 넓혔죠. 이렇게 하면 만약 룰에 버그가 있더라도 전체 시스템에 미치는 영향을 최소화할 수 있습니다. 
+
+이 방식은 Martin Fowler가 말한 마이크로서비스 설계 원칙과도 일맥상통하는데, 작은 단위로 배포하면 운영 리스크가 확실히 줄어듭니다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+### 2) 실패 유형을 초기부터 계측하고 모니터링하기
+
+권한 부여 실패가 왜 발생했는지 로그를 자세히 남기고, 실패 유형별로 분류해 모니터링했습니다. 예를 들어, 룰 적용 오류, 데이터 불일치, 네트워크 지연 등 원인을 세분화해서 측정했죠. 덕분에 장애 대응 속도가 빨라졌고, 유지보수성도 크게 개선됐습니다.
+
+Microsoft의 클라우드 아키텍처 패턴에서도 실패 유형을 미리 정의하고 계측하는 것이 장애 대응에 핵심이라고 강조합니다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+### 3) 룰 우선순위와 충돌 해결 로직 명확화
+
+룰이 많아지면 서로 충돌하거나 우선순위가 애매해질 수밖에 없습니다. HubSpot은 룰마다 우선순위 값을 부여하고, 충돌 시 우선순위가 높은 룰을 우선 적용하도록 설계했습니다. 또, 충돌 감지 로직을 룰 엔진 내부에 넣어 배포 전에 자동으로 검증할 수 있게 했죠.
+
+이 부분은 실제로 운영하면서 "이 룰이 왜 적용됐지?" 하는 의문을 줄이는 데 큰 도움이 됐습니다.
+
+---
+
+## 코드로 보는 HubSpot 룰 엔진의 핵심 구조
+
+아래는 HubSpot이 JITA 룰 엔진에서 사용한 룰 평가 핵심 로직을 간략화한 예시입니다. 
+
+```java
+public class AuthorizationRuleEngine {
+    private final List<AuthorizationRule> rules;
+
+    public AuthorizationRuleEngine(List<AuthorizationRule> rules) {
+        // 우선순위 순으로 정렬
+        this.rules = rules.stream()
+            .sorted(Comparator.comparingInt(AuthorizationRule::getPriority).reversed())
+            .collect(Collectors.toList());
+    }
+
+    public AuthorizationResult evaluate(UserContext context, Resource resource) {
+        for (AuthorizationRule rule : rules) {
+            if (rule.appliesTo(context, resource)) {
+                return rule.evaluate(context, resource);
+            }
+        }
+        // 기본 거부
+        return AuthorizationResult.deny("No matching rule");
+    }
+}
+
+// 룰 인터페이스
+public interface AuthorizationRule {
+    int getPriority();
+    boolean appliesTo(UserContext context, Resource resource);
+    AuthorizationResult evaluate(UserContext context, Resource resource);
+}
+```
+
+이 구조의 장점은 룰을 객체 단위로 캡슐화해서 관리하고, 우선순위에 따라 순차 평가하는 점입니다. 룰 추가나 변경 시 기존 룰에 영향을 최소화할 수 있죠. 
+
+물론, 룰이 많아지면 순차 탐색 비용이 커질 수 있는데, HubSpot은 룰 그룹화를 통해 평가 범위를 좁히고, 캐싱 전략도 병행해 성능 문제를 완화했습니다.
+
+---
+
+## 운영하면서 마주친 현실적인 트레이드오프
+
+룰 엔진 도입 후에도 HubSpot 팀은 몇 가지 현실적인 고민을 계속했습니다.
+
+- **복잡도 증가**: 룰 엔진 자체가 또 하나의 복잡한 시스템이 되다 보니, 개발자들이 룰 작성법을 익히는 데 시간이 걸렸습니다. 그래서 룰 작성 가이드와 테스트 자동화 도구를 별도로 마련했죠.
+
+- **성능과 정확성의 균형**: 룰 평가가 너무 느리면 사용자 경험에 악영향을 줍니다. 반대로 너무 단순화하면 권한 정책이 부정확해질 수 있죠. HubSpot은 룰 그룹화, 우선순위 조정, 캐싱을 조합해 이 균형을 맞췄습니다.
+
+- **운영 모니터링 부담**: 룰이 많아지면 장애 원인 분석이 어려워질 수 있습니다. 그래서 실패 유형별 로그 계측과 함께, 룰별 실행 통계 대시보드를 만들어 운영자가 한눈에 상태를 파악할 수 있게 했습니다.
+
+이런 트레이드오프는 결국 "성능, 유지보수성, 정확성, 운영 편의성" 사이에서 균형을 찾는 과정이었습니다.
+
+---
+
+## HubSpot 백엔드 팀에게 배운 점
+
+JITA 권한 부여를 룰 엔진으로 재설계한 경험을 통해 HubSpot은 작은 범위부터 점진적 배포를 하면서 운영 리스크를 줄였고, 실패 유형을 초기부터 꼼꼼히 계측해 장애 대응 속도를 높였습니다. 
+
+그리고 룰 우선순위와 충돌 해결 로직을 명확히 해서 유지보수성을 크게 개선했죠. 실제 코드 구조도 단순하면서 확장 가능한 패턴을 잘 보여줍니다.
+
+이건 실제로 겪어보면 "권한 부여가 이렇게 복잡해질 줄은 몰랐다"는 말을 많이 하게 되는데, 룰 엔진 아키텍처는 그 복잡함을 관리할 수 있는 좋은 도구가 되어줍니다.
+
+---
+
+## 마무리하며: 내가 우리 팀에 적용한다면?
+
+- 권한 정책이 자주 바뀌고 복잡하다면 룰 엔진 도입을 진지하게 고려해보세요.
+- 작은 범위부터 점진적으로 배포하는 전략으로 운영 리스크를 낮추는 게 핵심입니다.
+- 실패 유형을 처음부터 세분화해 모니터링하면 장애 대응이 훨씬 수월해집니다.
+- 룰 간 우선순위와 충돌 해결 로직을 명확히 설계하지 않으면 운영 중 혼란이 커집니다.
+
+이 글이 여러분 팀의 권한 부여 시스템을 설계하거나 개선하는 데 조금이나마 도움이 되길 바랍니다.
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.

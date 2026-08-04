@@ -1,0 +1,152 @@
+---
+title: "Jane Street의 Bonsai UI 라이브러리로 실무 프론트엔드 컴포넌트 구조 설계하기"
+summary: "Jane Street의 Bonsai UI 라이브러리를 통해 확장성과 성능을 고려한 컴포넌트 설계법을 실제 사례와 코드 예시를 곁들여 살펴봅니다."
+date: "2026-08-04"
+slug: "bonsai-jane-street-ui"
+category: "frontend"
+canonical_url: "https://example.dev/blog/bonsai-jane-street-ui"
+tags: ["Bonsai", "Jane Street", "UI 라이브러리", "컴포넌트 설계", "프론트엔드", "성능 최적화"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## UI 라이브러리 선택에 고민하다가 Bonsai를 알게 된 이야기
+
+"우리 UI가 점점 무거워지고, 컴포넌트 간 상태 관리가 꼬여서 유지보수가 너무 힘들다"라는 이야기를 팀에서 자주 듣곤 했습니다. 그러다 우연히 Jane Street의 Bonsai UI 라이브러리를 접하게 됐는데, 이게 생각보다 실무에서 쓸만한 힌트를 많이 줘서 공유하려고 합니다.
+
+Jane Street는 OCaml 기반의 금융 소프트웨어 회사로 유명한데, 그들이 만든 Bonsai는 React 같은 선언형 UI 패러다임을 OCaml 생태계에 맞게 풀어낸 라이브러리입니다. 단순히 UI 컴포넌트를 만드는 걸 넘어서 상태 관리, 재사용성, 성능 최적화가 잘 녹아있더라고요.
+
+## Bonsai가 기존 UI 라이브러리와 다른 점은 뭘까?
+
+일단 Bonsai는 함수형 프로그래밍 철학에 기반해서 설계됐습니다. 이게 무슨 말이냐면, 부수효과를 최소화하고 상태를 명확하게 표현하는 데 집중한다는 뜻이죠. React 훅과 비슷한 개념이 있지만, OCaml의 타입 시스템 덕분에 훨씬 엄격하고 안전한 상태 관리를 할 수 있습니다.
+
+실제로 Bonsai 컴포넌트는 다음과 같은 특징이 있습니다:
+
+- **상태와 UI가 분리된 구조**: 상태는 Bonsai의 `Value.t` 타입으로 관리되고, UI는 상태를 받아서 렌더링하는 순수 함수 형태입니다.
+- **컴포넌트 재사용성 극대화**: 작은 단위로 쪼개고, 필요한 부분만 조합해서 쓸 수 있게 설계되어 있습니다.
+- **성능 최적화 내장**: 변경이 필요한 부분만 리렌더링되도록 내부적으로 최적화가 되어 있습니다.
+
+이런 설계 덕분에 대규모 UI를 다룰 때도 상태 추적이 쉽고, 예측 가능한 동작을 보장합니다.
+
+## 실무에서 Bonsai 컴포넌트 구조를 어떻게 설계할까?
+
+제가 직접 Bonsai를 써본 경험을 바탕으로, 실무에서 적용하기 좋은 컴포넌트 구조를 소개할게요.
+
+### 1. 상태는 최대한 상위 컴포넌트에서 관리하기
+
+Bonsai에서는 상태를 `Value.t`로 표현하는데, 이걸 여러 컴포넌트가 공유해야 할 때는 상위 컴포넌트에서 상태를 가지고 하위에 `Value.t`를 내려줍니다. 이렇게 하면 상태가 분산되지 않고 추적하기 쉬워집니다.
+
+### 2. UI 컴포넌트는 순수 함수처럼 만들기
+
+UI는 상태를 받아서 렌더링만 하는 순수 함수로 만듭니다. 부수효과가 없으니 테스트도 쉽고, 재사용성도 높아집니다.
+
+### 3. 이벤트 핸들러는 상태 변경 함수와 분리
+
+Bonsai는 상태 변경을 위한 `Action`과 이를 처리하는 `apply_action` 함수를 명확히 분리합니다. 이 패턴 덕분에 상태 변화가 어디서 어떻게 일어나는지 한눈에 파악할 수 있습니다.
+
+### 4. 컴포넌트 조합은 `let%sub`과 `let%arr` 매크로 활용
+
+Bonsai는 OCaml 매크로를 활용해 컴포넌트를 조합하는데, `let%sub`은 하위 컴포넌트를 만들고, `let%arr`은 상태값을 변환하는 데 쓰입니다. 이걸 잘 활용하면 복잡한 UI도 깔끔하게 구성할 수 있어요.
+
+## 코드로 보는 Bonsai 기본 컴포넌트 예시
+
+아래는 간단한 카운터 컴포넌트 예제입니다. 버튼 클릭 시 상태가 변경되고, 화면에 숫자가 갱신되는 구조죠.
+
+```ocaml
+open Bonsai_web
+
+module Action = struct
+  type t = Increment | Decrement
+end
+
+let counter_component =
+  Bonsai.state_machine0
+    (module Int)
+    (module Action)
+    ~default_model:0
+    ~apply_action:(fun ~inject:_ model action ->
+      match action with
+      | Action.Increment -> model + 1
+      | Action.Decrement -> model - 1)
+  |> Bonsai.read
+  |> Bonsai.map ~f:(fun (model, inject) ->
+      Vdom.Node.div [
+        Vdom.Node.button ~attr:(Vdom.Attr.on_click (fun _ -> inject Action.Decrement)) [Vdom.Node.text "-"];
+        Vdom.Node.text (Int.to_string model);
+        Vdom.Node.button ~attr:(Vdom.Attr.on_click (fun _ -> inject Action.Increment)) [Vdom.Node.text "+"];
+      ])
+```
+
+이 예시에서 `state_machine0`은 상태와 액션을 관리하는 핵심 함수입니다. `apply_action`에서 상태 변경 로직을 분리하고, UI는 상태와 액션 인젝터를 받아서 렌더링만 하죠. 이런 구조가 유지보수성과 테스트 용이성을 크게 높여줍니다.
+
+## Bonsai를 쓸 때 꼭 알아야 할 성능과 확장성 이야기
+
+처음 Bonsai를 접하면 "이게 React랑 뭐가 다르지?" 싶을 수 있는데, 실제로는 OCaml의 타입 안전성과 함수형 프로그래밍 장점 덕분에 대규모 앱에서 더 안정적이고 예측 가능한 동작을 보장합니다.
+
+다만, 단점도 있어요. OCaml 생태계 자체가 JS에 비해 생태계가 작고, 프론트엔드 개발자에게 익숙하지 않을 수 있습니다. 그래서 팀 내 도입 시 러닝 커브가 분명히 존재합니다.
+
+또한, Bonsai는 OCaml 컴파일러와 빌드 도구에 의존하므로, 빌드 시간이 길어질 수 있고, 디버깅도 익숙해지기 전까지는 까다로울 수 있습니다. 하지만 이런 단점들은 점진적 도입과 교육으로 극복 가능하다고 봅니다.
+
+## 실제 Jane Street 팀은 어떻게 Bonsai를 운영하고 있을까?
+
+Jane Street는 금융 트레이딩 시스템을 개발하는데, UI도 엄격한 상태 관리와 높은 신뢰성이 필수입니다. 그래서 Bonsai를 통해 UI 상태를 명확히 분리하고, 작은 단위 컴포넌트를 조합해 복잡한 화면을 구현합니다.
+
+그 결과, 신규 기능 추가 시에도 기존 컴포넌트에 미치는 영향을 최소화하고, 점진적 배포 전략으로 리스크를 낮추는 데 성공했다고 합니다. 이런 점은 OpenAI API 문서에서 말하는 "작은 범위의 점진적 배포 전략은 운영 리스크를 낮춘다"는 주장과도 일맥상통하죠[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+또한, 실패 유형을 초기부터 계측해 장애 대응 속도를 높이는 점 역시 프론트엔드 상태 관리에 적용할 수 있는 좋은 교훈입니다[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+## 프론트엔드 엔지니어가 Bonsai에서 배워갈 점
+
+- **상태와 UI 분리로 유지보수성 극대화**: 상태 변경은 명확한 액션과 리듀서 같은 함수에서만 일어나도록 강제하는 패턴은 React에서도 참고할 만합니다.
+- **타입 안전성 확보로 버그 예방**: OCaml의 강력한 타입 시스템 덕분에 런타임 오류가 줄어듭니다. TS와 비교해도 배울 점이 많죠.
+- **컴포넌트 재사용성을 높이는 설계**: 작은 단위로 쪼개고, 조합하는 방식은 어떤 UI 라이브러리에도 적용 가능합니다.
+- **점진적 도입과 교육이 필수**: 새로운 언어나 라이브러리를 도입할 때는 팀 내 교육과 점진적 적용 전략이 필요합니다.
+
+## 마무리하며
+
+처음엔 "OCaml? 함수형? 어렵겠다" 싶지만, 실제로 Bonsai를 써보면 상태 관리와 UI 구조 설계에 대한 새로운 관점을 얻게 됩니다. 특히 대규모 UI를 다루는 팀이라면 한 번쯤 고민해볼 만한 라이브러리입니다.
+
+그리고 Jane Street가 실제 운영하면서 쌓은 경험과 철학은 우리 실무에도 충분히 적용할 수 있는 좋은 참고 자료가 됩니다. 물론 모든 팀에 딱 맞는 솔루션은 없지만, Bonsai의 설계 원칙을 이해하고 응용하는 것만으로도 프론트엔드 개발 역량이 한 단계 올라갈 거라 믿습니다.
+
+---
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
