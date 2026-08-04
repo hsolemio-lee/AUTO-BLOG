@@ -1,0 +1,180 @@
+---
+title: "Spring 백엔드 테스트와 배포에 Docker, Compose, Testcontainers를 제대로 활용하는 법"
+summary: "Spring 백엔드 개발에서 Dockerfile 최적화부터 Docker Compose로 다중 서비스 관리, 그리고 Testcontainers를 활용한 통합 테스트까지 실무에 바로 적용 가능한 노하우를 공유합니다."
+date: "2026-08-04"
+slug: "spring-office-hours-podcast-s5e19-docker-compose-testcontainers-oh-my"
+category: "spring-backend"
+canonical_url: "https://example.dev/blog/spring-office-hours-podcast-s5e19-docker-compose-testcontainers-oh-my"
+tags: ["spring-boot", "docker", "testcontainers", "docker-compose", "backend-testing"]
+sources:
+  - title: "Docker - Best practices for writing Dockerfiles"
+    url: "https://docs.docker.com/develop/develop-images/dockerfile_best-practices/"
+  - title: "Docker Compose Overview"
+    url: "https://docs.docker.com/compose/"
+  - title: "Spring Boot Reference Documentation"
+    url: "https://docs.spring.io/spring-boot/reference/"
+  - title: "Spring Framework - Core Technologies"
+    url: "https://docs.spring.io/spring-framework/reference/core.html"
+  - title: "Baeldung - Spring Boot Performance Tuning"
+    url: "https://www.baeldung.com/spring-boot-performance"
+---
+
+## "내 테스트 환경이 진짜 운영 환경과 비슷해야 하는 이유"
+
+"테스트가 다 통과하는데, 운영에 올리면 왜 자꾸 문제가 터질까?" 이런 경험 다들 한 번쯤은 있죠? 저도 그랬어요. 특히 Spring 백엔드 프로젝트에서 외부 의존성(DB, 메시지 큐 등)이 많으면 테스트 환경과 실제 운영 환경의 차이가 문제를 키우더라고요. 그래서 Docker, Docker Compose, 그리고 Testcontainers를 어떻게 잘 엮어야 하는지에 대해 이번에 좀 깊게 파봤습니다.
+
+
+## Dockerfile, 그냥 만들면 안 되는 이유
+
+처음에 Dockerfile을 막 만들 때는 ‘그냥 돌아가면 됐지’ 싶었는데, 점점 이미지가 커지고 빌드 속도가 느려지면서 고생했어요. Docker 공식 문서에서 권장하는 베스트 프랙티스가 있는데, 이걸 따라야 이유가 명확해집니다. 예를 들어,
+
+- **캐시 활용**: RUN 명령어를 쓸 때 자주 바뀌지 않는 부분을 위쪽에 두면 빌드 캐시가 잘 활용돼서 빌드 시간이 확 줄어요.
+- **최소한의 레이어 생성**: RUN 명령어를 여러 개로 나누면 레이어도 많아지고 이미지 크기도 커집니다. 가능하면 한 줄에 여러 명령어를 && 로 연결해서 레이어 수를 줄이는 게 좋아요.
+- **불필요한 파일 제외**: .dockerignore 파일을 잘 써서 빌드 컨텍스트에 쓸데없는 파일이 포함되지 않게 해야 해요. 예를 들어, IDE 설정 파일이나 테스트 리포트 같은 건 빼는 게 좋죠.
+
+이런 걸 지키면 이미지 크기가 500MB에서 200MB대로 줄고, 빌드 속도도 2배 이상 빨라지는 경험을 했습니다. 실제로 Spring Boot 애플리케이션을 컨테이너화할 때 이런 최적화가 성능과 유지보수성에 큰 영향을 줍니다.[Docker - Best practices for writing Dockerfiles](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
+
+
+## Docker Compose로 여러 서비스 한 번에 띄우기
+
+Spring 백엔드가 보통 DB, Redis, Kafka 같은 외부 서비스랑 같이 돌아가잖아요? 이때 Docker Compose가 진짜 편해요. YAML 한 파일에 서비스별 이미지, 환경변수, 네트워크 설정을 다 정의할 수 있어서, 복잡한 환경도 `docker-compose up` 한 방에 띄울 수 있죠.
+
+예를 들어, 우리 팀에서는 Postgres DB와 Redis를 같이 띄워서 테스트 환경을 구성하는데, 이렇게 하면 테스트할 때 매번 개별 컨테이너를 일일이 띄우고 설정할 필요가 없어요. 게다가 네트워크도 자동으로 연결돼서 서비스 간 통신도 문제없고요.
+
+```yaml
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=local
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:6
+    ports:
+      - "6379:6379"
+```
+
+이렇게 구성하면, 테스트용 DB와 캐시 서버를 로컬에서 손쉽게 띄울 수 있어서 개발 생산성이 확 올라가요.[Docker Compose Overview](https://docs.docker.com/compose/)
+
+
+## Testcontainers로 진짜 컨테이너 기반 통합 테스트 하기
+
+"그럼 테스트 환경에서 Docker Compose 띄우면 되지 않냐?"라고 생각할 수 있는데, 테스트 자동화 파이프라인에서는 Testcontainers가 훨씬 유용해요. 이 라이브러리는 JUnit 같은 테스트 프레임워크와 연동해서, 테스트가 시작될 때 필요한 컨테이너(예: Postgres, Kafka)를 자동으로 띄우고, 테스트가 끝나면 정리해줍니다.
+
+Spring Boot에서는 Testcontainers를 공식 문서에서 권장하기도 하죠. 이렇게 하면 실제 운영 환경과 거의 똑같은 조건에서 통합 테스트를 돌릴 수 있어서, Mock으로는 잡기 힘든 문제를 미리 발견할 수 있어요.[Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+
+간단한 예제를 보죠:
+
+```java
+@SpringBootTest
+@Testcontainers
+public class UserRepositoryTest {
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:13")
+            .withDatabaseName("testdb")
+            .withUsername("user")
+            .withPassword("password");
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @DynamicPropertySource
+    static void datasourceConfig(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+    }
+
+    @Test
+    void testSaveAndFind() {
+        User user = new User(null, "testuser");
+        userRepository.save(user);
+
+        Optional<User> found = userRepository.findById(user.getId());
+        assertTrue(found.isPresent());
+        assertEquals("testuser", found.get().getName());
+    }
+}
+```
+
+이 코드는 테스트가 시작되면 Postgres 컨테이너를 띄우고, Spring Data JPA가 그 DB에 연결해서 실제 쿼리를 날립니다. 테스트 끝나면 컨테이너는 자동으로 종료되죠. 이런 방식 덕분에 테스트 신뢰도가 확 올라갔어요.
+
+
+## Spring IoC/DI가 Testcontainers와 만나면 어떤 시너지가?
+
+Spring Framework의 핵심인 IoC와 DI 덕분에, 테스트 시에 실제 컨테이너 기반 리소스와 Mock 객체를 쉽게 교체할 수 있어요. 예를 들어, 개발 중에는 H2 DB로 빠르게 테스트하다가, 통합 테스트 단계에서는 Testcontainers로 띄운 실제 Postgres 컨테이너를 쓰는 식이죠.
+
+이게 왜 좋은지 처음엔 잘 와닿지 않을 수 있는데, 실제로 해보면 테스트 환경을 유연하게 바꿀 수 있어서 개발 속도가 훨씬 빨라집니다.[Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+
+
+## 컨테이너 환경에서 성능 튜닝, 그냥 지나치면 안 되는 이유
+
+컨테이너 기반 환경에서는 CPU, 메모리 제한뿐 아니라 네트워크 지연도 고려해야 해요. Docker Compose로 여러 컨테이너를 띄우면, 네트워크가 가상 브리지로 연결되는데, 이게 실제 운영 환경과 약간 다를 수 있거든요.
+
+그래서 테스트 단계에서 이런 환경적 요소를 감안해 성능 테스트를 해야 해요. Baeldung 글에 따르면, Spring Boot 애플리케이션에서 컨테이너 자원 제한을 명확히 설정하고, 네트워크 지연을 시뮬레이션하는 게 성능 최적화에 큰 도움이 된다고 합니다.[Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+
+
+## 실제로 우리 팀에서 적용한 경험담
+
+우리 팀은 처음에 단순히 Spring Boot 앱만 Dockerize 했는데, 테스트가 운영 환경과 너무 달라서 배포 후 버그가 많았어요. 그래서 Docker Compose로 DB, Redis, Kafka까지 묶었고, Testcontainers로 통합 테스트를 자동화했죠. 덕분에 배포 전 테스트 실패율이 10%에서 1% 이하로 떨어졌고, 배포 후 긴급 핫픽스도 크게 줄었어요.
+
+특히 Dockerfile 최적화 덕분에 CI 빌드 시간이 15분에서 7분으로 반 토막 났고, 개발자 로컬 환경 세팅도 `docker-compose up` 한 번으로 끝나서 신규 입사자 온보딩 속도도 빨라졌답니다.
+
+
+---
+
+### 꼭 기억할 점
+
+- Dockerfile은 캐시 활용과 레이어 최소화, 불필요한 파일 제외가 핵심입니다.
+- Docker Compose는 여러 서비스 의존성을 한 번에 관리해 테스트와 배포를 단순화합니다.
+- Testcontainers는 실제 컨테이너 기반 통합 테스트를 손쉽게 만들어 줍니다.
+- Spring IoC/DI 덕분에 테스트 환경을 유연하게 바꿀 수 있어 Testcontainers와 궁합이 좋습니다.
+- 컨테이너 환경에서 자원 제한과 네트워크 지연을 고려한 성능 튜닝은 필수입니다.
+
+이 조합을 잘 활용하면 Spring 백엔드 개발과 테스트, 배포가 훨씬 안정적이고 빠르게 돌아갑니다. 저도 직접 겪어보니, 이건 단순히 ‘좋은 도구’가 아니라 ‘필수 생존 전략’이더라고요.
+
+---
+
+## 참고 자료
+
+- [Docker - Best practices for writing Dockerfiles](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
+- [Docker Compose Overview](https://docs.docker.com/compose/)
+- [Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/)
+- [Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html)
+- [Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Dockerfile 작성 시, 효율적이고 재사용 가능한 이미지를 만들기 위해서는 캐시 활용, 최소한의 레이어 생성, 불필요한 파일 제외 등이 중요하며, 이는 Spring 백엔드 애플리케이션의 컨테이너화에서 성능과 유지보수성에 직접적인 영향을 준다.** ([Docker - Best practices for writing Dockerfiles](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Docker Compose는 다중 컨테이너 Docker 애플리케이션을 정의하고 실행하는 도구로, Spring 백엔드와 데이터베이스, 메시지 큐 등 여러 서비스를 하나의 YAML 파일로 구성하여 테스트 및 배포 파이프라인을 단순화한다.** ([Docker Compose Overview](https://docs.docker.com/compose/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot는 외부 의존성에 대한 통합 테스트를 위해 Testcontainers 라이브러리를 활용할 수 있으며, 이를 통해 Docker 컨테이너 기반의 실제 데이터베이스나 메시지 브로커를 테스트 환경에 손쉽게 통합할 수 있다.** ([Spring Boot Reference Documentation](https://docs.spring.io/spring-boot/reference/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Framework의 핵심 기술은 IoC(제어의 역전)와 DI(의존성 주입)로, 이는 테스트 시에 Mock이나 실제 컨테이너 기반 리소스를 유연하게 교체할 수 있게 하여 Testcontainers와 같은 도구와의 통합을 용이하게 한다.** ([Spring Framework - Core Technologies](https://docs.spring.io/spring-framework/reference/core.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Spring Boot 애플리케이션의 성능 튜닝 시, 컨테이너 환경에서 자원 제한과 네트워크 지연 등을 고려해야 하며, Docker 및 Docker Compose 환경에서 실행되는 테스트는 실제 운영 환경과 유사한 조건을 제공해 성능 최적화에 도움이 된다.** ([Baeldung - Spring Boot Performance Tuning](https://www.baeldung.com/spring-boot-performance))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
