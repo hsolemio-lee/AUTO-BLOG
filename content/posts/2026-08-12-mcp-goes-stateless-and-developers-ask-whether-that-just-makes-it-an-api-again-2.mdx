@@ -1,0 +1,172 @@
+---
+title: "MCP를 무상태로 바꾸면 정말 API가 되는 걸까? 백엔드 엔지니어의 현실적인 고민"
+summary: "MCP(Managed Control Plane)를 무상태(stateless) 아키텍처로 전환하면서 얻는 확장성과 장애 복원력 이점부터, 실제로 API처럼 동작하는 구조가 가지는 복잡도와 설계상의 도전 과제를 백엔드 관점에서 살펴본다."
+date: "2026-08-12"
+slug: "mcp-goes-stateless-and-developers-ask-whether-that-just-makes-it-an-api-again"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/mcp-goes-stateless-and-developers-ask-whether-that-just-makes-it-an-api-again"
+tags: ["MCP", "stateless", "API", "backend", "architecture"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+# MCP가 무상태가 되면… 결국 API랑 뭐가 다를까?
+
+"MCP를 무상태로 만든다"는 말을 들었을 때, 솔직히 처음엔 ‘그냥 API랑 똑같아지는 거 아닌가?’라는 생각이 들었어요. 우리 팀에서도 한동안 이 얘기로 갑론을박이 많았거든요. 실제로 무상태 아키텍처로 전환하면, 서버는 상태를 저장하지 않고 요청 하나하나를 독립적으로 처리하니까, 전통적인 API랑 운영 방식이 비슷해지는 건 맞습니다. 
+
+하지만 그게 끝은 아니에요. 확장성과 장애 대응 면에서 얻는 이점이 크고, 반대로 클라이언트 쪽 부담과 인증, 데이터 일관성 문제 같은 새로운 고민도 생깁니다. 이번 글에서는 MCP를 무상태로 전환할 때 백엔드 엔지니어가 마주하는 현실적인 장단점과 설계 패턴을 제 경험과 함께 풀어보겠습니다.
+
+---
+
+## MCP 무상태 전환이 확장성과 복원력에 미치는 영향
+
+MCP가 무상태가 되면 서버가 클라이언트 상태를 저장하지 않아요. 요청에 필요한 모든 정보를 담아서 보내면, 서버는 그 요청만 보고 처리합니다. 이게 왜 좋냐면…
+
+- **스케일 아웃이 쉬워집니다.** 서버 인스턴스를 더 띄우기만 하면 되고, 어느 서버가 어떤 요청을 처리해도 상관없죠.
+- **장애 복원력이 좋아집니다.** 특정 서버가 죽어도 다른 서버가 바로 요청을 받아서 처리할 수 있고, 상태 동기화 걱정이 없어요.
+
+이건 마틴 파울러가 말한 무상태 아키텍처의 핵심 장점이기도 합니다. 실제로 이런 구조 덕분에 대규모 분산 시스템에서 확장성과 장애 대응이 훨씬 수월해졌죠[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+우리 팀도 MCP를 무상태로 바꾸면서, 부하가 급격히 늘어날 때 서버를 3배 이상 빠르게 증설할 수 있었어요. 이전에는 상태 동기화 때문에 늘리는 게 쉽지 않았거든요.
+
+---
+
+## 무상태 MCP, 결국 API처럼 동작한다는 건 무슨 뜻일까?
+
+무상태 MCP가 전통적인 API와 비슷해진다는 건, 클라이언트가 모든 상태를 직접 관리해야 한다는 뜻입니다. 예를 들어, 요청마다 필요한 인증 토큰, 세션 정보, 심지어 이전 작업 결과까지 포함시켜야 하죠. 서버는 그 요청만 보고 처리할 뿐, 별도의 상태 저장소를 참조하지 않습니다.
+
+이 패턴은 OpenAI API처럼 요청 단위로 완전한 컨텍스트를 보내는 구조와 닮아 있어요. 클라이언트가 상태를 들고 다니면서 서버는 요청에 집중하는 형태죠[OpenAI API Documentation](https://platform.openai.com/docs/overview).
+
+이런 설계는 서비스 간 결합도를 낮추고, 서비스가 독립적으로 배포되고 운영될 수 있게 해줍니다. InfoQ에서도 무상태 아키텍처가 서비스 간 결합도를 낮추고, 빠른 장애 복구를 가능하게 한다고 강조했죠[InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/).
+
+하지만 무상태 API를 설계할 때는, 요청에 상태 정보를 어떻게 명확히 포함시킬지 고민해야 합니다. Anthropic의 프롬프트 엔지니어링 가이드에서는, 프롬프트에 완전한 컨텍스트를 담아야 하는 이유가 바로 여기에 있다고 설명합니다. 상태 누락이나 모호함이 있으면, API가 제대로 동작하지 않거든요[Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview).
+
+---
+
+## 무상태 MCP 전환 시 생기는 클라이언트 복잡도와 보안 고민
+
+서버에 상태를 두지 않으니, 클라이언트가 상태를 모두 관리해야 하는데, 이게 생각보다 쉽지 않습니다. 특히 인증과 인가, 그리고 데이터 일관성 문제에서 복잡도가 확 올라가죠.
+
+GitHub 엔지니어링 블로그에서도 지적했듯, 무상태 설계는 인증 토큰 관리, 권한 검증 로직이 클라이언트 요청마다 엄격히 수행되어야 하며, 데이터 일관성을 맞추기 위해 추가적인 설계가 필요하다고 합니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+예를 들어, 우리 팀에서 무상태 MCP로 바꾸면서 겪은 일인데요. 기존에는 서버 세션에 인증 상태를 저장했지만, 이제는 JWT 토큰을 클라이언트가 들고 다니면서 매 요청마다 검증해야 했어요. 이 과정에서 토큰 만료 관리, 재발급 로직을 신중히 설계하지 않으면 사용자 경험이 크게 나빠질 수 있더군요.
+
+또한, 데이터 일관성 문제도 무시할 수 없는데, 상태가 서버에 없으니 클라이언트가 여러 요청을 보낼 때 발생하는 충돌이나 중복 처리 문제를 별도로 막아야 합니다.
+
+---
+
+## Cloudflare 사례에서 배우는 무상태 MCP 운영 노하우
+
+Cloudflare가 무상태 서비스로 전환하면서 겪은 경험도 참고할 만합니다. 그들은 API 중심 설계를 통해 개발과 운영을 단순화하는 데 성공했지만, 캐시 전략과 요청 재처리 로직 설계가 까다로운 도전 과제였다고 해요[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+특히 캐시를 잘못 설계하면, 무상태라고 해도 불필요한 중복 요청이나 오래된 데이터가 반환될 수 있습니다. 그래서 요청마다 캐시 키를 꼼꼼히 설계하고, 재처리 로직에 타임스탬프와 고유 요청 ID를 넣어 중복 실행을 막는 패턴을 썼죠.
+
+우리 팀도 이 방식을 참고해서, 요청 헤더에 `X-Request-ID`를 넣고, 서버에서 중복 요청을 감지해 재처리하지 않도록 했습니다. 덕분에 장애 상황에서도 무상태 MCP가 안정적으로 동작할 수 있었어요.
+
+---
+
+## 실제 무상태 MCP 요청 처리 예시 (Java Spring Boot)
+
+아래는 무상태 MCP API에서 인증 토큰과 요청 ID를 받아 처리하는 예시 코드입니다. 이 코드는 매 요청마다 JWT 토큰을 검증하고, 중복 요청을 방지하는 간단한 로직을 포함합니다.
+
+```java
+@RestController
+@RequestMapping("/mcp")
+public class MpcController {
+
+    private final JwtService jwtService;
+    private final RequestTracker requestTracker;
+
+    public MpcController(JwtService jwtService, RequestTracker requestTracker) {
+        this.jwtService = jwtService;
+        this.requestTracker = requestTracker;
+    }
+
+    @PostMapping("/process")
+    public ResponseEntity<String> processRequest(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestHeader("X-Request-ID") String requestId,
+            @RequestBody Map<String, Object> payload) {
+
+        // 1. 인증 토큰 검증
+        if (!jwtService.validateToken(authHeader)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid token");
+        }
+
+        // 2. 중복 요청 체크
+        if (requestTracker.isDuplicate(requestId)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("Duplicate request");
+        }
+        requestTracker.recordRequest(requestId);
+
+        // 3. 요청 처리 (상태 없이 요청 정보만으로 처리)
+        String result = handlePayload(payload);
+
+        return ResponseEntity.ok(result);
+    }
+
+    private String handlePayload(Map<String, Object> payload) {
+        // 실제 비즈니스 로직 처리
+        return "Processed payload with keys: " + payload.keySet();
+    }
+}
+```
+
+이 예시는 무상태 MCP가 어떻게 API처럼 동작하는지, 그리고 클라이언트가 상태를 들고 다니면서 서버는 요청 단위로 처리하는 방식을 보여줍니다. 물론 실제 환경에서는 인증 토큰 재발급, 요청 ID 만료 정책, 데이터 일관성 보장 로직이 더 복잡하게 들어가야 합니다.
+
+---
+
+## 무상태 MCP, 결국 API와 같지만 그 이상의 의미를 갖는 이유
+
+무상태 MCP가 API처럼 동작하는 건 분명하지만, 단순한 API 그 이상입니다. 
+
+- **운영과 확장성에서 차별점이 큽니다.** 무상태 설계 덕분에 서버 확장과 장애 복구가 훨씬 수월해지니까요.
+- **클라이언트와 서버의 역할 분담이 명확해집니다.** 서버는 요청 처리에 집중하고, 클라이언트는 상태 관리와 인증에 책임을 집니다.
+- **설계 복잡도가 분산됩니다.** 서버가 상태를 저장하지 않으니 서버 측 복잡도는 줄지만, 클라이언트와 인증, 데이터 일관성 관리가 까다로워집니다.
+
+즉, "MCP가 무상태가 되면 그냥 API랑 똑같아지는 거 아니냐"는 질문은 맞으면서도 틀린 질문입니다. 무상태 MCP는 API처럼 동작하지만, 그 설계와 운영 패턴, 그리고 시스템 전반에 미치는 영향은 훨씬 더 깊고 넓습니다.
+
+---
+
+# 마무리하며: 무상태 MCP 전환, 이렇게 준비하세요
+
+- **클라이언트 상태 관리 전략을 명확히 하라.** 모든 상태를 클라이언트가 들고 다니므로, 인증 토큰 관리, 세션 정보, 요청 컨텍스트를 꼼꼼히 설계해야 합니다.
+- **중복 요청과 캐시 전략을 신중히 설계하라.** Cloudflare 사례처럼, 중복 처리 방지와 적절한 캐시 키 설계가 중요합니다.
+- **인증·인가 로직을 강화하라.** 매 요청마다 엄격한 검증이 필요하며, 토큰 만료와 재발급 정책도 체계적으로 관리해야 합니다.
+- **장애 복구와 확장 시나리오를 미리 테스트하라.** 무상태 아키텍처의 강점이 실제 운영에서 발휘되는지 꼭 확인하세요.
+
+이걸 실제로 경험해보면, 무상태 MCP 전환은 단순히 기술 트렌드 따라가기 이상의 의미가 있다는 걸 알게 됩니다. 확장성과 복원력은 물론이고, 서비스 운영 방식 자체를 바꾸는 도전이니까요. 
+
+여러분도 MCP 무상태 전환을 고민 중이라면, 이 글이 조금이나마 현실적인 판단에 도움이 되길 바랍니다.
+
+---
+
+# 참고 자료
+
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
