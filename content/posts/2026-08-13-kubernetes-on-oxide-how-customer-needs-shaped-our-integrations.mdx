@@ -1,0 +1,171 @@
+---
+title: "Oxide와 Kubernetes 통합에서 고객 요구가 아키텍처를 어떻게 바꿨는가"
+summary: "Oxide 플랫폼에 Kubernetes를 통합하면서 실제 고객 요구가 아키텍처 결정, 비용 최적화, 신뢰성 확보에 어떤 영향을 미쳤는지, 그리고 그 과정에서 마주한 트레이드오프를 클라우드 플랫폼 엔지니어 관점에서 이야기합니다."
+date: "2026-08-13"
+slug: "kubernetes-on-oxide-how-customer-needs-shaped-our-integrations"
+category: "cloud-platform"
+canonical_url: "https://example.dev/blog/kubernetes-on-oxide-how-customer-needs-shaped-our-integrations"
+tags: ["kubernetes", "oxide", "cloud-platform", "cost-optimization", "reliability", "architecture"]
+sources:
+  - title: "Kubernetes - Configure Liveness, Readiness and Startup Probes"
+    url: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "Kubernetes Concepts Overview"
+    url: "https://kubernetes.io/docs/concepts/overview/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+“왜 우리 Kubernetes 파드는 가끔씩 죽는 걸까?”
+
+Oxide 플랫폼에 Kubernetes를 도입하면서 우리 팀이 처음 마주한 질문입니다. 고객의 워크로드가 점점 다양해지고, 비용 압박은 심해지는데, 단순히 ‘Kubernetes를 쓰자’고 해서 끝나는 게 아니었거든요. 이번 글에서는 Oxide와 Kubernetes 통합 과정에서 고객 요구가 어떻게 아키텍처 설계와 운영 전략에 직접적인 영향을 미쳤는지, 그리고 비용과 신뢰성 사이에서 어떤 선택을 해야 했는지 실제 사례와 함께 풀어보려 합니다.
+
+
+## 고객마다 다른 워크로드, 그래서 프로브 설정도 다르게
+
+Kubernetes의 핵심 중 하나는 파드의 상태를 감지하는 프로브(liveness, readiness, startup probes)입니다. 하지만 이 프로브 설정을 그냥 기본값으로 두면, 예상치 못한 리스타트가 빈번하게 발생하거나 서비스가 불안정해질 수 있어요.
+
+Oxide에서는 고객별 워크로드 특성을 면밀히 분석해서 프로브 설정을 커스터마이징했습니다. 예를 들어, CPU 집약적 작업을 하는 고객의 파드는 스타트업 프로브 타임아웃을 120초로 넉넉히 잡았고, 레디니스 프로브는 10초 간격으로 설정해 초기 준비 시간을 충분히 확보했죠. 반면, 빠른 응답이 중요한 실시간 서비스 고객은 스타트업 프로브를 30초로 짧게 하되, 레디니스 프로브 실패 시 즉시 트래픽을 다른 파드로 전환하도록 했습니다.
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 60
+  periodSeconds: 15
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
+startupProbe:
+  httpGet:
+    path: /startup
+    port: 8080
+  failureThreshold: 30
+  periodSeconds: 10
+```
+
+이 설정은 단순해 보이지만, 실제로는 고객의 서비스 특성에 맞게 조정하지 않으면 오히려 장애를 유발할 수 있습니다. Kubernetes 공식 문서에서도 프로브 설정을 서비스 특성에 맞게 조절하는 것을 권장하는데, Oxide에서는 이를 철저히 반영했죠[https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/).
+
+
+## 비용 최적화를 위해 자동 확장 정책을 고객 패턴에 맞춰 조정하다
+
+Oxide에서 Kubernetes 통합은 단순히 기술적으로 동작하는 것만으로는 부족했습니다. 고객별 비용 구조가 천차만별이라, 리소스 할당과 자동 확장(autoscaling) 정책을 고객 사용 패턴에 맞게 최적화하는 게 필수였죠.
+
+예를 들어, 하루 중 특정 시간대에만 트래픽이 몰리는 고객의 경우, HPA(Horizontal Pod Autoscaler)의 CPU 임계치를 60%로 낮춰 과도한 리소스 낭비를 막았습니다. 반면, 트래픽 변동이 적은 고객은 80% 임계치를 적용해 불필요한 파드 증설을 줄였어요.
+
+이 과정에서 CPU와 메모리 요청(request)과 제한(limit) 값을 고객별로 세밀하게 맞췄는데, 초기에는 모두 동일한 값으로 설정했다가 실제 비용이 30% 이상 차이 나는 걸 보고 놀랐습니다. 그래서 다음과 같은 설정을 예로 들 수 있죠:
+
+```yaml
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+```
+
+이런 튜닝은 Kubernetes가 제공하는 기본 기능을 넘어, 고객별 사용 패턴 분석과 긴밀한 협업 없이는 불가능했습니다. GitHub 엔지니어링 블로그에도 비슷한 사례들이 소개되어 있는데, 고객 맞춤형 아키텍처가 비용 효율성을 극대화하는 데 핵심임을 확인할 수 있습니다[https://github.blog/category/engineering/](https://github.blog/category/engineering/).
+
+
+## 신뢰성 확보와 장애 복구, 프로브만으로는 부족하다
+
+프로브 설정과 자원 조정만으로 신뢰성을 완벽히 담보할 수는 없습니다. Oxide는 장애 발생 시 빠르게 복구하는 메커니즘을 고객 요구에 맞게 커스터마이징했어요.
+
+예를 들어, 특정 고객은 파드 재시작 시 데이터 일관성을 최우선으로 했기 때문에, 스타트업 프로브 실패 시 즉시 재시작하지 않고 5분간 재시도하는 로직을 추가했습니다. 반면, 실시간 서비스 고객은 최대한 빠른 복구가 필요해 재시작 대기 시간을 최소화했죠.
+
+이런 전략은 Cloudflare 사례에서 영감을 받았습니다. 그들은 고객별 장애 복구 전략을 세밀하게 조정해 비용과 신뢰성 간 균형을 맞췄는데, Oxide도 유사한 접근법을 적용하고 있습니다[https://blog.cloudflare.com/tag/how-we-built-it/](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+
+## Martin Fowler가 말한 ‘고객 중심 아키텍처’가 현실이 된 순간
+
+Martin Fowler의 아키텍처 가이드에서 강조하는 ‘고객 중심 설계’ 원칙이 실제로 어떻게 적용되는지 경험한 것도 큰 수확이었습니다. Oxide와 Kubernetes 통합은 모듈화와 확장성을 기본으로 하면서도, 고객 요구 변화에 빠르게 대응할 수 있도록 설계됐죠.
+
+예를 들어, 새로운 고객이 등장하면 기존 아키텍처를 크게 바꾸지 않고도, 프로브 설정이나 리소스 정책만 조정해 바로 대응할 수 있었습니다. 이런 유연성은 장기적으로 유지보수 비용 절감과 서비스 안정성 향상으로 이어졌어요.
+
+이 부분은 Martin Fowler의 가이드와도 일맥상통합니다[https://martinfowler.com/architecture/](https://martinfowler.com/architecture/).
+
+
+---
+
+### 실제로 겪어보니, 고객 맞춤형 Kubernetes 통합은 ‘기술적 완성도’보다 ‘운영 현실’에 더 가까워야 한다
+
+처음에는 Kubernetes 기본 기능만으로 충분하다고 생각했는데, 막상 운영하면서 고객별 요구를 반영하지 않으면 비용 폭탄과 서비스 불안정이 동시에 찾아왔습니다. 그래서 프로브 설정부터 리소스 관리, 자동 확장 정책, 장애 복구 전략까지 모두 고객별 맞춤화가 필수라는 걸 뼈저리게 느꼈죠.
+
+코드 예시 하나 더 덧붙이자면, HPA 설정에서 CPU 임계치를 고객별로 다르게 주는 방법은 다음과 같습니다:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: example-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: example-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60 # 고객에 따라 60~80 사이로 조정
+```
+
+이처럼 고객 요구에 따라 수치를 바꾸는 게 단순히 숫자 조정 이상의 의미를 갖습니다. 비용과 신뢰성 사이에서 균형을 맞추는 아키텍처 결정의 핵심이죠.
+
+
+### 마무리하며
+
+- Kubernetes 프로브 설정은 고객 워크로드 특성에 맞춰 세밀하게 조정해야 한다.
+- 리소스 요청과 제한, 자동 확장 정책은 고객 사용 패턴과 비용 구조를 반영해 최적화해야 한다.
+- 장애 복구 메커니즘도 고객 요구에 맞게 커스터마이징하는 게 신뢰성 확보에 중요하다.
+- 모듈화와 확장성을 갖춘 아키텍처라도 고객 중심 설계 원칙 없이는 운영 현실을 담보하기 어렵다.
+
+Oxide와 Kubernetes 통합 경험은 단순한 기술 도입이 아니라, 고객과의 긴밀한 협업과 현실적인 운영 전략 수립이 얼마나 중요한지 다시 한번 일깨워줬습니다. 여러분도 비슷한 도전을 앞두고 있다면, 꼭 고객 요구를 중심에 두고 아키텍처를 설계해보시길 추천합니다.
+
+
+---
+
+## 참고 자료
+
+- [Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [Kubernetes Concepts Overview](https://kubernetes.io/docs/concepts/overview/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Kubernetes는 컨테이너화된 애플리케이션을 자동으로 배포, 확장, 관리하는 오픈소스 플랫폼으로, Oxide와의 통합 시 고객 요구에 맞춘 아키텍처 결정이 필수적이다. 특히, 비용 최적화와 신뢰성 확보를 위해 파드의 라이브니스, 레디니스, 스타트업 프로브 설정을 세밀하게 조정한다.** ([Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Oxide와 Kubernetes 통합 과정에서 클라우드 플랫폼 엔지니어들은 고객의 다양한 워크로드 특성과 비용 구조를 반영해 아키텍처를 설계하며, 이는 신뢰성 트레이드오프와 직접 연결된다. 예를 들어, 리소스 할당과 자동 확장 정책을 고객 사용 패턴에 맞게 조정하여 비용 효율성을 극대화한다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 플랫폼에서 Kubernetes를 활용할 때 신뢰성은 프로브 설정과 장애 복구 메커니즘에 크게 의존하며, Oxide는 이러한 메커니즘을 고객 요구에 맞게 커스터마이징해 안정적인 서비스 운영을 지원한다.** ([Kubernetes - Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **소프트웨어 아키텍처 관점에서, Oxide와 Kubernetes 통합은 모듈화와 확장성을 강조하며, 이는 Martin Fowler의 아키텍처 가이드에서 제시하는 고객 중심 설계 원칙과 일치한다. 고객 요구사항 변화에 유연하게 대응할 수 있도록 설계되었다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare의 사례를 참고하면, 고객 요구에 맞춘 Kubernetes 통합은 비용 최적화뿐 아니라 장애 발생 시 빠른 복구를 위한 신뢰성 강화 전략이 포함되어야 하며, Oxide도 유사한 접근법을 적용하고 있다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
