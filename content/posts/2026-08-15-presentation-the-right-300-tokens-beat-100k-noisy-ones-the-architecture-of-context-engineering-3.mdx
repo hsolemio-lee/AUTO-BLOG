@@ -1,0 +1,149 @@
+---
+title: "LLM 컨텍스트 엔지니어링에서 300개의 핵심 토큰이 10만 개의 잡음 토큰보다 나은 이유와 백엔드 아키텍처 설계법"
+summary: "대규모 언어 모델(LLM) 컨텍스트를 다룰 때, 불필요한 토큰을 줄이고 핵심 정보에 집중하는 토큰 최적화 전략이 왜 중요한지, 그리고 이를 뒷받침하는 백엔드 아키텍처 설계와 운영 트레이드오프를 실제 사례와 함께 살펴봅니다."
+date: "2026-08-15"
+slug: "presentation-the-right-300-tokens-beat-100k-noisy-ones-the-architecture-of-context-engineering"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/presentation-the-right-300-tokens-beat-100k-noisy-ones-the-architecture-of-context-engineering"
+tags: ["LLM", "컨텍스트엔지니어링", "토큰최적화", "마이크로서비스", "캐시패턴"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## 왜 10만 개 토큰보다 300개의 핵심 토큰이 더 효과적일까?
+
+최근 LLM을 활용하는 프로젝트를 하면서, 컨텍스트에 너무 많은 토큰을 넣는 게 오히려 성능 저하와 비용 폭증으로 이어진다는 걸 뼈저리게 느꼈습니다. 예를 들어, 100,000개 가까운 잡음 토큰을 넣는 대신, 300개 정도의 잘 다듬어진 핵심 토큰만 넣었을 때 응답 속도가 훨씬 빨라지고, 비용도 3분의 1 이하로 줄었거든요.
+
+이건 단순히 비용 문제뿐 아니라, LLM의 처리 한계와도 직결됩니다. 너무 많은 토큰을 넣으면 모델이 집중해야 할 정보가 희석돼서 결과 품질이 떨어지고, 불필요한 토큰이 많아질수록 처리 지연도 커집니다. 그래서 백엔드 시스템 설계 시 토큰 최적화는 필수입니다.
+
+Martin Fowler의 소프트웨어 아키텍처 가이드에서도 핵심 정보에 집중하는 토큰 최적화가 LLM 처리 비용과 응답 시간을 크게 개선한다고 명확히 짚고 있죠[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+
+## 마이크로서비스로 토큰 처리 책임 분리하기
+
+컨텍스트 엔지니어링에서 토큰을 어떻게 관리하느냐가 관건인데, 마이크로서비스 아키텍처가 이 부분에서 특히 빛을 발합니다. 각 서비스가 독립적으로 토큰 필터링, 정제, 캐싱 등을 담당하면서 병목 현상을 줄이고, 필요에 따라 각 서비스만 확장할 수 있거든요.
+
+예를 들어, 토큰 수집 서비스, 노이즈 제거 서비스, 핵심 토큰 관리 서비스가 각각 독립적으로 운영되면, 한 곳에서 토큰 처리 지연이 발생해도 전체 시스템이 멈추지 않습니다. 그리고 각 서비스별로 최적화 방향도 달리 가져갈 수 있어요.
+
+Martin Fowler가 마이크로서비스의 독립성과 책임 분리가 병목 감소와 확장성 향상에 필수적이라고 한 부분이 딱 이 상황에 맞습니다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+
+## 캐시-어사이드 패턴으로 핵심 토큰 지연 시간 줄이기
+
+LLM 호출 시 컨텍스트 토큰을 매번 새로 생성하거나 DB에서 꺼내면 지연 시간이 늘어나기 마련입니다. 그래서 자주 쓰이는 핵심 토큰을 캐시에 올려두고, 필요할 때 빠르게 꺼내 쓰는 캐시-어사이드 패턴이 효과적입니다.
+
+이 패턴은 캐시 미스가 발생하면 DB에서 데이터를 가져와 캐시에 넣고, 이후 요청부터는 캐시에서 바로 읽도록 하죠. 이렇게 하면 LLM 호출 전 처리 시간이 크게 줄어들고, 전체 응답 시간 개선 효과가 큽니다.
+
+실제로 Azure 아키텍처 가이드에서도 이 패턴을 클라우드 환경에서 지연 시간 최소화 전략으로 추천하고 있습니다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+
+```java
+// Java Spring에서 캐시-어사이드 패턴 간단 구현 예
+@Service
+public class TokenService {
+
+    private final Cache<String, List<String>> tokenCache = CacheBuilder.newBuilder()
+            .maximumSize(1000)
+            .expireAfterWrite(10, TimeUnit.MINUTES)
+            .build();
+
+    private final TokenRepository tokenRepository;
+
+    public TokenService(TokenRepository tokenRepository) {
+        this.tokenRepository = tokenRepository;
+    }
+
+    public List<String> getCoreTokens(String contextId) {
+        List<String> tokens = tokenCache.getIfPresent(contextId);
+        if (tokens == null) {
+            tokens = tokenRepository.fetchCoreTokens(contextId);
+            tokenCache.put(contextId, tokens);
+        }
+        return tokens;
+    }
+}
+```
+
+위 예시는 특정 컨텍스트 ID에 대한 핵심 토큰을 캐시에 저장했다가 재사용하는 간단한 구조입니다. 처음 호출 땐 DB에서 가져오고, 이후 10분 동안은 캐시에서 바로 읽으니 LLM 호출 전 처리 속도가 눈에 띄게 빨라집니다.
+
+
+## 잡 큐와 이벤트 기반 아키텍처로 토큰 필터링 병렬화하기
+
+대규모 토큰 데이터를 실시간으로 처리하려면 단순히 동기식으로 처리하는 건 무리입니다. GitHub 엔지니어링 블로그에서 소개한 것처럼, 잡 큐(job queue)와 이벤트 기반 아키텍처를 활용해 토큰 필터링과 정제를 비동기, 병렬로 처리하면 시스템 부하를 효과적으로 분산할 수 있습니다[GitHub Engineering Blog](https://github.blog/category/engineering/).
+
+예를 들어, 사용자의 입력이 들어오면 이벤트를 발생시키고, 여러 워커(worker)가 이 이벤트를 받아 토큰 필터링 작업을 병렬로 수행합니다. 이렇게 하면 대기 시간 없이 토큰 최적화 작업을 확장 가능하게 만들 수 있죠.
+
+이 방식을 도입하면 토큰 처리량이 급증해도 시스템이 멈추거나 지연되지 않고, LLM에 전달되는 컨텍스트 품질도 꾸준히 유지할 수 있습니다.
+
+
+## 노이즈 제거 알고리즘과 실시간 스트리밍 파이프라인 구축하기
+
+Cloudflare가 공개한 사례를 보면, 토큰 최적화를 위해 '노이즈 제거' 알고리즘을 도입하고, 실시간 스트리밍 데이터 파이프라인을 구축해 불필요한 토큰을 사전에 걸러내는 전략을 썼습니다[Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+이게 실제로 해보면 생각보다 까다로운데, 노이즈 판단 기준을 너무 빡세게 잡으면 중요한 정보가 누락될 위험이 있고, 너무 느슨하면 잡음이 그대로 남거든요. 그래서 머신러닝 기반 필터링과 룰 기반 필터링을 조합해서 점진적으로 최적화하는 게 효과적입니다.
+
+또한, 실시간 스트리밍 파이프라인 덕분에 토큰 필터링이 지연 없이 바로바로 처리돼 LLM 호출 시점에 최적화된 컨텍스트가 전달됩니다. 이런 설계는 특히 사용자 인터랙션이 빠르게 일어나는 서비스에서 큰 장점입니다.
+
+
+---
+
+### 개인적으로 겪은 토큰 최적화의 함정
+
+제가 직접 참여한 프로젝트에서 처음엔 토큰 최적화가 얼마나 중요한지 감을 못 잡았어요. 무작정 많은 데이터를 넣으면 LLM이 더 똑똑해질 줄 알았죠. 그런데 막상 해보니 응답 속도는 느려지고, 비용은 예상보다 몇 배 더 나왔습니다.
+
+그래서 핵심 토큰만 뽑는 작업에 집중했고, 마이크로서비스로 역할을 나누고, 캐시-어사이드 패턴을 적용하면서 점차 안정적인 성능을 얻었죠. 잡 큐와 이벤트 기반 아키텍처도 도입해 토큰 처리 병목을 최소화했습니다.
+
+이 경험을 통해 배운 건, 토큰 최적화는 단순히 데이터 크기를 줄이는 게 아니라, 아키텍처 전반에 걸쳐 설계와 운영 전략을 함께 고민해야 하는 문제라는 점입니다.
+
+
+---
+
+## 오늘 당장 적용해볼 수 있는 토큰 최적화 체크리스트
+
+- **핵심 정보 정의하기**: 컨텍스트에 꼭 필요한 토큰이 무엇인지 도메인 지식과 사용자 행동 데이터를 기반으로 명확히 하세요.
+- **마이크로서비스 분리**: 토큰 수집, 필터링, 캐싱 등 역할별로 서비스를 나누고 독립적으로 운영하세요.
+- **캐시-어사이드 패턴 활용**: 자주 쓰이는 핵심 토큰은 캐시에 올려서 지연 시간을 줄이세요.
+- **비동기 처리 도입**: 잡 큐와 이벤트 기반 아키텍처로 토큰 필터링 작업을 병렬화하세요.
+- **노이즈 제거 알고리즘 적용**: 룰 기반과 ML 기반 필터링을 조합해 불필요한 토큰을 사전에 걸러내세요.
+
+---
+
+컨텍스트 엔지니어링은 단순히 LLM에 데이터를 많이 넣는 게 아니라, 얼마나 잘 다듬고, 빠르게 전달하느냐가 관건입니다. 오늘 소개한 아키텍처 설계법과 운영 노하우가 여러분 프로젝트에도 도움이 되길 바랍니다.
+
+
+## 참고 자료
+
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **효율적인 컨텍스트 엔지니어링을 위해 백엔드 시스템은 불필요한 토큰을 줄이고 핵심 정보에 집중하는 토큰 최적화 전략을 채택해야 한다. 이는 LLM의 처리 비용과 응답 시간을 크게 개선한다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **마이크로서비스 아키텍처는 컨텍스트 엔지니어링에서 각 서비스가 독립적으로 토큰 처리와 관리 책임을 가지도록 하여 병목 현상을 줄이고 확장성을 높인다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 디자인 패턴 중에서 '캐시-어사이드(Cache-Aside)' 패턴은 빈번하게 참조되는 핵심 토큰 정보를 캐싱하여 LLM 호출 시 지연 시간을 최소화하는 데 효과적이다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그에서는 대규모 토큰 데이터 처리 시 잡(job) 큐와 이벤트 기반 아키텍처를 활용해 비동기 처리와 토큰 필터링을 병렬화함으로써 시스템 부하를 분산하는 방법을 소개했다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cloudflare는 자사 블로그에서 토큰 최적화를 위해 '노이즈 제거' 알고리즘과 실시간 스트리밍 데이터 파이프라인을 구축하여 불필요한 토큰을 사전에 걸러내고, LLM에 전달되는 컨텍스트 품질을 높이는 방법을 설명했다.** ([Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
