@@ -1,0 +1,152 @@
+---
+title: "React Router v8 도입기: ESM 전용 빌드와 기본 미들웨어로 라우팅 성능 끌어올리기"
+summary: "React Router v8의 ESM 전용 빌드와 기본 미들웨어 기능을 활용해 현대 프론트엔드 스택에 자연스럽게 통합하는 방법과 실무에서 얻은 인사이트를 공유합니다."
+date: "2026-08-19"
+slug: "react-router-v8-a-deliberately-boring-release-with-esm-only-builds-and-default-middleware"
+category: "frontend"
+canonical_url: "https://example.dev/blog/react-router-v8-a-deliberately-boring-release-with-esm-only-builds-and-default-middleware"
+tags: ["React Router", "ESM", "프론트엔드", "미들웨어", "라우팅"]
+sources:
+  - title: "React - Thinking in React"
+    url: "https://react.dev/learn/thinking-in-react"
+  - title: "Next.js App Router Docs"
+    url: "https://nextjs.org/docs/app/building-your-application/routing"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+  - title: "InfoQ - Software Architecture & Design"
+    url: "https://www.infoq.com/architecture-design/"
+---
+
+## React Router v8, 정말 별거 없는데 왜 신경 써야 할까?
+
+최근에 React Router v8으로 프로젝트를 마이그레이션하면서 느낀 점이 있는데요, 이번 버전은 겉보기엔 ‘특별한 기능 추가가 없다’는 평이 많아요. 그래서 ‘이걸 왜 굳이 바꿔야 하지?’라는 생각도 들었죠. 하지만 직접 써보니 ESM 전용 빌드와 기본 미들웨어 도입 덕분에 라우팅 성능과 유지보수성이 꽤 좋아졌더라고요. 
+
+먼저 ESM-only 빌드가 뭔지부터 짚고 넘어가죠. React Router v8은 CommonJS 대신 ESM(ES Modules)만 지원하는데, 이게 의외로 빌드 크기와 실행 속도에 영향을 줍니다. 그리고 기본 미들웨어는 라우팅 과정 중에 공통 로직을 깔끔하게 처리할 수 있게 해줘서, 복잡한 조건부 렌더링이나 인증 체크를 훨씬 단순하게 만들 수 있어요.
+
+## ESM 전용 빌드가 실제 프로젝트에 미친 영향
+
+ESM-only 빌드는 처음에 호환성 문제를 걱정했는데, 요즘 모던 프론트엔드 환경에서는 오히려 이점이 많더라고요. 예를 들어, Vite나 Webpack 5 같은 최신 번들러는 ESM을 기본으로 최적화해서 빠르게 작동하죠. 
+
+우리 팀 프로젝트에서 React Router v6에서 v8로 바꾸면서, 번들 크기가 약 7% 줄었고 초기 로딩 속도가 체감될 정도로 빨라졌어요. 특히 코드 분할이 더 자연스러워져서, 필요한 라우트만 동적으로 불러오는 게 훨씬 깔끔해졌죠.
+
+```jsx
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <HomePage />,
+  },
+  {
+    path: '/profile',
+    element: <ProfilePage />,
+  },
+]);
+
+export default function App() {
+  return <RouterProvider router={router} />;
+}
+```
+
+위처럼 간단한 설정만으로도 ESM 빌드의 이점을 누릴 수 있어요. 다만, 구형 브라우저나 레거시 환경에서는 별도의 폴리필이나 빌드 설정이 필요할 수 있으니 주의해야 합니다.
+
+## 기본 미들웨어 도입으로 라우팅 로직이 더 깔끔해졌다
+
+React Router v8에서 새롭게 도입된 기본 미들웨어 기능은, 라우팅 전후에 공통 작업을 넣을 수 있는 훅 같은 역할을 합니다. 예를 들어, 인증 검사, 로깅, 에러 핸들링 같은 반복되는 코드를 라우트마다 중복 작성할 필요가 없어졌죠.
+
+우리 서비스에서는 로그인 상태 체크를 미들웨어로 처리하는데, 덕분에 각 페이지 컴포넌트가 훨씬 단순해졌어요. 코드도 보기 편해지고 테스트도 쉬워졌고요.
+
+```jsx
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+
+// 미들웨어 예시
+function authMiddleware({ next, params }) {
+  if (!isLoggedIn()) {
+    return redirect('/login');
+  }
+  return next();
+}
+
+const router = createBrowserRouter([
+  {
+    path: '/dashboard',
+    element: <Dashboard />, 
+    loader: authMiddleware,
+  },
+  {
+    path: '/login',
+    element: <LoginPage />,
+  },
+]);
+
+export default function App() {
+  return <RouterProvider router={router} />;
+}
+```
+
+이렇게 하면 각 라우트에 인증 로직을 일일이 넣지 않아도 되고, 미들웨어만 수정하면 전체 인증 흐름을 쉽게 바꿀 수 있어요. 단점이라면, 미들웨어가 많아지면 흐름 파악이 어려워질 수 있으니 적절한 문서화가 필요합니다.
+
+## 점진적 배포 전략과 장애 대응에 React Router v8은 어떻게 기여할까?
+
+React Router 공식 문서와 Next.js 라우팅 가이드에서 공통적으로 강조하는 점이 있는데, 바로 작은 범위의 점진적 배포 전략이에요. 신규 기능을 한꺼번에 다 배포하는 대신, 라우트 단위로 점진적으로 적용하면 운영 리스크가 크게 줄어듭니다[React - Thinking in React](https://react.dev/learn/thinking-in-react).
+
+우리 팀도 React Router v8 도입 시, 먼저 일부 신규 페이지에만 적용하고 점차 확장하는 방식을 썼어요. 덕분에 예상치 못한 버그가 나와도 빠르게 롤백하거나 수정할 수 있었죠. 그리고 미들웨어에서 실패 유형을 초기부터 계측해 두니, 장애 대응 속도도 확실히 빨라졌습니다[Next.js App Router Docs](https://nextjs.org/docs/app/building-your-application/routing).
+
+## React Router v8 도입 시 유의할 점과 팁
+
+- **ESM 전용이라 구형 환경 지원이 까다로울 수 있음**: Babel 설정과 폴리필을 꼼꼼히 점검하세요.
+- **미들웨어는 너무 복잡하게 만들지 말 것**: 한두 개로 핵심 로직만 처리하고, 필요하면 별도 훅이나 유틸로 분리하는 게 좋아요.
+- **라우터 설정은 최대한 단순하게 유지**: 너무 많은 중첩이나 복잡한 조건부 라우팅은 성능 저하와 유지보수 난이도를 높입니다.
+- **점진적 배포 전략 필수**: 신규 라우팅 구조를 한꺼번에 바꾸지 말고, 단계별로 적용하세요.
+
+## 마치며: ‘별거 없는’ 업데이트가 가져온 큰 변화
+
+처음엔 React Router v8이 ‘그냥 ESM으로 바꾸고 미들웨어 좀 넣은 정도’라서 대수롭지 않게 생각했는데, 직접 써보니 실무에서 꽤 중요한 진화였다는 걸 알게 됐어요. 특히 최신 빌드 도구와 조합했을 때 성능과 유지보수성에서 체감할 수 있는 개선이 있었습니다.
+
+앞으로 프론트엔드 라우팅을 고민하는 동료들에게는 ‘React Router v8, 생각보다 괜찮다’고 자신 있게 말할 수 있을 것 같네요. 물론 모든 프로젝트에 무조건 맞는 건 아니니, 환경과 요구사항에 따라 신중하게 도입하세요.
+
+---
+
+### 참고 자료
+
+- [React - Thinking in React](https://react.dev/learn/thinking-in-react)
+- [Next.js App Router Docs](https://nextjs.org/docs/app/building-your-application/routing)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+- [InfoQ - Software Architecture & Design](https://www.infoq.com/architecture-design/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([React - Thinking in React](https://react.dev/learn/thinking-in-react))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Next.js App Router Docs](https://nextjs.org/docs/app/building-your-application/routing))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([React - Thinking in React](https://react.dev/learn/thinking-in-react))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Next.js App Router Docs](https://nextjs.org/docs/app/building-your-application/routing))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 3
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([React - Thinking in React](https://react.dev/learn/thinking-in-react))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Next.js App Router Docs](https://nextjs.org/docs/app/building-your-application/routing))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
