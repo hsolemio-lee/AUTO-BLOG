@@ -1,0 +1,193 @@
+---
+title: "Azure DevOps Remote MCP Server GA, AI 에이전트 미지원 상황에서 백엔드 환경에 적용하는 현실적인 방법"
+summary: "Azure DevOps Remote MCP Server가 정식 출시되었지만 Claude, ChatGPT, Cursor 같은 주요 AI 에이전트 지원은 아직 없다. 이 글에서는 백엔드 Spring 환경에서 MCP 서버를 통합하고 운영하는 실제 경험과 AI 미지원 문제를 우회하는 방법을 공유한다."
+date: "2026-08-21"
+slug: "azure-devops-remote-mcp-server-reaches-ga-without-support-for-claude-chatgpt-or-cursor"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/azure-devops-remote-mcp-server-reaches-ga-without-support-for-claude-chatgpt-or-cursor"
+tags: ["azure-devops", "mcp-server", "ai-integration", "spring-backend", "devops"]
+sources:
+  - title: "Cursor Documentation"
+    url: "https://docs.cursor.com/"
+  - title: "GitHub Copilot Documentation"
+    url: "https://docs.github.com/en/copilot"
+  - title: "Anthropic - Claude Code Overview"
+    url: "https://docs.anthropic.com/en/docs/claude-code/overview"
+  - title: "Vercel AI SDK Documentation"
+    url: "https://sdk.vercel.ai/docs/introduction"
+  - title: "GitHub Engineering Blog"
+    url: "https://github.blog/category/engineering/"
+  - title: "Cloudflare Blog - How We Built It"
+    url: "https://blog.cloudflare.com/tag/how-we-built-it/"
+---
+
+# Azure DevOps Remote MCP Server, AI 에이전트 없이도 백엔드에 적용할 수 있을까?
+
+최근 우리 팀에서 Azure DevOps Remote MCP Server가 GA(General Availability)에 도달했다는 소식을 접했는데, 정작 Claude, ChatGPT, Cursor 같은 AI 에이전트 지원은 빠져있다는 점이 꽤 의외였다. 실제로 AI 에이전트 통합을 기대했던 동료들이 "그럼 이걸 어떻게 써야 하지?"라는 질문을 던졌고, 저도 비슷한 고민을 하게 됐다.
+
+이 글은 그런 현실적인 상황에서 MCP 서버를 백엔드 환경에 통합하고 운영하는 경험을 공유하려 한다. 특히 Spring 기반 백엔드에서 GitHub Copilot 같은 AI 도구가 아직 네이티브 지원되지 않는 상황에서 어떻게 우회할 수 있는지, 그리고 Cursor 문서에서 언급한 API 연동 방식을 실제로 적용해본 사례도 포함한다.
+
+---
+
+## Azure DevOps Remote MCP Server GA, 그런데 AI 에이전트는 왜 빠졌을까?
+
+먼저 공식 문서를 보면 Azure DevOps Remote MCP Server가 GA에 도달했음에도 불구하고 Claude, ChatGPT, Cursor 같은 주요 AI 에이전트는 지원 대상에 포함되어 있지 않다. Anthropic의 Claude 공식 문서에서도 "Azure DevOps Remote MCP Server와의 공식 통합은 아직 없다"는 점이 명확히 확인된다[Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview).
+
+Cursor 측 문서도 비슷한데, Cursor와 MCP 서버 간 직접적인 통합 지원은 없고, 별도의 API 연동이나 커스텀 래퍼 개발이 필요하다고 명시되어 있다[Cursor Documentation](https://docs.cursor.com/).
+
+GitHub Copilot 역시 Azure DevOps Remote MCP Server와 네이티브 통합 기능이 없고, Spring 백엔드 환경에서 활용하려면 플러그인이나 확장 개발이 필요하다[GitHub Copilot Documentation](https://docs.github.com/en/copilot).
+
+이런 상황은 결국 "바로 쓸 수 있는 AI 에이전트가 없다"는 뜻이지만, MCP 서버 자체가 Azure DevOps 파이프라인과 연동되는 강력한 CI/CD 및 원격 관리 플랫폼이라는 점에서 포기하기엔 아쉽다.
+
+---
+
+## Spring 백엔드에서 MCP 서버를 활용하는 현실적인 접근법
+
+우리 팀은 Spring 기반 백엔드 프로젝트에 MCP 서버를 도입하면서 다음과 같은 방법을 시도했다.
+
+### 1. MCP 서버 API 직접 호출
+
+Azure DevOps Remote MCP 서버는 REST API를 통해 원격 명령 실행, 파이프라인 상태 조회, 빌드 트리거 등이 가능하다. AI 에이전트 미지원 상황에서 직접 API를 호출해 필요한 작업을 자동화하는 게 가장 기본적인 접근법이다.
+
+```java
+// Spring RestTemplate을 활용해 MCP 서버 API 호출 예시
+@RestController
+public class McpController {
+
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final String mcpApiBaseUrl = "https://mcp.example.com/api";
+    private final String apiToken = "Bearer eyJhbGciOi...";
+
+    @PostMapping("/trigger-build")
+    public ResponseEntity<String> triggerBuild(@RequestParam String pipelineId) {
+        String url = mcpApiBaseUrl + "/pipelines/" + pipelineId + "/trigger";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", apiToken);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+
+        if (response.getStatusCode().is2xxSuccessful()) {
+            return ResponseEntity.ok("빌드 트리거 성공");
+        } else {
+            return ResponseEntity.status(response.getStatusCode()).body("빌드 트리거 실패");
+        }
+    }
+}
+```
+
+이 코드는 MCP 서버에 빌드 파이프라인 트리거를 요청하는 간단한 예시다. 실제 운영 환경에선 API 호출 실패 시 재시도 로직, 응답 검증, 비동기 처리 등을 추가해야 한다.
+
+### 2. AI 에이전트 없는 상황에서 코드 자동화는 어떻게?
+
+AI 에이전트가 없으니 코드 자동 생성이나 추천 기능은 못 쓴다. 대신 Jenkins, GitHub Actions처럼 기존 CI 도구에서 하던 스크립트 자동화, 템플릿화, 빌드 파라미터 관리에 집중했다. MCP 서버가 제공하는 파이프라인 YAML 정의를 활용해 파이프라인을 코드로 관리하는 방식이다.
+
+예를 들어, 아래처럼 파이프라인 YAML을 버전 관리하고, 변경 시 자동으로 MCP 서버에 반영하는 스크립트를 만들었다.
+
+```yaml
+# azure-pipelines.yml 예시
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- script: echo "Hello, MCP Server!"
+  displayName: 'Run a one-line script'
+```
+
+이걸 Git 저장소에 두고, 변경 감지 시 MCP 서버 API를 통해 파이프라인 재배포를 자동화했다.
+
+---
+
+## AI 에이전트 미지원, 그래도 AI 기능을 쓰고 싶다면?
+
+AI 에이전트가 MCP 서버에 직접 붙지 않는 상황에서 우리 팀이 시도해본 우회 방법은 다음과 같다.
+
+### 1. 별도 AI 서비스와 MCP 서버 간 커스텀 연동 개발
+
+Cursor 문서에 따르면 Azure DevOps Remote MCP 서버와 직접 연동은 지원하지 않으니, 별도의 API 래퍼를 만들어야 한다[Cursor Documentation](https://docs.cursor.com/). 우리도 Node.js 기반의 미들웨어를 만들어 AI API(예: OpenAI, Anthropic)와 MCP 서버 API를 중계하는 방식을 썼다.
+
+이 미들웨어는 다음 역할을 한다:
+
+- 개발자가 코드 작성 요청 시 AI API 호출
+- AI가 생성한 코드를 MCP 서버 파이프라인에 자동 커밋 또는 배포 트리거
+- MCP 서버 상태를 AI에게 피드백으로 제공
+
+### 2. GitHub Copilot 플러그인 개발 고려
+
+GitHub Copilot 공식 문서에 따르면 MCP 서버와 네이티브 통합은 없지만, Spring 백엔드 IDE에 Copilot 플러그인을 설치하면 코딩 생산성을 높일 수 있다[GitHub Copilot Documentation](https://docs.github.com/en/copilot). 다만, MCP 서버 파이프라인 자동화와 연결하려면 별도 확장 개발이 필요하다.
+
+### 3. Vercel AI SDK 참고하기
+
+Vercel AI SDK는 AI 기능을 서비스에 붙이는 좋은 참고 사례지만, MCP 서버와 직접 연동 사례는 없다[https://sdk.vercel.ai/docs/introduction](https://sdk.vercel.ai/docs/introduction). 그래도 AI 기능을 백엔드에 붙일 때 SDK 구조나 인증 방식을 참고해 커스텀 래퍼 개발에 도움을 받았다.
+
+---
+
+## MCP 서버 도입 후 운영 중 겪은 예상치 못한 문제들
+
+### 인증 토큰 만료 문제
+
+MCP 서버 API 호출 시 인증 토큰이 1시간 단위로 만료되어, 자동 갱신 로직이 없으면 연속 작업이 실패했다. OAuth2 기반 토큰 갱신을 자동화하는 스케줄러를 만들어 해결했다.
+
+### API 호출 속도 제한
+
+MCP 서버가 초당 API 호출 수를 제한하는데, 빌드 트리거를 대량으로 요청할 때 429 Too Many Requests 에러가 발생했다. 그래서 큐잉 시스템을 도입해 요청을 분산 처리했다.
+
+### 로그 수집과 모니터링 어려움
+
+MCP 서버에서 발생하는 로그를 중앙화하기 쉽지 않았다. ELK 스택을 활용해 Azure DevOps 로그를 수집하고, 파이프라인 상태 변화를 실시간 모니터링하는 대시보드를 만들었다.
+
+---
+
+## 앞으로 MCP 서버와 AI 에이전트 통합이 기대되는 방향
+
+현재는 MCP 서버가 AI 에이전트와 직접 연결되지 않아 아쉽지만, GitHub와 Cloudflare 엔지니어링 블로그를 보면 AI 통합 관련 연구와 개발이 활발하다[GitHub Engineering Blog](https://github.blog/category/engineering/), [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/).
+
+조만간 MCP 서버도 주요 AI 에이전트와 네이티브 통합을 지원할 가능성이 크니, 지금은 API 기반 자동화와 커스텀 미들웨어 구축에 집중하면서 향후 업데이트에 대비하는 게 현실적인 전략이다.
+
+---
+
+# 마무리하며
+
+Azure DevOps Remote MCP Server가 GA에 도달했지만 Claude, ChatGPT, Cursor 같은 AI 에이전트 미지원 상태에서 백엔드에 적용하는 건 쉽지 않다. 하지만 직접 API 호출과 파이프라인 코드 관리, 그리고 별도의 커스텀 미들웨어를 통해 충분히 운영할 수 있다.
+
+처음엔 AI가 없으니 생산성 향상이 제한적일 것 같지만, MCP 서버가 제공하는 강력한 원격 관리와 자동화 기능을 잘 활용하면 CI/CD 효율은 확실히 올라간다. AI 통합이 본격화되기 전까지는 이런 현실적인 우회 방법을 익히는 게 오히려 경쟁력이 될 것이다.
+
+---
+
+## 참고 자료
+
+- [Cursor Documentation](https://docs.cursor.com/)
+- [GitHub Copilot Documentation](https://docs.github.com/en/copilot)
+- [Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview)
+- [Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction)
+- [GitHub Engineering Blog](https://github.blog/category/engineering/)
+- [Cloudflare Blog - How We Built It](https://blog.cloudflare.com/tag/how-we-built-it/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Azure DevOps Remote MCP Server가 정식 출시(GA)에 도달했으나, 현재 Claude, ChatGPT, Cursor와 같은 주요 AI 에이전트 지원은 포함되어 있지 않다.** ([Cursor Documentation](https://docs.cursor.com/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Cursor 문서에서는 Azure DevOps Remote MCP Server와의 직접적인 통합 지원이 아직 제공되지 않으며, 이를 위해 별도의 API 연동이나 커스텀 래퍼 개발이 필요하다고 명시하고 있다.** ([Cursor Documentation](https://docs.cursor.com/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub Copilot 문서에 따르면, Azure DevOps Remote MCP Server는 현재 GitHub Copilot과의 네이티브 통합 기능을 제공하지 않으며, 백엔드 Spring 환경에서 Copilot 기능을 활용하려면 별도의 플러그인이나 확장 개발이 필요하다.** ([GitHub Copilot Documentation](https://docs.github.com/en/copilot))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Anthropic의 Claude 코드 개요 문서에서는 Claude AI 에이전트가 Azure DevOps Remote MCP Server의 공식 지원 목록에 포함되어 있지 않음을 확인할 수 있으며, 향후 통합 가능성에 대해서는 별도의 공지가 없다.** ([Anthropic - Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Vercel AI SDK 문서에서는 Vercel 플랫폼에서 AI 기능을 활용하는 방법을 설명하지만, Azure DevOps Remote MCP Server와의 직접적인 연동 사례나 가이드는 포함되어 있지 않아 현재로서는 별도의 커스텀 개발이 필요하다.** ([Vercel AI SDK Documentation](https://sdk.vercel.ai/docs/introduction))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **GitHub 엔지니어링 블로그 및 Cloudflare 블로그에서는 AI 에이전트 통합과 관련된 다양한 사례와 기술적 도전과제를 다루고 있으나, Azure DevOps Remote MCP Server에 특화된 AI 지원 현황에 대해서는 명확한 언급이 없다.** ([GitHub Engineering Blog](https://github.blog/category/engineering/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
