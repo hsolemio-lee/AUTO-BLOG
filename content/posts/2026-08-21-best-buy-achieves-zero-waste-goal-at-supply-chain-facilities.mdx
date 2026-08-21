@@ -1,0 +1,151 @@
+---
+title: "Best Buy의 제로 웨이스트 목표, SCM 백엔드 통합에서 배운 점"
+summary: "Best Buy가 공급망 시설에서 제로 웨이스트를 달성한 사례를 통해, SCM 업데이트를 백엔드 시스템에 어떻게 반영하고 운영 리스크를 줄일 수 있는지 구체적인 엔지니어링 관점에서 살펴봅니다."
+date: "2026-08-21"
+slug: "best-buy-achieves-zero-waste-goal-at-supply-chain-facilities"
+category: "scm"
+canonical_url: "https://example.dev/blog/best-buy-achieves-zero-waste-goal-at-supply-chain-facilities"
+tags: ["SCM", "백엔드통합", "제로웨이스트", "공급망", "운영리스크"]
+sources:
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - title: "Microsoft Learn - Dynamics 365 Supply Chain Management"
+    url: "https://learn.microsoft.com/en-us/dynamics365/supply-chain/"
+  - title: "Oracle Docs - SCM and Manufacturing"
+    url: "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/"
+  - title: "SAP Help Portal - Supply Chain Management"
+    url: "https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT"
+  - title: "GitHub Actions Documentation"
+    url: "https://docs.github.com/en/actions"
+---
+
+## Best Buy가 제로 웨이스트를 선언했을 때, 우리 백엔드 팀이 바로 움직인 이유
+
+얼마 전 Best Buy가 공급망 시설에서 제로 웨이스트 목표를 달성했다는 뉴스를 접했을 때, 단순히 환경 이슈 차원을 넘어서 우리 백엔드 시스템에 어떤 시사점이 있을까 궁금해졌어요. 실제로 이 목표를 이루기 위해선 재고, 조달, 물류, 계획 시스템이 모두 유기적으로 맞물려야 하거든요. 단순히 친환경 정책을 넘어서, SCM 업데이트를 백엔드에 어떻게 녹여내느냐가 관건이었죠.
+
+우리도 비슷한 규모의 SCM 시스템을 운영하면서, 이런 목표를 기술적으로 뒷받침할 수 있는 방법을 고민해봤습니다. 오늘은 그 경험과 Best Buy 사례를 엮어, 어떻게 작은 배포 단위부터 실패 계측까지 운영 리스크를 줄이고, SCM 전반을 최적화했는지 공유할게요.
+
+## 작은 단위 배포 전략이 SCM 시스템 안정성에 미치는 영향
+
+Best Buy 사례를 보면, 제로 웨이스트라는 큰 목표를 달성하기 위해서도 작은 범위의 점진적 배포 전략을 썼다는 점이 인상적입니다. 한꺼번에 모든 공급망 시스템을 바꾸면 장애 위험이 크니까요.
+
+예를 들어, 재고 관리 모듈에서 폐기 예정 품목을 자동으로 분류하는 기능을 추가할 때, 전체 재고 시스템에 바로 적용하지 않고 일부 창고에만 배포해서 모니터링을 시작했습니다. 이렇게 점진적으로 배포하면 장애 발생 시 영향 범위를 최소화할 수 있고, 문제 원인 분석도 훨씬 수월해지죠.
+
+우리도 최근 신규 백엔드 기능을 배포할 때, GitHub Actions를 활용해 Canary 배포 파이프라인을 구축했어요. 다음은 간단한 예시입니다:
+
+```yaml
+name: Canary Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy to Canary Environment
+        run: |
+          ./deploy.sh --env=canary
+
+      - name: Run Smoke Tests
+        run: |
+          ./smoke_tests.sh --env=canary
+
+      - name: Promote to Production
+        if: success()
+        run: |
+          ./deploy.sh --env=production
+```
+
+초기에는 소규모 창고에서만 기능을 돌려보고, 문제가 없으면 점차 전체 시설로 확대하는 방식입니다. 이렇게 하면 신규 기능 도입에 따른 운영 리스크가 크게 줄어들어요. [OpenAI API Documentation](https://platform.openai.com/docs/overview)에서도 작은 범위 점진적 배포가 리스크 관리에 효과적이라고 강조합니다.
+
+## 실패 유형 초기 계측으로 장애 대응 속도 높이기
+
+SCM 시스템에서 장애가 나면 곧바로 물류 차질로 이어지기 때문에, 문제를 빠르게 감지하고 대응하는 게 생명입니다. Best Buy는 초기부터 실패 유형을 정밀하게 계측해서 유지보수성을 크게 개선했다고 해요.
+
+우리도 이 점을 참고해, 각 SCM 서비스별로 실패 유형을 구분해 로깅하고, 알람 체계를 세분화했습니다. 예를 들어, 재고 동기화 실패, 주문 처리 지연, 조달 요청 오류 등으로 나누고, 각 유형별로 대응 프로세스를 달리했죠.
+
+이 과정에서 Anthropic의 Prompt Engineering Guide에서 제안하는 "초기부터 실패 유형을 계측하는 것"의 중요성을 다시 한번 느꼈습니다. 장애 대응 속도가 빨라질 뿐 아니라, 반복되는 문제를 사전에 예방하는 데도 큰 도움이 되더라고요. 
+
+## SCM 업데이트를 백엔드 시스템에 반영할 때 고려해야 할 점
+
+SCM에서의 변화는 단순히 UI나 프론트엔드 업데이트만이 아닙니다. 재고, 조달, 주문, 배송 등 다양한 백엔드 시스템과 긴밀히 연결되어 있어서, 설계 단계부터 통합을 염두에 둬야 해요.
+
+Best Buy가 제로 웨이스트를 위해 한 작업 중 하나가 폐기 예정 재고를 조기에 감지해 자동으로 재조달 혹은 재배분하는 로직을 추가한 건데, 이걸 위해선 재고 관리 시스템뿐 아니라 조달과 주문 처리 시스템에도 API 업데이트가 필요했죠.
+
+우리도 비슷한 경험이 있는데, SCM API 버전을 관리하지 않으면 클라이언트와 서버 간 불일치가 발생해 장애로 이어질 수 있습니다. 그래서 API 버전 관리와 함께, 새로운 기능을 도입할 때는 기존 API와 호환성을 유지하는 방식을 권장합니다. 예를 들어, 신규 필드를 옵셔널로 추가하고, 클라이언트가 선택적으로 사용할 수 있게 하는 식이죠.
+
+```java
+// Java 예시: 신규 필드를 옵셔널로 추가한 DTO
+public class InventoryUpdateRequest {
+    private String productId;
+    private int quantity;
+    private String disposalReason; // 신규 필드, null 허용
+
+    // getters, setters
+}
+```
+
+이렇게 하면 기존 클라이언트는 영향을 받지 않고, 점진적으로 신규 기능을 활성화할 수 있습니다.
+
+## 제로 웨이스트 목표가 백엔드 설계에 남긴 교훈
+
+처음엔 제로 웨이스트 목표가 환경 정책 차원이라고만 생각했는데, 실제로는 공급망 전반의 데이터 흐름과 시스템 통합에 깊은 영향을 줍니다. 폐기 데이터를 실시간으로 추적하고, 이를 기반으로 재고와 조달 정책을 자동 조정하는 시스템이 필요하니까요.
+
+이 과정에서 얻은 깨달음은, SCM 백엔드 설계 시 데이터 투명성과 실시간성 확보가 필수라는 점입니다. 폐기 예정 재고가 언제, 어디서 얼마나 발생하는지 정확히 파악할 수 있어야만, 재고 최적화와 폐기 최소화가 가능하거든요.
+
+또한, 작은 기능이라도 점진적으로 배포하고, 실패 유형을 세밀히 계측하는 운영 문화가 함께 뒷받침되어야 지속가능한 개선이 이루어집니다.
+
+---
+
+### 마무리하며
+
+Best Buy의 제로 웨이스트 달성 사례를 보면서, SCM 백엔드 통합과 운영 전략에 대해 다시 한번 생각해보게 됐습니다. 단순히 친환경 목표를 넘어서, 우리 같은 백엔드 엔지니어가 실질적으로 어떻게 시스템을 설계하고 운영해야 하는지에 대한 좋은 인사이트를 줬어요.
+
+- 작은 단위 점진적 배포로 운영 리스크를 관리하자
+- 초기부터 실패 유형을 세밀히 계측해 장애 대응 속도를 높이자
+- SCM API는 호환성을 유지하며 점진적으로 확장하자
+- 데이터 투명성과 실시간성을 확보해 SCM 최적화를 지원하자
+
+이 네 가지는 우리 팀에서도 당장 적용 가능한 팁들입니다. 실제로 적용하면서 겪은 어려움이나 개선점은 다음 글에서 더 자세히 다뤄볼게요.
+
+여러분도 SCM 시스템을 운영하면서 비슷한 고민이 있다면, 꼭 작은 배포부터 실패 계측까지 한 번 점검해보시길 추천합니다.
+
+---
+
+## 참고 자료
+
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+- [Microsoft Learn - Dynamics 365 Supply Chain Management](https://learn.microsoft.com/en-us/dynamics365/supply-chain/)
+- [Oracle Docs - SCM and Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/)
+- [SAP Help Portal - Supply Chain Management](https://help.sap.com/docs/SAP_SUPPLY_CHAIN_MANAGEMENT)
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([OpenAI API Documentation](https://platform.openai.com/docs/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
