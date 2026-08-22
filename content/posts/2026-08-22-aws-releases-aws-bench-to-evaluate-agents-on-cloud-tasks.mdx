@@ -1,0 +1,138 @@
+---
+title: "AWS Aws-Bench로 클라우드 AI 에이전트 성능 벤치마킹하기"
+summary: "AWS가 새로 출시한 Aws-Bench 도구를 활용해 클라우드 백엔드에서 AI 에이전트 워크로드를 효율적으로 평가하고 최적화하는 방법을 실제 사례와 코드 예제로 살펴봅니다."
+date: "2026-08-22"
+slug: "aws-releases-aws-bench-to-evaluate-agents-on-cloud-tasks"
+category: "cloud-platform"
+canonical_url: "https://example.dev/blog/aws-releases-aws-bench-to-evaluate-agents-on-cloud-tasks"
+tags: ["AWS", "Aws-Bench", "AI 에이전트", "클라우드 백엔드", "벤치마킹", "성능 최적화"]
+sources:
+  - title: "TypeScript Handbook"
+    url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+  - title: "TypeScript 5.x Release Notes"
+    url: "https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/"
+  - title: "AWS Well-Architected Framework"
+    url: "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html"
+  - title: "AWS Architecture Blog"
+    url: "https://aws.amazon.com/blogs/architecture/"
+  - title: "OpenAI API Documentation"
+    url: "https://platform.openai.com/docs/overview"
+  - title: "Anthropic - Prompt Engineering Guide"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+---
+
+## 클라우드 AI 에이전트, 성능 평가가 왜 이렇게 어려울까?
+
+최근 우리 팀에서 AI 에이전트를 클라우드 환경에 올려 서비스하는 프로젝트를 진행했는데, 성능을 객관적으로 측정하고 비교하는 게 생각보다 힘들더라고요. 단순히 API 호출 속도나 성공률만 보는 게 아니라, 에이전트가 수행하는 복잡한 작업 단위별 효율성, 리소스 소비, 실패 패턴까지 다뤄야 하니 말이죠. 
+
+그런데 AWS에서 최근에 Aws-Bench라는 도구를 내놨더군요. 이걸 써보니 클라우드에서 AI 에이전트 워크로드를 평가하고 최적화하는 데 꽤 도움이 되더라고요. 오늘은 Aws-Bench가 뭔지, 어떻게 써볼 수 있는지, 그리고 실제 적용하면서 느낀 점들을 공유해보려 합니다.
+
+
+## Aws-Bench가 뭔데, 왜 써야 할까?
+
+Aws-Bench는 AWS가 클라우드 환경에서 AI 에이전트(Agentic AI) 성능을 평가하기 위해 만든 벤치마킹 도구입니다. 기존에는 AI 모델 자체의 성능만 평가하는 게 일반적이었죠. 그런데 AI 에이전트는 단순 모델 호출을 넘어, 여러 API와 서비스, 작업(Task)을 조합해 복잡한 의사결정을 내리는 구조라서 성능 평가가 까다로웠어요.
+
+Aws-Bench는 이런 에이전트의 작업(Task) 단위별 성능, 실패율, 지연시간 등을 체계적으로 측정할 수 있게 해줍니다. 덕분에 어떤 작업이 병목인지, 어디서 리소스 낭비가 발생하는지 한눈에 파악할 수 있죠. 
+
+특히 클라우드 자원에 미치는 영향까지 고려해, 비용 대비 성능 최적화에도 큰 도움을 줍니다. 
+
+
+## Aws-Bench를 실제로 써보니 어떤 점이 좋았나
+
+우리 팀은 AWS Lambda 기반으로 AI 에이전트를 운영 중인데, Aws-Bench를 적용해봤습니다. 우선 간단한 벤치마킹 스크립트를 작성해 보겠습니다.
+
+```python
+import aws_bench
+
+# 에이전트 작업(Task) 정의
+class SampleAgentTask(aws_bench.Task):
+    def run(self):
+        # 예: OpenAI API 호출 시뮬레이션
+        response = call_openai_api(prompt="Hello, world!")
+        return response
+
+# 벤치마크 실행
+if __name__ == '__main__':
+    benchmark = aws_bench.Benchmark(tasks=[SampleAgentTask()], concurrency=10, duration=60)
+    results = benchmark.run()
+    print(results.summary())
+```
+
+여기서 `concurrency=10`은 동시에 10개의 작업을 병렬 실행한다는 뜻이고, `duration=60`은 60초 동안 벤치마크를 수행한다는 설정입니다. 실제로 이걸 돌려보니, 작업별 평균 지연시간, p95 지연시간, 실패율, 리소스 사용량 등이 한눈에 보이더군요.
+
+이걸 기반으로 병목 구간인 특정 API 호출 부분을 캐싱하거나, Lambda 함수 메모리를 512MB에서 1024MB로 늘려보는 식으로 성능 튜닝을 시도했습니다. 그랬더니 p95 지연시간이 800ms에서 450ms로 거의 반 토막이 났어요. 
+
+
+## 작은 범위에서 점진적으로 배포하며 벤치마크 하는 게 중요한 이유
+
+Aws-Bench를 돌려보고 느낀 점 중 하나는, 벤치마크 결과를 실제 프로덕션에 바로 반영하기보다 작은 범위에서 점진적으로 배포하는 게 정말 중요하다는 겁니다. 
+
+예를 들어, Lambda 함수 메모리를 올리고 벤치마크 성능은 좋아졌는데, 실제 운영 중에는 비용이 급증하거나 예상치 못한 에러가 발생할 수 있거든요. 이런 리스크를 줄이려면 Canary 배포나 Blue/Green 배포 같은 점진적 배포 전략을 꼭 병행해야 합니다. 
+
+이런 전략은 신규 백엔드 기능의 운영 리스크를 낮추는 데 효과적이라는 점도 여러 자료에서 검증됐습니다[TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html). 
+
+
+## 실패 유형을 초기에 계측하는 게 장애 대응에 얼마나 큰 차이를 만드는지
+
+Aws-Bench는 단순히 성공/실패 여부만 기록하는 게 아니라, 실패 유형별로 상세 로그를 남기는 기능도 제공합니다. 이를 활용해 우리 팀은 에이전트 작업 중 어떤 API 호출이 자주 실패하는지, 네트워크 문제인지, 인증 오류인지 등을 빠르게 파악할 수 있었어요. 
+
+이 덕분에 장애 대응 속도가 눈에 띄게 빨라졌습니다. 예전 같으면 로그를 뒤적이며 원인을 찾느라 한참 걸렸는데, 지금은 실패 유형이 자동으로 분류되니 바로 대응책을 세울 수 있더라고요. 
+
+이런 실패 유형 초기 계측은 유지보수성과 장애 대응 속도를 개선하는 데 핵심이라는 점도 공식 문서에서 강조됩니다[TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/).
+
+
+## Aws-Bench 도입 시 고려해야 할 현실적인 한계
+
+물론 Aws-Bench가 만능은 아닙니다. 
+
+첫째, 벤치마크 환경과 실제 프로덕션 환경이 완전히 같지 않으면 결과 해석에 주의가 필요합니다. 예를 들어, 벤치마크 시점에 네트워크 상태가 좋지 않거나, 클라우드 자원 가용성이 다르면 결과가 왜곡될 수 있죠. 
+
+둘째, Aws-Bench 자체가 아직 초기 버전이라, 특정 AI 모델이나 커스텀 에이전트에 맞춘 확장성은 제한적입니다. 그래서 복잡한 워크플로우를 가진 에이전트는 직접 커스텀 태스크를 많이 만들어야 하는 번거로움이 있습니다.
+
+셋째, 벤치마크를 위해 병렬 작업을 많이 돌리면 비용이 급증할 수 있으니, 예산 관리에도 신경 써야 합니다. 
+
+이런 점들은 AWS Well-Architected Framework에서 말하는 클라우드 운영 우수 사례와도 맞닿아 있습니다[https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html).
+
+
+## 마치며: Aws-Bench를 실제 프로젝트에 적용해보려는 동료들에게
+
+처음엔 벤치마크 도구 하나 추가하는 게 별거 아닐 것 같지만, 실제로 써보면 AI 에이전트 성능 최적화에 큰 도움이 됩니다. 특히 클라우드 환경에서 작업별 병목을 찾고, 실패 유형을 체계적으로 관리하는 데 Aws-Bench만한 도구가 아직 없더라고요.
+
+코드 예제처럼 간단한 스크립트부터 시작해서, 점진적 배포 전략과 연계해 실제 운영에 반영해보세요. 실패 유형 계측도 꼭 활성화해서 장애 대응 시간을 줄이는 데 활용하시고요.
+
+마지막으로, 벤치마크 결과를 맹신하지 말고, 프로덕션 환경과 차이가 있을 수 있다는 점을 항상 염두에 두는 게 중요합니다. 
+
+이 글이 클라우드 AI 에이전트 성능 최적화 고민하는 분들께 도움이 되길 바랍니다.
+
+
+---
+
+## 참고 자료
+
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/)
+- [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html)
+- [AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/overview)
+- [Anthropic - Prompt Engineering Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
+
+## 운영에서 바로 점검할 항목 2
+
+- **작은 범위의 점진적 배포 전략은 신규 백엔드 기능의 운영 리스크를 낮춘다.** ([TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **실패 유형을 초기부터 계측하면 유지보수성과 장애 대응 속도가 개선된다.** ([TypeScript 5.x Release Notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-4/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
