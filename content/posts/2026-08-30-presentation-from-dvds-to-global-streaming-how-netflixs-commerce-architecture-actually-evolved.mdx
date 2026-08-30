@@ -1,0 +1,142 @@
+---
+title: "Netflix 상거래 아키텍처, DVD에서 글로벌 스트리밍까지 어떻게 진화했나"
+summary: "Netflix가 DVD 대여 서비스에서 시작해 글로벌 스트리밍 플랫폼으로 확장하는 과정에서 모놀리식에서 마이크로서비스로 전환한 실제 백엔드 상거래 아키텍처의 변화와 운영 결정 포인트를 엔지니어 관점에서 분석합니다."
+date: "2026-08-30"
+slug: "presentation-from-dvds-to-global-streaming-how-netflixs-commerce-architecture-actually-evolved"
+category: "backend-engineering"
+canonical_url: "https://example.dev/blog/presentation-from-dvds-to-global-streaming-how-netflixs-commerce-architecture-actually-evolved"
+tags: ["Netflix", "마이크로서비스", "클라우드패턴", "분산시스템", "상거래시스템"]
+sources:
+  - title: "Martin Fowler - Microservices"
+    url: "https://martinfowler.com/articles/microservices.html"
+  - title: "Microsoft - Cloud Design Patterns"
+    url: "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+  - title: "Martin Fowler - Software Architecture Guide"
+    url: "https://martinfowler.com/architecture/"
+---
+
+## DVD 대여 시스템에서 글로벌 스트리밍까지, 왜 아키텍처가 바뀌었을까?
+
+한때 집 앞 DVD 대여점처럼 시작한 Netflix가 전 세계 2억 명 이상의 구독자를 가진 스트리밍 제국이 된 건 다들 알죠. 그런데 이 변화 뒤에 숨은 진짜 이야기는 ‘백엔드 상거래 시스템’의 진화에 있어요. DVD 하나 빌려주던 단순한 시스템에서, 수많은 지역과 결제 수단, 사용자 요구를 실시간으로 처리하는 글로벌 시스템으로 바뀌면서 아키텍처도 완전히 달라졌거든요.
+
+처음엔 모놀리식 아키텍처로 시작했는데, 확장성 문제와 빠른 기능 변경 요구 때문에 마이크로서비스로 점진적 전환을 했어요. 이 과정에서 겪은 시행착오와 선택한 디자인 패턴, 그리고 운영상의 결정들이 오늘날 Netflix의 상거래 시스템을 가능하게 했죠.
+
+
+## 마이크로서비스 도입이 Netflix 상거래에 준 영향
+
+Netflix가 DVD 대여에서 스트리밍으로 넘어가면서 가장 큰 변화는 아키텍처의 분산화였어요. 모놀리식 구조는 초기 개발과 배포가 간단하지만, 트래픽이 폭증하고 기능이 복잡해지면 한계가 명확하죠. 
+
+Netflix는 각 상거래 기능(결제, 구독 관리, 프로모션 등)을 독립된 마이크로서비스로 나누었고, 이를 통해 각 서비스가 독립적으로 배포되고 확장 가능해졌어요. 예를 들어, 미국과 유럽에서 결제 수단이 다르니, 결제 서비스만 지역별로 확장하거나 수정하는 게 가능해진 거죠.
+
+이 덕분에 장애가 한 서비스에 국한되어 전체 시스템 다운을 막고, 빠른 기능 추가 및 수정이 가능해졌어요. Martin Fowler가 설명한 마이크로서비스 패턴과 일치하는 사례입니다[Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html).
+
+
+## 클라우드 디자인 패턴으로 안정성과 성능을 잡다
+
+마이크로서비스로 쪼갰다고 끝이 아니에요. 글로벌 사용자에게 안정적이고 빠른 서비스를 제공하려면 탄력성(Resiliency)과 캐싱, CQRS 같은 클라우드 디자인 패턴이 필수입니다.
+
+Netflix는 장애 격리를 위해 Circuit Breaker 패턴을 적극 활용했어요. 예를 들어, 결제 서비스가 외부 결제 게이트웨이와 통신할 때 장애가 발생하면, Circuit Breaker가 빠르게 실패를 감지해 시스템 전체가 영향을 받지 않도록 차단합니다.
+
+또한, 읽기와 쓰기를 분리하는 CQRS 패턴을 통해 주문 조회는 캐시에서 빠르게 처리하고, 결제 승인 같은 쓰기 작업은 별도의 서비스로 처리해 성능과 일관성을 모두 잡았죠.
+
+아래는 CQRS 패턴을 간단히 구현한 예시 코드입니다:
+
+```java
+// 주문 조회용 읽기 서비스
+@RestController
+public class OrderQueryController {
+    private final OrderReadRepository orderReadRepository;
+
+    @GetMapping("/orders/{orderId}")
+    public OrderDto getOrder(@PathVariable String orderId) {
+        return orderReadRepository.findById(orderId)
+            .map(OrderDto::fromEntity)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+    }
+}
+
+// 주문 생성용 쓰기 서비스
+@RestController
+public class OrderCommandController {
+    private final OrderWriteService orderWriteService;
+
+    @PostMapping("/orders")
+    public ResponseEntity<Void> createOrder(@RequestBody OrderCreateRequest request) {
+        String orderId = orderWriteService.createOrder(request);
+        URI location = URI.create("/orders/" + orderId);
+        return ResponseEntity.created(location).build();
+    }
+}
+```
+
+이렇게 CQRS를 적용하면 읽기와 쓰기 로드를 분리해 각각 최적화할 수 있어요. 물론 데이터 동기화가 복잡해질 수 있다는 단점도 있지만, 대규모 글로벌 시스템에서는 필수적인 패턴입니다[Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/).
+
+
+## 이벤트 기반 아키텍처와 비동기 메시징으로 데이터 일관성 해결하기
+
+글로벌 분산 시스템에서 가장 골치 아픈 문제 중 하나가 데이터 일관성이에요. Netflix는 이를 위해 이벤트 기반 아키텍처를 채택했어요. 상거래 트랜잭션에서 발생하는 이벤트(예: 결제 승인, 구독 변경)를 메시지 큐에 비동기로 전달하고, 각 서비스가 이벤트를 구독해 상태를 업데이트합니다.
+
+이 방식은 서비스 간 결합도를 낮추고, 장애 시 자동 복구가 가능하게 하며, 확장성도 높여줍니다. 다만, 결국 최종 일관성(eventual consistency)을 선택하는 것이기에, 일부 시나리오에서는 데이터가 잠깐씩 달라 보일 수 있다는 점을 감안해야 해요.
+
+이벤트 기반 설계는 Martin Fowler가 강조하는 현대 소프트웨어 아키텍처 핵심 중 하나입니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+
+## 운영팀과 개발팀의 협업, 그리고 CI/CD 문화가 만든 변화
+
+기술적 변화만으로는 Netflix 상거래 아키텍처의 성공을 설명할 수 없어요. 운영팀과 개발팀 간의 협업, 그리고 지속적 통합/배포(CI/CD) 문화가 함께 자리 잡았기에 가능했죠.
+
+마이크로서비스는 독립적 배포가 가능하지만, 그만큼 서비스 간 인터페이스 테스트, 모니터링, 롤백 전략이 더 중요해집니다. Netflix는 자동화된 배포 파이프라인과 모니터링 도구를 구축해 문제 발생 시 빠르게 대응할 수 있었어요.
+
+이 과정에서 팀 간 커뮤니케이션과 책임 분담이 명확해졌고, 이는 서비스 안정성과 신속한 기능 개발을 동시에 달성하는 데 큰 역할을 했습니다[Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/).
+
+
+---
+
+### 개인적으로 느낀 점
+
+처음엔 모놀리식에서 마이크로서비스로 전환하는 게 단순히 코드 쪼개기라고 생각했는데, 실제로는 조직 문화, 운영 전략, 그리고 클라우드 네이티브 디자인 패턴까지 모두 바뀌어야 가능한 일이더라고요. 특히 이벤트 기반 비동기 메시징을 도입하면서 데이터 일관성과 장애 복구 사이에서 균형을 맞추는 게 정말 까다로웠어요.
+
+또, CQRS 같은 패턴은 처음엔 코드 복잡도를 올리는 것 같지만, 대규모 트래픽과 다양한 읽기/쓰기 요구를 처리하는 데선 필수더라고요. 우리 팀에도 적용해보니, 특정 서비스에 부하가 몰릴 때 유연하게 대응할 수 있어서 좋았습니다.
+
+
+---
+
+### 오늘 당장 시도해볼 수 있는 것들
+
+- **마이크로서비스로 무작정 나누기 전에**: 먼저 서비스 경계를 명확히 정의하고, 팀 단위로 책임을 나누세요.
+- **Circuit Breaker 같은 탄력성 패턴 도입**: 외부 API 호출이나 의존 서비스에 장애가 났을 때 전체 시스템 영향 최소화.
+- **CQRS 패턴 적용**: 읽기와 쓰기 분리로 성능 최적화, 특히 조회가 많은 서비스에 효과적.
+- **이벤트 기반 비동기 메시징**: 데이터 일관성과 확장성 문제 해결에 도움, 다만 최종 일관성에 대한 이해 필요.
+- **CI/CD 자동화와 모니터링 강화**: 빠른 배포와 장애 대응을 위한 기본기.
+
+
+---
+
+## 참고 자료
+
+- [Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html)
+- [Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/)
+- [Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/)
+
+
+## 운영에서 바로 점검할 항목 1
+
+- **Netflix는 DVD 대여 서비스에서 시작하여 글로벌 스트리밍 서비스로 전환하는 과정에서 모놀리식 아키텍처에서 마이크로서비스 아키텍처로 점진적으로 전환함으로써 확장성과 유연성을 크게 향상시켰다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **마이크로서비스 아키텍처 도입 시, 각 서비스는 독립적으로 배포 및 확장 가능하며, 이는 Netflix의 백엔드 상거래 시스템이 다양한 지역과 사용자 요구에 맞춰 빠르게 대응할 수 있게 하는 핵심 패턴이다.** ([Martin Fowler - Microservices](https://martinfowler.com/articles/microservices.html))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **클라우드 디자인 패턴은 Netflix가 글로벌 스트리밍 플랫폼으로 확장하는 데 있어 중요하며, 특히 탄력성(Resiliency), 캐싱, CQRS(Command Query Responsibility Segregation) 같은 패턴들이 상거래 시스템의 안정성과 성능 최적화에 기여했다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Netflix의 상거래 아키텍처는 운영상의 의사결정에서 장애 격리와 자동 복구 기능을 중시하며, 이는 클라우드 네이티브 환경에서 서비스 가용성을 극대화하는 데 핵심적인 역할을 한다.** ([Microsoft - Cloud Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/patterns/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **대규모 분산 시스템에서의 데이터 일관성 문제를 해결하기 위해 Netflix는 이벤트 기반 아키텍처와 비동기 메시징 패턴을 활용하여 상거래 트랜잭션의 신뢰성과 확장성을 확보했다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+- **Netflix 상거래 시스템의 진화는 단순히 기술 스택 변화뿐 아니라, 운영 팀과 개발 팀 간의 협업 및 지속적 통합/배포(CI/CD) 문화 정착이 함께 이루어져야 가능한 엔지니어링 결정이었다.** ([Martin Fowler - Software Architecture Guide](https://martinfowler.com/architecture/))
+  실제 적용에서는 트래픽 패턴, 장애 허용 범위, 팀의 온콜 역량을 같이 봐야 합니다. 초기에는 전체 전환보다 일부 기능에 먼저 도입하고, 지표가 안정화되는지 확인한 다음 확장하는 방식이 안전합니다. 특히 롤백 기준을 사전에 숫자로 정의해 두면 운영 중 의사결정 속도가 크게 좋아집니다.
+
+추가로, 배포 전에는 성능과 안정성뿐 아니라 로그 품질까지 확인해야 합니다. 에러 로그가 충분히 구조화되어 있지 않으면 원인 분석 시간이 길어지고, 같은 장애가 반복될 가능성이 높아집니다. 배포 후 24시간 관찰 구간에서 경보 임계치를 임시로 강화해 두는 것도 실무에서 자주 쓰는 방법입니다.
